@@ -53,6 +53,20 @@ export function FolderDetailPageSkeleton() {
   );
 }
 
+/** Shimmer tile without SVG `<title>` text (social crawlers concat those titles into link previews). */
+function GalleryOgSafeImageTileSkeleton() {
+  return (
+    <div
+      className="aspect-square overflow-hidden rounded-lg bg-zinc-200/85 dark:bg-zinc-800/90"
+      aria-hidden
+    >
+      <div
+        className="h-full w-full animate-pulse bg-gradient-to-r from-zinc-200/40 via-white/55 to-zinc-200/40 bg-[length:180%_100%] dark:from-zinc-700/50 dark:via-zinc-500/25 dark:to-zinc-700/50 dark:bg-[length:180%_100%]"
+      />
+    </div>
+  );
+}
+
 /** Client share gallery full-screen load. */
 export function ClientGalleryPageSkeleton() {
   return (
@@ -64,9 +78,7 @@ export function ClientGalleryPageSkeleton() {
         <Skeleton active title={{ width: "40%" }} paragraph={{ rows: 2, width: ["100%", "70%"] }} />
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
           {Array.from({ length: 8 }).map((_, i) => (
-            <div key={i} className="aspect-square overflow-hidden rounded-lg">
-              <Skeleton.Image active className="!flex !h-full !min-h-[120px] !w-full !items-center !justify-center" />
-            </div>
+            <GalleryOgSafeImageTileSkeleton key={i} />
           ))}
         </div>
       </div>
