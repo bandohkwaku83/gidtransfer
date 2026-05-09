@@ -660,6 +660,24 @@ export function getShareFinalDownloadUrl(shareToken: string, finalId: string): s
   );
 }
 
+/**
+ * Href for “save” on a delivered final.
+ * Desktop: `/download` (filename + disposition from API).
+ * Coarse-pointer / phones: Prefer {@link ShareGalleryFinal.url} so the asset opens inline and the OS
+ * can offer **Save to Photos / Gallery**. The `/download` route is often `attachment`, which iOS/Android
+ * send to **Files** instead of the photo library.
+ */
+export function getShareFinalSaveHref(
+  shareToken: string,
+  f: ShareGalleryFinal,
+  options: { preferInlineImageViewer: boolean },
+): string {
+  if (!f.locked && options.preferInlineImageViewer && f.url?.trim()) {
+    return f.url.trim();
+  }
+  return getShareFinalDownloadUrl(shareToken, f.id);
+}
+
 export type ShareFinalZipEntry = { id: string; name: string };
 
 function safeZipEntryName(original: string, used: Map<string, number>): string {

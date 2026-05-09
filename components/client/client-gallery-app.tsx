@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import type { DemoAsset, SelectionState } from "@/lib/demo-data";
 import {
-  getShareFinalDownloadUrl,
+  getShareFinalSaveHref,
   getShareFinalLockedPreviewUrl,
   getShareGallery,
   downloadShareFinalsZip,
@@ -17,6 +17,7 @@ import {
 } from "@/lib/share-gallery-api";
 import { useToast } from "@/components/toast-provider";
 import { cn } from "@/lib/utils";
+import { usePreferInlineFinalSave } from "@/lib/use-prefer-inline-final-save";
 import { folderCoverObjectPositionStyle, type ApiFolder } from "@/lib/folders-api";
 import {
   CalendarDays,
@@ -203,6 +204,8 @@ export function ClientGalleryApp({ token }: { token: string }) {
   const [zoom, setZoom] = useState(1);
   const [gridLayout, setGridLayout] = useState<GridLayout>("spotlight");
   const [downloadAllFinalsBusy, setDownloadAllFinalsBusy] = useState(false);
+
+  const preferInlineFinalSave = usePreferInlineFinalSave();
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [galleryMusicStarted, setGalleryMusicStarted] = useState(false);
@@ -1001,13 +1004,20 @@ export function ClientGalleryApp({ token }: { token: string }) {
                         </span>
                       ) : (
                         <a
-                          href={getShareFinalDownloadUrl(token, f.id)}
+                          href={getShareFinalSaveHref(token, f, {
+                            preferInlineImageViewer: preferInlineFinalSave,
+                          })}
                           target="_blank"
                           rel="noopener noreferrer"
+                          title={
+                            preferInlineFinalSave
+                              ? "Opens the full image — use Share, then Save Image, to add it to Photos"
+                              : undefined
+                          }
                           className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-zinc-900 px-2.5 py-1.5 text-xs font-semibold text-white dark:bg-zinc-100 dark:text-zinc-900"
                         >
                           <Download className="h-3.5 w-3.5" aria-hidden />
-                          Download
+                          {preferInlineFinalSave ? "Save" : "Download"}
                         </a>
                       )}
                     </div>
@@ -1244,13 +1254,20 @@ export function ClientGalleryApp({ token }: { token: string }) {
                   </span>
                 ) : (
                   <a
-                    href={getShareFinalDownloadUrl(token, finalLb.id)}
+                    href={getShareFinalSaveHref(token, finalLb, {
+                      preferInlineImageViewer: preferInlineFinalSave,
+                    })}
                     target="_blank"
                     rel="noopener noreferrer"
+                    title={
+                      preferInlineFinalSave
+                        ? "Opens the full image — use Share, then Save Image, to add it to Photos"
+                        : undefined
+                    }
                     className="inline-flex items-center gap-1 rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-zinc-900"
                   >
                     <Download className="h-3.5 w-3.5 shrink-0" aria-hidden />
-                    Download
+                    {preferInlineFinalSave ? "Save" : "Download"}
                   </a>
                 )}
               </div>

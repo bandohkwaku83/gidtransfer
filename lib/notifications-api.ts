@@ -6,6 +6,10 @@ import { ApiError } from "@/lib/clients-api";
 export type ApiNotification = {
   _id?: string;
   id?: string;
+  /** Server discriminator, e.g. `selection_submit`, `final_download`. */
+  type?: string;
+  notificationType?: string;
+  kind?: string;
   title?: string;
   body?: string;
   message?: string;
@@ -116,13 +120,28 @@ function bookingRefId(n: ApiNotification): string | undefined {
   return undefined;
 }
 
+/** Normalized discriminator from the API (`type`, `notificationType`, `notification_type`, `kind`). */
+export function notificationKind(n: ApiNotification): string {
+  const o = n as Record<string, unknown>;
+  const raw =
+    o.type ??
+    o.notificationType ??
+    o.notification_type ??
+    o.kind ??
+    "";
+  return typeof raw === "string" ? raw.trim().toLowerCase() : "";
+}
+
 /** In-app route for a notification, or null when there is no deep link. */
 export function notificationTargetHref(n: ApiNotification): string | null {
   const folderId = folderRefId(n);
   const share = shareToken(n);
   const bookingId = bookingRefId(n);
+  const kind = notificationKind(n);
 
   if (folderId) {
+    // Admin-facing: client downloaded a final — open the gallery in the dashboard (finals workflow).
+    if (kind === "final_download") return `/dashboard/folder/${encodeURIComponent(folderId)}`;
     if (share) return `/g/${encodeURIComponent(share)}`;
     return `/dashboard/folder/${encodeURIComponent(folderId)}`;
   }
