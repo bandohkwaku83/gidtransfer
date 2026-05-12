@@ -194,6 +194,12 @@ function finalDisplaySrc(f: ShareGalleryFinal, shareToken: string): string {
   return locked ? f.lockedPreviewUrl || getShareFinalLockedPreviewUrl(shareToken, f.id) : f.url;
 }
 
+/** Unlocked originals may be video; locked delivery always uses the JPEG locked-preview URL. */
+function isShareFinalVideo(f: ShareGalleryFinal): boolean {
+  const m = f.mimeType?.toLowerCase() ?? "";
+  return m.startsWith("video/");
+}
+
 export function ClientGalleryApp({ token }: { token: string }) {
   const { showToast } = useToast();
   const [gallery, setGallery] = useState<NormalizedShareGallery | null>(null);
@@ -1108,6 +1114,7 @@ export function ClientGalleryApp({ token }: { token: string }) {
               {gallery.finals.map((f, index) => {
                 const locked = Boolean(f.locked);
                 const imgSrc = finalDisplaySrc(f, token);
+                const showUnlockedVideo = !locked && isShareFinalVideo(f);
                 return (
                   <li key={f.id} className={`flex flex-col ${editedCardClass(gridLayout, index)}`}>
                     <div className="relative">
@@ -1116,20 +1123,36 @@ export function ClientGalleryApp({ token }: { token: string }) {
                         onClick={() => openFinalLb(f.id)}
                         className="block w-full border-0 bg-transparent p-0 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 dark:focus-visible:ring-brand-on-dark"
                       >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={imgSrc}
-                          alt={f.name}
-                          className={cn(
-                            editedImageClass(gridLayout, index),
-                            "cursor-zoom-in",
-                            locked && "select-none",
-                          )}
-                          draggable={!locked}
-                          onContextMenu={(e) => {
-                            if (locked) e.preventDefault();
-                          }}
-                        />
+                        {showUnlockedVideo ? (
+                          <video
+                            src={f.url}
+                            {...(f.lockedPreviewUrl ? { poster: f.lockedPreviewUrl } : {})}
+                            muted
+                            playsInline
+                            preload="metadata"
+                            aria-label={f.name}
+                            className={cn(
+                              editedImageClass(gridLayout, index),
+                              "cursor-zoom-in bg-black",
+                              "pointer-events-none",
+                            )}
+                          />
+                        ) : (
+                          /* eslint-disable-next-line @next/next/no-img-element */
+                          <img
+                            src={imgSrc}
+                            alt={f.name}
+                            className={cn(
+                              editedImageClass(gridLayout, index),
+                              "cursor-zoom-in",
+                              locked && "select-none",
+                            )}
+                            draggable={!locked}
+                            onContextMenu={(e) => {
+                              if (locked) e.preventDefault();
+                            }}
+                          />
+                        )}
                       </button>
                       {locked ? (
                         <div
@@ -1371,21 +1394,40 @@ export function ClientGalleryApp({ token }: { token: string }) {
               </button>
             </div>
             <div className="flex flex-1 items-center justify-center overflow-auto">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={finalDisplaySrc(finalLb, token)}
-                alt={finalLb.name}
-                className={cn(
-                  "max-h-[75vh] max-w-full object-contain transition-transform duration-200",
-                  gallery.rightsProtection && "select-none",
-                  finalLb.locked && "select-none",
-                )}
-                style={{ transform: `scale(${zoom})` }}
-                draggable={!finalLb.locked}
-                onContextMenu={(e) => {
-                  if (finalLb.locked || gallery.rightsProtection) e.preventDefault();
-                }}
-              />
+              {!finalLb.locked && isShareFinalVideo(finalLb) ? (
+                <video
+                  src={finalLb.url}
+                  {...(finalLb.lockedPreviewUrl ? { poster: finalLb.lockedPreviewUrl } : {})}
+                  controls
+                  playsInline
+                  preload="metadata"
+                  aria-label={finalLb.name}
+                  className={cn(
+                    "max-h-[75vh] max-w-full object-contain transition-transform duration-200",
+                    gallery.rightsProtection && "select-none",
+                  )}
+                  style={{ transform: `scale(${zoom})` }}
+                  onContextMenu={(e) => {
+                    if (gallery.rightsProtection) e.preventDefault();
+                  }}
+                />
+              ) : (
+                /* eslint-disable-next-line @next/next/no-img-element */
+                <img
+                  src={finalDisplaySrc(finalLb, token)}
+                  alt={finalLb.name}
+                  className={cn(
+                    "max-h-[75vh] max-w-full object-contain transition-transform duration-200",
+                    gallery.rightsProtection && "select-none",
+                    finalLb.locked && "select-none",
+                  )}
+                  style={{ transform: `scale(${zoom})` }}
+                  draggable={!finalLb.locked}
+                  onContextMenu={(e) => {
+                    if (finalLb.locked || gallery.rightsProtection) e.preventDefault();
+                  }}
+                />
+              )}
             </div>
             <div className="flex flex-col gap-3 text-white sm:flex-row sm:items-center sm:justify-between sm:gap-4">
               <button

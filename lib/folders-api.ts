@@ -619,6 +619,12 @@ export type UploadFolderMediaResult = {
   ignoredDuplicatesCount: number;
 };
 
+/** 1-based index of the file currently uploading, with total count in this batch (sequential uploads). */
+export type FolderMediaBatchProgress = {
+  fileIndex: number;
+  fileCount: number;
+};
+
 /** Extract duplicate-skip count from a single upload JSON response. */
 export function readIgnoredDuplicatesCount(body: unknown): number {
   if (!body || typeof body !== "object") return 0;
@@ -737,7 +743,12 @@ function appendFinalDeliveryMultipartFields(
 export async function uploadFolderRawMedia(
   folderId: string,
   files: File[],
-  onProgress?: (loaded: number, total: number, lengthComputable: boolean) => void,
+  onProgress?: (
+    loaded: number,
+    total: number,
+    lengthComputable: boolean,
+    batch?: FolderMediaBatchProgress,
+  ) => void,
   formOptions?: UploadFolderMediaFormOptions,
 ): Promise<UploadFolderMediaResult | null> {
   if (files.length === 0) {
@@ -751,15 +762,17 @@ export async function uploadFolderRawMedia(
   const n = files.length;
   for (let i = 0; i < n; i++) {
     const file = files[i];
+    const batch: FolderMediaBatchProgress = { fileIndex: i + 1, fileCount: n };
+    onProgress?.(bytesDone, totalBytes, true, batch);
     const fd = new FormData();
     fd.append("files", file);
     appendFolderUploadFormFields(fd, formOptions, i, n);
     lastBody = await authedFormDataPostWithProgress(path, fd, (loaded) => {
-      onProgress?.(bytesDone + loaded, totalBytes, true);
+      onProgress?.(bytesDone + loaded, totalBytes, true, batch);
     });
     ignoredDuplicatesCount += readIgnoredDuplicatesCount(lastBody);
     bytesDone += file.size;
-    onProgress?.(bytesDone, totalBytes, true);
+    onProgress?.(bytesDone, totalBytes, true, batch);
   }
   console.log("[folders:media:raw] response", {
     ok: true,
@@ -773,7 +786,12 @@ export async function uploadFolderRawMedia(
 export async function uploadFolderFinalMedia(
   folderId: string,
   files: File[],
-  onProgress?: (loaded: number, total: number, lengthComputable: boolean) => void,
+  onProgress?: (
+    loaded: number,
+    total: number,
+    lengthComputable: boolean,
+    batch?: FolderMediaBatchProgress,
+  ) => void,
   formOptions?: UploadFolderFinalMediaFormOptions,
 ): Promise<UploadFolderMediaResult | null> {
   if (files.length === 0) {
@@ -788,6 +806,8 @@ export async function uploadFolderFinalMedia(
   const selectionMediaId = formOptions?.selectionMediaId;
   for (let i = 0; i < n; i++) {
     const file = files[i];
+    const batch: FolderMediaBatchProgress = { fileIndex: i + 1, fileCount: n };
+    onProgress?.(bytesDone, totalBytes, true, batch);
     const fd = new FormData();
     fd.append("files", file);
     if (selectionMediaId !== undefined && selectionMediaId !== "") {
@@ -796,11 +816,11 @@ export async function uploadFolderFinalMedia(
     appendFinalDeliveryMultipartFields(fd, formOptions);
     appendFolderUploadFormFields(fd, formOptions, i, n);
     lastBody = await authedFormDataPostWithProgress(path, fd, (loaded) => {
-      onProgress?.(bytesDone + loaded, totalBytes, true);
+      onProgress?.(bytesDone + loaded, totalBytes, true, batch);
     });
     ignoredDuplicatesCount += readIgnoredDuplicatesCount(lastBody);
     bytesDone += file.size;
-    onProgress?.(bytesDone, totalBytes, true);
+    onProgress?.(bytesDone, totalBytes, true, batch);
   }
   console.log("[folders:media:final] response", {
     ok: true,

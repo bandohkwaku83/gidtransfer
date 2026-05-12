@@ -137,11 +137,15 @@ function UploadProgressBanner({
   phase,
   computable,
   percent,
+  fileIndex,
+  fileCount,
 }: {
   kind: "raw" | "final";
   phase: "preparing" | "uploading";
   computable: boolean;
   percent: number;
+  fileIndex?: number;
+  fileCount?: number;
 }) {
   const label =
     phase === "preparing"
@@ -149,6 +153,14 @@ function UploadProgressBanner({
       : kind === "raw"
         ? "Uploading raw photos…"
         : "Uploading finals…";
+  const batchLabel =
+    phase === "uploading" &&
+    fileCount != null &&
+    fileCount > 0 &&
+    fileIndex != null &&
+    fileIndex > 0
+      ? `${fileIndex} of ${fileCount}`
+      : null;
   return (
     <div
       role="status"
@@ -160,19 +172,26 @@ function UploadProgressBanner({
           <InlineStatusSkeleton size={16} />
           <span className="truncate">{label}</span>
         </div>
-        {phase === "preparing" ? (
-          <span className="shrink-0 text-xs font-medium text-brand-ink/85 dark:text-brand-on-dark/90">
-            Checking…
-          </span>
-        ) : computable ? (
-          <span className="shrink-0 tabular-nums text-sm font-semibold text-brand-ink dark:text-brand-on-dark">
-            {percent}%
-          </span>
-        ) : (
-          <span className="shrink-0 text-xs font-medium text-brand-ink/85 dark:text-brand-on-dark/90">
-            Sending…
-          </span>
-        )}
+        <div className="flex shrink-0 items-center gap-2">
+          {batchLabel ? (
+            <span className="tabular-nums text-xs font-semibold text-brand-ink/90 dark:text-brand-on-dark/95">
+              {batchLabel}
+            </span>
+          ) : null}
+          {phase === "preparing" ? (
+            <span className="shrink-0 text-xs font-medium text-brand-ink/85 dark:text-brand-on-dark/90">
+              Checking…
+            </span>
+          ) : computable ? (
+            <span className="shrink-0 tabular-nums text-sm font-semibold text-brand-ink dark:text-brand-on-dark">
+              {percent}%
+            </span>
+          ) : (
+            <span className="shrink-0 text-xs font-medium text-brand-ink/85 dark:text-brand-on-dark/90">
+              Sending…
+            </span>
+          )}
+        </div>
       </div>
       <div className="mt-3 h-2 overflow-hidden rounded-full bg-brand/25 dark:bg-brand/35">
         {computable ? (
@@ -202,6 +221,8 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
     phase: "preparing" | "uploading";
     computable: boolean;
     percent: number;
+    fileIndex?: number;
+    fileCount?: number;
   } | null>(null);
   const [expiryPresets, setExpiryPresets] = useState<ShareLinkExpiryPreset[]>([]);
   const [linkExpiry, setLinkExpiry] = useState("30d");
@@ -432,7 +453,12 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
 
   const uploadProgressHandler = useCallback(
     (kind: "raw" | "final") =>
-      (loaded: number, total: number, lengthComputable: boolean) => {
+      (
+        loaded: number,
+        total: number,
+        lengthComputable: boolean,
+        batch?: { fileIndex: number; fileCount: number },
+      ) => {
         const canCompute = lengthComputable && total > 0;
         /** Until at least one byte is reported, keep indeterminate — avoids an empty 0% bar. */
         const showDeterminate = canCompute && loaded > 0;
@@ -441,12 +467,18 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
           : 0;
         const percent =
           showDeterminate && rounded < 1 ? 1 : showDeterminate ? rounded : 0;
-        setUploadProgress({
+        setUploadProgress((prev) => ({
           kind,
           phase: "uploading",
           computable: showDeterminate,
           percent,
-        });
+          fileIndex:
+            batch?.fileIndex ??
+            (prev?.phase === "uploading" && prev.fileIndex !== undefined ? prev.fileIndex : undefined),
+          fileCount:
+            batch?.fileCount ??
+            (prev?.phase === "uploading" && prev.fileCount !== undefined ? prev.fileCount : undefined),
+        }));
       },
     [],
   );
@@ -490,7 +522,14 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
         return;
       }
 
-      setUploadProgress({ kind: "final", phase: "uploading", computable: false, percent: 0 });
+      setUploadProgress({
+        kind: "final",
+        phase: "uploading",
+        computable: false,
+        percent: 0,
+        fileIndex: 1,
+        fileCount: files.length,
+      });
       await uploadFolderFinalMedia(
         folder._id,
         files,
@@ -571,7 +610,14 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
         return;
       }
 
-      setUploadProgress({ kind: "raw", phase: "uploading", computable: false, percent: 0 });
+      setUploadProgress({
+        kind: "raw",
+        phase: "uploading",
+        computable: false,
+        percent: 0,
+        fileIndex: 1,
+        fileCount: files.length,
+      });
       await uploadFolderRawMedia(
         folder._id,
         files,
@@ -593,7 +639,14 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
     if (!folder || !p) return;
     setDuplicateFilenamePrompt(null);
     setBusy(true);
-    setUploadProgress({ kind: p.kind, phase: "uploading", computable: false, percent: 0 });
+    setUploadProgress({
+      kind: p.kind,
+      phase: "uploading",
+      computable: false,
+      percent: 0,
+      fileIndex: 1,
+      fileCount: p.files.length,
+    });
     try {
       if (p.kind === "raw") {
         await uploadFolderRawMedia(
@@ -631,7 +684,14 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
     if (!folder || !p) return;
     setDuplicateFilenamePrompt(null);
     setBusy(true);
-    setUploadProgress({ kind: p.kind, phase: "uploading", computable: false, percent: 0 });
+    setUploadProgress({
+      kind: p.kind,
+      phase: "uploading",
+      computable: false,
+      percent: 0,
+      fileIndex: 1,
+      fileCount: p.files.length,
+    });
     try {
       let ignored = 0;
       if (p.kind === "raw") {
@@ -1512,6 +1572,8 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
               phase={uploadProgress.phase}
               computable={uploadProgress.computable}
               percent={uploadProgress.percent}
+              fileIndex={uploadProgress.fileIndex}
+              fileCount={uploadProgress.fileCount}
             />
           </div>
         ) : null}
@@ -1818,7 +1880,8 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
             </div>
             <UploadDragger
               label="Drop edited finals here"
-              hint="JPG, PNG, WebP, GIF — uploaded to this gallery."
+              hint="Images (JPG, PNG, WebP, GIF) or video (MP4, MOV, WebM, etc.)."
+              accept="image/jpeg,image/png,image/webp,image/gif,video/*"
               disabled={busy}
               onFiles={(files) => void openFinalUploadWizard(files)}
             />

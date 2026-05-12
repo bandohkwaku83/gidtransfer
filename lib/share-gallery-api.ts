@@ -15,6 +15,8 @@ export type ShareGalleryFinal = {
   name: string;
   /** Full-resolution URL when unlocked; may still be present when locked for admin-style APIs. */
   url: string;
+  /** MIME type of the delivered file (e.g. image/jpeg, video/mp4). */
+  mimeType?: string;
   /** When true, client should use locked preview only and cannot download full files until unlocked. */
   locked?: boolean;
   /** Optional explicit preview URL for locked state (watermarked / reduced). */
@@ -213,6 +215,12 @@ function finalFromRow(item: unknown, idx: number): ShareGalleryFinal | null {
     str(o.originalName) ||
     `Final ${idx + 1}`;
   const urlRaw = str(o.url) || str(o.downloadUrl) || str(o.fileUrl);
+  const mimeType =
+    str(o.mimeType) ||
+    str(o.mime_type) ||
+    str(o.contentType) ||
+    str(o.content_type) ||
+    "";
   const lockedPreviewRaw =
     str(o.lockedPreviewUrl) ||
     str(o.locked_preview_url) ||
@@ -243,6 +251,7 @@ function finalFromRow(item: unknown, idx: number): ShareGalleryFinal | null {
     id,
     name,
     url: url || lockedPreviewUrl,
+    ...(mimeType ? { mimeType } : {}),
     locked,
     lockedPreviewUrl: lockedPreviewUrl || undefined,
   };
