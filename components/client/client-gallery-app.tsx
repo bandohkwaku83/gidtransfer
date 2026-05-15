@@ -702,11 +702,79 @@ export function ClientGalleryApp({ token }: { token: string }) {
   useEffect(() => {
     if (!lightboxId && !finalLightboxId && !coverLightboxOpen) return;
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") closeAllPreviews();
+      if (e.key === "Escape") {
+        closeAllPreviews();
+        return;
+      }
+      const target = e.target as HTMLElement | null;
+      if (
+        target?.closest("input, textarea, select") ||
+        target?.isContentEditable
+      ) {
+        return;
+      }
+      if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+        if (coverLightboxOpen) return;
+
+        if (finalLightboxId && gallery && gallery.finals.length > 0) {
+          if (e.key === "ArrowLeft" && finalLbIndex > 0) {
+            e.preventDefault();
+            const prev = gallery.finals[finalLbIndex - 1];
+            if (prev) {
+              setFinalLightboxId(prev.id);
+              setZoom(1);
+            }
+          } else if (
+            e.key === "ArrowRight" &&
+            finalLbIndex >= 0 &&
+            finalLbIndex < gallery.finals.length - 1
+          ) {
+            e.preventDefault();
+            const next = gallery.finals[finalLbIndex + 1];
+            if (next) {
+              setFinalLightboxId(next.id);
+              setZoom(1);
+            }
+          }
+          return;
+        }
+
+        if (lightboxId && lbAsset && lightboxNavAssets.length > 0) {
+          if (e.key === "ArrowLeft" && lbNavIndex > 0) {
+            e.preventDefault();
+            const prev = lightboxNavAssets[lbNavIndex - 1];
+            if (prev) {
+              setLightboxId(prev.id);
+              setZoom(1);
+            }
+          } else if (
+            e.key === "ArrowRight" &&
+            lbNavIndex >= 0 &&
+            lbNavIndex < lightboxNavAssets.length - 1
+          ) {
+            e.preventDefault();
+            const next = lightboxNavAssets[lbNavIndex + 1];
+            if (next) {
+              setLightboxId(next.id);
+              setZoom(1);
+            }
+          }
+        }
+      }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [lightboxId, finalLightboxId, coverLightboxOpen, closeAllPreviews]);
+  }, [
+    lightboxId,
+    finalLightboxId,
+    coverLightboxOpen,
+    closeAllPreviews,
+    gallery,
+    finalLbIndex,
+    lbAsset,
+    lbNavIndex,
+    lightboxNavAssets,
+  ]);
 
   const displayTitle = gallery?.eventName?.trim() || "Select your favorites";
 

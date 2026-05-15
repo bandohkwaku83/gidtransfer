@@ -6,7 +6,7 @@ import { FolderCard } from "@/components/photographer/folder-card";
 import { useFolderListSearch } from "@/components/photographer/photographer-shell";
 import { CreateFolderModal } from "@/components/photographer/create-folder-modal";
 import { useToast } from "@/components/toast-provider";
-import { deleteFolder, listFolders, type ApiFolder } from "@/lib/folders-api";
+import { deleteFolder, listFolders, FoldersApiError, formatRestoreBeforeLabel, type ApiFolder } from "@/lib/folders-api";
 import { listClients } from "@/lib/clients-api";
 import { GalleryCardSkeleton, ListRefreshSkeleton } from "@/components/ui/skeletons";
 
@@ -84,12 +84,22 @@ export default function GalleriesPage() {
       if (pendingDeleteId) return;
       setPendingDeleteId(folder._id);
       try {
-        await deleteFolder(folder._id);
+        const result = await deleteFolder(folder._id);
         setFolders((prev) => prev.filter((f) => f._id !== folder._id));
-        showToast("Folder deleted.", "success");
+        const deadline = formatRestoreBeforeLabel(result.restoreBefore);
+        showToast(
+          deadline
+            ? `Gallery moved to trash. Restore by ${deadline} (${result.retentionDays}-day window). Open Trash in the sidebar to restore.`
+            : result.message,
+          "success",
+        );
       } catch (err) {
         showToast(
-          err instanceof Error ? err.message : "Failed to delete folder.",
+          err instanceof FoldersApiError
+            ? err.message
+            : err instanceof Error
+              ? err.message
+              : "Failed to move gallery to trash.",
           "error",
         );
       } finally {

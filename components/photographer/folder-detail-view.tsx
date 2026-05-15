@@ -50,6 +50,7 @@ import {
   getFolderCoverUrl,
   folderCoverObjectPositionStyle,
   FALLBACK_SHARE_EXPIRY_PRESETS,
+  formatRestoreBeforeLabel,
   FoldersApiError,
   finalImagesLockedForClient,
   getFolderShareAbsoluteUrl,
@@ -500,22 +501,49 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
     setLightboxZoom(1);
   }, [tab]);
 
+  const lbNavIndex = lightboxId
+    ? lightboxNavItems.findIndex((item) => item.id === lightboxId)
+    : -1;
+  const lbItem = lbNavIndex >= 0 ? lightboxNavItems[lbNavIndex] : null;
+
   useEffect(() => {
     if (!lightboxId) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         setLightboxId(null);
         setLightboxZoom(1);
+        return;
+      }
+      const target = e.target as HTMLElement | null;
+      if (
+        target?.closest("input, textarea, select") ||
+        target?.isContentEditable
+      ) {
+        return;
+      }
+      if (e.key === "ArrowLeft" && lbNavIndex > 0) {
+        e.preventDefault();
+        const prev = lightboxNavItems[lbNavIndex - 1];
+        if (prev) {
+          setLightboxId(prev.id);
+          setLightboxZoom(1);
+        }
+      } else if (
+        e.key === "ArrowRight" &&
+        lbNavIndex >= 0 &&
+        lbNavIndex < lightboxNavItems.length - 1
+      ) {
+        e.preventDefault();
+        const next = lightboxNavItems[lbNavIndex + 1];
+        if (next) {
+          setLightboxId(next.id);
+          setLightboxZoom(1);
+        }
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [lightboxId]);
-
-  const lbNavIndex = lightboxId
-    ? lightboxNavItems.findIndex((item) => item.id === lightboxId)
-    : -1;
-  const lbItem = lbNavIndex >= 0 ? lightboxNavItems[lbNavIndex] : null;
+  }, [lightboxId, lbNavIndex, lightboxNavItems]);
 
   useEffect(() => {
     if (lightboxId && lbNavIndex < 0) {
@@ -1094,14 +1122,14 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
     if (!folder || mediaDeleteBlocked()) return;
     if (
       !confirm(
-        "Remove this image from raw uploads? This cannot be undone for your client gallery.",
+        "Move this file to trash? It will disappear from the gallery but can be restored until the deadline.",
       )
     ) {
       return;
     }
     setDeletingKey(`raw:${mediaId}`);
     try {
-      await deleteFolderRawMedia(folder._id, mediaId);
+      const result = await deleteFolderRawMedia(folder._id, mediaId);
       await refreshFolder();
       setSelectedRawIds((prev) => {
         if (!prev.has(mediaId)) return prev;
@@ -1109,9 +1137,20 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
         next.delete(mediaId);
         return next;
       });
-      showToast("Image removed.", "success");
+      const deadline = formatRestoreBeforeLabel(result.restoreBefore);
+      showToast(
+        deadline ? `${result.message} Restore by ${deadline}.` : result.message,
+        "success",
+      );
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Could not delete image.", "error");
+      showToast(
+        e instanceof FoldersApiError
+          ? e.message
+          : e instanceof Error
+            ? e.message
+            : "Could not move file to trash.",
+        "error",
+      );
     } finally {
       setDeletingKey(null);
     }
@@ -1119,12 +1158,16 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
 
   async function onDeleteFinalAsset(mediaId: string) {
     if (!folder || mediaDeleteBlocked()) return;
-    if (!confirm("Remove this file from finals? This cannot be undone.")) {
+    if (
+      !confirm(
+        "Move this final to trash? It will disappear from the gallery but can be restored until the deadline.",
+      )
+    ) {
       return;
     }
     setDeletingKey(`final:${mediaId}`);
     try {
-      await deleteFolderFinalMedia(folder._id, mediaId);
+      const result = await deleteFolderFinalMedia(folder._id, mediaId);
       await refreshFolder();
       setSelectedFinalIds((prev) => {
         if (!prev.has(mediaId)) return prev;
@@ -1132,9 +1175,20 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
         next.delete(mediaId);
         return next;
       });
-      showToast("Final removed.", "success");
+      const deadline = formatRestoreBeforeLabel(result.restoreBefore);
+      showToast(
+        deadline ? `${result.message} Restore by ${deadline}.` : result.message,
+        "success",
+      );
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Could not delete final.", "error");
+      showToast(
+        e instanceof FoldersApiError
+          ? e.message
+          : e instanceof Error
+            ? e.message
+            : "Could not move final to trash.",
+        "error",
+      );
     } finally {
       setDeletingKey(null);
     }
@@ -1144,19 +1198,32 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
     if (!folder || mediaDeleteBlocked() || rawAssets.length === 0) return;
     if (
       !confirm(
-        `Delete all ${rawAssets.length} raw upload(s)? This cannot be undone and removes them from the gallery.`,
+        `Move all ${rawAssets.length} raw upload(s) to trash? They will leave the gallery but stay recoverable until the deadline.`,
       )
     ) {
       return;
     }
     setDeletingKey("raw:all");
     try {
-      await deleteAllFolderRawMedia(folder._id);
+      const result = await deleteAllFolderRawMedia(folder._id);
       await refreshFolder();
       setSelectedRawIds(new Set());
-      showToast("All raw uploads removed.", "success");
+      const deadline = formatRestoreBeforeLabel(result.restoreBefore);
+      showToast(
+        deadline
+          ? `${result.deletedCount} file(s) moved to trash. Restore by ${deadline}.`
+          : result.message,
+        "success",
+      );
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Could not delete raw uploads.", "error");
+      showToast(
+        e instanceof FoldersApiError
+          ? e.message
+          : e instanceof Error
+            ? e.message
+            : "Could not move raw uploads to trash.",
+        "error",
+      );
     } finally {
       setDeletingKey(null);
     }
@@ -1166,19 +1233,32 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
     if (!folder || mediaDeleteBlocked() || finalAssets.length === 0) return;
     if (
       !confirm(
-        `Delete all ${finalAssets.length} final(s)? This cannot be undone.`,
+        `Move all ${finalAssets.length} final(s) to trash? They will leave the gallery but stay recoverable until the deadline.`,
       )
     ) {
       return;
     }
     setDeletingKey("final:all");
     try {
-      await deleteAllFolderFinalMedia(folder._id);
+      const result = await deleteAllFolderFinalMedia(folder._id);
       await refreshFolder();
       setSelectedFinalIds(new Set());
-      showToast("All finals removed.", "success");
+      const deadline = formatRestoreBeforeLabel(result.restoreBefore);
+      showToast(
+        deadline
+          ? `${result.deletedCount} final(s) moved to trash. Restore by ${deadline}.`
+          : result.message,
+        "success",
+      );
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Could not delete finals.", "error");
+      showToast(
+        e instanceof FoldersApiError
+          ? e.message
+          : e instanceof Error
+            ? e.message
+            : "Could not move finals to trash.",
+        "error",
+      );
     } finally {
       setDeletingKey(null);
     }
@@ -1190,28 +1270,43 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
     if (ids.length === 0) return;
     if (
       !confirm(
-        `Delete ${ids.length} selected image(s)? This cannot be undone.`,
+        `Move ${ids.length} selected image(s) to trash? They will disappear from the gallery but can be restored until the deadline.`,
       )
     ) {
       return;
     }
     setDeletingKey("raw:bulk");
     try {
+      let restoreBefore = "";
       if (ids.length === rawAssets.length) {
-        await deleteAllFolderRawMedia(folder._id);
+        const result = await deleteAllFolderRawMedia(folder._id);
+        restoreBefore = result.restoreBefore;
       } else {
         for (const id of ids) {
-          await deleteFolderRawMedia(folder._id, id);
+          const r = await deleteFolderRawMedia(folder._id, id);
+          if (r.restoreBefore) restoreBefore = r.restoreBefore;
         }
       }
       await refreshFolder();
       setSelectedRawIds(new Set());
+      const deadline = formatRestoreBeforeLabel(restoreBefore);
       showToast(
-        ids.length === 1 ? "Image removed." : `${ids.length} images removed.`,
+        deadline
+          ? `${ids.length} file(s) moved to trash. Restore by ${deadline}.`
+          : ids.length === 1
+            ? "File moved to trash."
+            : `${ids.length} files moved to trash.`,
         "success",
       );
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Could not delete selected images.", "error");
+      showToast(
+        e instanceof FoldersApiError
+          ? e.message
+          : e instanceof Error
+            ? e.message
+            : "Could not move selected files to trash.",
+        "error",
+      );
       await refreshFolder().catch(() => {});
     } finally {
       setDeletingKey(null);
@@ -1222,26 +1317,45 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
     if (!folder || mediaDeleteBlocked()) return;
     const ids = finalAssets.map((f) => f.id).filter((id) => selectedFinalIds.has(id));
     if (ids.length === 0) return;
-    if (!confirm(`Delete ${ids.length} selected final(s)? This cannot be undone.`)) {
+    if (
+      !confirm(
+        `Move ${ids.length} selected final(s) to trash? They will disappear from the gallery but can be restored until the deadline.`,
+      )
+    ) {
       return;
     }
     setDeletingKey("final:bulk");
     try {
+      let restoreBefore = "";
       if (ids.length === finalAssets.length) {
-        await deleteAllFolderFinalMedia(folder._id);
+        const result = await deleteAllFolderFinalMedia(folder._id);
+        restoreBefore = result.restoreBefore;
       } else {
         for (const id of ids) {
-          await deleteFolderFinalMedia(folder._id, id);
+          const r = await deleteFolderFinalMedia(folder._id, id);
+          if (r.restoreBefore) restoreBefore = r.restoreBefore;
         }
       }
       await refreshFolder();
       setSelectedFinalIds(new Set());
+      const deadline = formatRestoreBeforeLabel(restoreBefore);
       showToast(
-        ids.length === 1 ? "Final removed." : `${ids.length} finals removed.`,
+        deadline
+          ? `${ids.length} final(s) moved to trash. Restore by ${deadline}.`
+          : ids.length === 1
+            ? "Final moved to trash."
+            : `${ids.length} finals moved to trash.`,
         "success",
       );
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Could not delete selected finals.", "error");
+      showToast(
+        e instanceof FoldersApiError
+          ? e.message
+          : e instanceof Error
+            ? e.message
+            : "Could not move selected finals to trash.",
+        "error",
+      );
       await refreshFolder().catch(() => {});
     } finally {
       setDeletingKey(null);
@@ -1808,7 +1922,7 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
                       {deletingKey === "raw:bulk" ? (
                         <InlineActionSkeleton />
                       ) : (
-                        "Delete selected"
+                        "Move selected to trash"
                       )}
                     </button>
                     <button
@@ -1820,7 +1934,7 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
                       {deletingKey === "raw:all" ? (
                         <InlineActionSkeleton />
                       ) : (
-                        "Delete all"
+                        "Move all to trash"
                       )}
                     </button>
                   </div>
@@ -1886,14 +2000,14 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
                         disabled={mediaDeleteBlocked() || deletingKey === `raw:${a.id}`}
                         onClick={() => void onDeleteRawAsset(a.id)}
                         className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-red-600/90 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40 dark:text-red-400/90 dark:hover:bg-red-950/50"
-                        title="Delete image"
+                        title="Move to trash"
                       >
                         {deletingKey === `raw:${a.id}` ? (
                           <InlineActionSkeleton />
                         ) : (
                           <Trash2 className="h-3.5 w-3.5" aria-hidden />
                         )}
-                        <span className="sr-only">Delete</span>
+                        <span className="sr-only">Move to trash</span>
                       </button>
                     </div>
                   </li>
@@ -2051,7 +2165,7 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
                       {deletingKey === "final:bulk" ? (
                         <InlineActionSkeleton />
                       ) : (
-                        "Delete selected"
+                        "Move selected to trash"
                       )}
                     </button>
                     <button
@@ -2063,7 +2177,7 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
                       {deletingKey === "final:all" ? (
                         <InlineActionSkeleton />
                       ) : (
-                        "Delete all"
+                        "Move all to trash"
                       )}
                     </button>
                   </div>
@@ -2135,14 +2249,14 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
                         disabled={mediaDeleteBlocked() || deletingKey === `final:${f.id}`}
                         onClick={() => void onDeleteFinalAsset(f.id)}
                         className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-red-600/90 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40 dark:text-red-400/90 dark:hover:bg-red-950/50"
-                        title="Delete final"
+                        title="Move final to trash"
                       >
                         {deletingKey === `final:${f.id}` ? (
                           <InlineActionSkeleton />
                         ) : (
                           <Trash2 className="h-3.5 w-3.5" aria-hidden />
                         )}
-                        <span className="sr-only">Delete</span>
+                        <span className="sr-only">Move to trash</span>
                       </button>
                     </div>
                   </li>

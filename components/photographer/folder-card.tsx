@@ -108,14 +108,14 @@ export function FolderCard({
             <button
               type="button"
               className="pointer-events-auto inline-flex h-9 w-9 items-center justify-center rounded-lg bg-white/15 text-red-200 shadow-sm backdrop-blur-sm transition hover:bg-red-500/90 hover:text-white"
-              aria-label="Delete gallery"
-              title="Delete"
+              aria-label="Move gallery to trash"
+              title="Move to trash"
               disabled={busy}
               onClick={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
                 if (busy) return;
-                if (!window.confirm(`Delete gallery "${eventTitle}"?`)) return;
+                if (!window.confirm(`Move gallery "${eventTitle}" to trash? You can restore it from Trash before the deadline.`)) return;
                 void onDelete(folder);
               }}
             >

@@ -108,6 +108,8 @@ export type ApiFolder = {
   createdBy?: string;
   createdAt?: string;
   updatedAt?: string;
+  /** When set, folder is in trash (soft-delete). */
+  deletedAt?: string | null;
 };
 
 export type ListFoldersResponse = {
@@ -138,6 +140,97 @@ export type UpdateFolderInput = {
   coverFocalX?: number;
   coverFocalY?: number;
   backgroundMusicEnabled?: boolean;
+};
+
+/** Response when moving a gallery to trash (`DELETE /api/folders/:id`). */
+export type FolderMoveToTrashResult = {
+  message: string;
+  deletedAt: string;
+  restoreBefore: string;
+  retentionDays: number;
+  folder: ApiFolder;
+};
+
+export type TrashFolderRow = {
+  folder: ApiFolder;
+  deletedAt: string;
+  restoreBefore: string;
+};
+
+/** Single trashed media row (`deletedBy: "media"`) from trash or media-trash APIs. */
+export type TrashMediaRow = {
+  folderId: string;
+  folder?: ApiFolder;
+  mediaId: string;
+  kind: string;
+  deletedAt: string;
+  restoreBefore: string;
+  url?: string;
+  thumbUrl?: string;
+  originalFilename?: string;
+};
+
+export type ListFoldersTrashResponse = {
+  retentionDays: number;
+  count: number;
+  folders: TrashFolderRow[];
+  deletedMedia: TrashMediaRow[];
+  /** Full count of trashed media (may exceed `deletedMedia.length`). */
+  deletedMediaTotal: number;
+  /** Server chunk size for embedded `deletedMedia` (for aligning paginated fetches). */
+  deletedMediaPreviewLimit: number;
+  /** When more rows exist than embedded, backend may point at the paginated route. */
+  deletedMediaPagingHint?: string;
+};
+
+/** Paginated trashed media (`GET /api/folders/media/trash`). */
+export type ListFoldersMediaTrashParams = {
+  page?: number;
+  limit?: number;
+  folderId?: string;
+};
+
+export type ListFoldersMediaTrashResponse = {
+  items: TrashMediaRow[];
+  page: number;
+  limit: number;
+  total: number;
+};
+
+/** `POST /api/folders/trash/purge` — permanent delete (not restore). */
+export type TrashPurgeSkippedItem = {
+  mediaId?: string;
+  folderId?: string;
+  reason: string;
+};
+
+export type TrashPurgeResult = {
+  message: string;
+  purgedFolderCount: number;
+  purgedMediaCount: number;
+  skipped?: TrashPurgeSkippedItem[];
+};
+
+export type PurgeFoldersTrashPayload =
+  | { all: true }
+  | { purgeAll: true }
+  | { folderIds?: string[]; mediaIds?: string[] };
+
+export type SoftDeletedMediaRef = {
+  _id: string;
+  kind: string;
+};
+
+export type MediaSoftDeleteResult = {
+  message: string;
+  deleted: SoftDeletedMediaRef;
+  restoreBefore: string;
+};
+
+export type BulkMediaSoftDeleteResult = {
+  message: string;
+  deletedCount: number;
+  restoreBefore: string;
 };
 
 export class FoldersApiError extends Error {
@@ -253,6 +346,67 @@ function extractMessage(body: unknown, fallback: string): string {
   return fallback;
 }
 
+function readIsoField(o: Record<string, unknown>, ...keys: string[]): string {
+  for (const k of keys) {
+    const v = o[k];
+    if (typeof v === "string" && v.trim()) return v.trim();
+  }
+  return "";
+}
+
+function readRetentionDays(o: Record<string, unknown>): number {
+  const raw = o.retentionDays ?? o.retention_days;
+  if (typeof raw === "number" && Number.isFinite(raw)) return Math.max(0, Math.floor(raw));
+  if (typeof raw === "string" && raw.trim()) {
+    const n = Number(raw);
+    if (Number.isFinite(n)) return Math.max(0, Math.floor(n));
+  }
+  return 30;
+}
+
+/** Human-readable local deadline for restore UI. */
+export function formatRestoreBeforeLabel(iso: string | undefined | null): string {
+  if (!iso?.trim()) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+}
+
+export function isRestoreDeadlinePassed(restoreBefore: string): boolean {
+  const d = new Date(restoreBefore);
+  if (Number.isNaN(d.getTime())) return false;
+  return d.getTime() < Date.now();
+}
+
+function parseMediaSoftDelete(body: unknown, fallbackKind: string): MediaSoftDeleteResult {
+  const o = body && typeof body === "object" ? (body as Record<string, unknown>) : {};
+  let id = "";
+  let kind = fallbackKind;
+  const del = o.deleted;
+  if (del && typeof del === "object") {
+    const d = del as Record<string, unknown>;
+    id = String(d._id ?? d.id ?? "");
+    if (typeof d.kind === "string" && d.kind) kind = d.kind;
+  }
+  return {
+    message: extractMessage(body, "Moved to trash."),
+    deleted: { _id: id, kind },
+    restoreBefore: readIsoField(o, "restoreBefore", "restore_before"),
+  };
+}
+
+function parseBulkMediaSoftDelete(body: unknown): BulkMediaSoftDeleteResult {
+  const o = body && typeof body === "object" ? (body as Record<string, unknown>) : {};
+  const dc = o.deletedCount ?? o.deleted_count;
+  const deletedCount =
+    typeof dc === "number" && Number.isFinite(dc) ? Math.max(0, Math.floor(dc)) : 0;
+  return {
+    message: extractMessage(body, "Items moved to trash."),
+    deletedCount,
+    restoreBefore: readIsoField(o, "restoreBefore", "restore_before"),
+  };
+}
+
 function buildFormData(
   fields: Record<string, string | boolean | undefined>,
   file?: File | null,
@@ -266,6 +420,385 @@ function buildFormData(
     fd.append("coverImage", file);
   }
   return fd;
+}
+
+/** First non-empty string from object for any of the given keys (in order). */
+function firstStringFrom(obj: Record<string, unknown> | null | undefined, keys: string[]): string {
+  if (!obj) return "";
+  for (const k of keys) {
+    const v = obj[k];
+    if (typeof v === "string" && v.trim()) return v.trim();
+  }
+  return "";
+}
+
+/**
+ * Pick a raw image URL string for trashed media (aligned with folder grid / ApiFolderMedia).
+ */
+function pickTrashMediaImageRaw(
+  media: Record<string, unknown> | null,
+  root: Record<string, unknown>,
+): string {
+  const file =
+    root.file && typeof root.file === "object" ? (root.file as Record<string, unknown>) : null;
+  const objects = [media, file, root];
+  const keyGroups = [
+    ["thumbUrl", "thumb_url", "thumbnailUrl", "thumbnail_url", "thumbnail"],
+    ["displayUrl", "display_url"],
+    ["previewUrl", "preview_url"],
+    ["url", "src", "image", "imageUrl", "image_url", "path", "filePath", "file_path", "publicUrl", "public_url"],
+  ];
+  for (const keys of keyGroups) {
+    for (const obj of objects) {
+      const s = firstStringFrom(obj, keys);
+      if (s) return s;
+    }
+  }
+  return "";
+}
+
+function resolveTrashMediaSrc(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return "";
+  return resolveCoverUrl(trimmed) || sameOriginUploadsUrl(trimmed);
+}
+
+function parseTrashMediaRow(entry: unknown): TrashMediaRow | null {
+  if (!entry || typeof entry !== "object") return null;
+  const r = entry as Record<string, unknown>;
+  const media = r.media && typeof r.media === "object" ? (r.media as Record<string, unknown>) : null;
+  const folderRaw = r.folder;
+  const folder = folderRaw && typeof folderRaw === "object" ? (folderRaw as ApiFolder) : undefined;
+
+  const folderId =
+    typeof r.folderId === "string" && r.folderId
+      ? r.folderId
+      : typeof r.folder_id === "string" && r.folder_id
+        ? r.folder_id
+        : typeof folder?._id === "string" && folder._id
+          ? folder._id
+          : "";
+
+  const mediaId =
+    typeof r.mediaId === "string" && r.mediaId
+      ? r.mediaId
+      : typeof r.media_id === "string" && r.media_id
+        ? r.media_id
+        : media && typeof media._id === "string" && media._id
+          ? media._id
+          : typeof r._id === "string" && r._id
+            ? r._id
+            : "";
+
+  if (!folderId || !mediaId) return null;
+
+  const kind =
+    typeof r.kind === "string" && r.kind
+      ? r.kind
+      : media && typeof media.kind === "string" && media.kind
+        ? media.kind
+        : "raw";
+
+  const resolvedSrc = resolveTrashMediaSrc(pickTrashMediaImageRaw(media, r));
+  const url = resolvedSrc || undefined;
+  const thumbUrl = resolvedSrc || undefined;
+
+  let originalFilename: string | undefined;
+  if (media) {
+    if (typeof media.originalFilename === "string" && media.originalFilename) {
+      originalFilename = media.originalFilename;
+    } else if (typeof media.original_filename === "string" && media.original_filename) {
+      originalFilename = media.original_filename;
+    } else if (typeof media.originalName === "string" && media.originalName) {
+      originalFilename = media.originalName;
+    } else if (typeof media.filename === "string" && media.filename) {
+      originalFilename = media.filename;
+    } else if (typeof media.name === "string" && media.name) {
+      originalFilename = media.name;
+    }
+  }
+  if (!originalFilename && typeof r.originalFilename === "string" && r.originalFilename) {
+    originalFilename = r.originalFilename;
+  }
+
+  return {
+    folderId,
+    folder,
+    mediaId,
+    kind,
+    deletedAt: readIsoField(r, "deletedAt", "deleted_at"),
+    restoreBefore: readIsoField(r, "restoreBefore", "restore_before"),
+    url,
+    thumbUrl,
+    originalFilename,
+  };
+}
+
+function parseTrashMediaRowList(raw: unknown): TrashMediaRow[] {
+  if (!Array.isArray(raw)) return [];
+  const out: TrashMediaRow[] = [];
+  for (const row of raw) {
+    const parsed = parseTrashMediaRow(row);
+    if (parsed) out.push(parsed);
+  }
+  return out;
+}
+
+export async function listFoldersTrash(
+  options: { mediaLimit?: number } = {},
+): Promise<ListFoldersTrashResponse> {
+  const qs = new URLSearchParams();
+  if (options.mediaLimit != null) {
+    const n = Math.min(500, Math.max(1, Math.floor(options.mediaLimit)));
+    qs.set("mediaLimit", String(n));
+  }
+  const suffix = qs.toString() ? `?${qs.toString()}` : "";
+  const res = await authedFetch(`/api/folders/trash${suffix}`, { method: "GET" });
+  const body = await parseJson(res);
+  console.log("[folders:trash:list] response", { status: res.status, ok: res.ok, body });
+  if (!res.ok) {
+    throw new FoldersApiError(
+      extractMessage(body, `Failed to load trash (${res.status})`),
+      res.status,
+      body,
+    );
+  }
+  const o = body && typeof body === "object" ? (body as Record<string, unknown>) : {};
+  const retentionDays = readRetentionDays(o);
+  const rawRows = Array.isArray(o.folders) ? o.folders : [];
+  const folders: TrashFolderRow[] = [];
+  for (const row of rawRows) {
+    if (!row || typeof row !== "object") continue;
+    const r = row as Record<string, unknown>;
+    const folderRaw = r.folder;
+    if (!folderRaw || typeof folderRaw !== "object") continue;
+    folders.push({
+      folder: folderRaw as ApiFolder,
+      deletedAt: readIsoField(r, "deletedAt", "deleted_at"),
+      restoreBefore: readIsoField(r, "restoreBefore", "restore_before"),
+    });
+  }
+  const count = typeof o.count === "number" && Number.isFinite(o.count) ? o.count : folders.length;
+
+  const dmSource = o.deletedMedia ?? o.deleted_media;
+  const deletedMedia = parseTrashMediaRowList(dmSource);
+
+  const dmt = o.deletedMediaTotal ?? o.deleted_media_total;
+  const deletedMediaTotal =
+    typeof dmt === "number" && Number.isFinite(dmt)
+      ? Math.max(0, Math.floor(dmt))
+      : deletedMedia.length;
+
+  const dmpl = o.deletedMediaPreviewLimit ?? o.deleted_media_preview_limit;
+  const deletedMediaPreviewLimit =
+    typeof dmpl === "number" && Number.isFinite(dmpl)
+      ? Math.max(0, Math.floor(dmpl))
+      : deletedMedia.length;
+
+  const dmph = o.deletedMediaPagingHint ?? o.deleted_media_paging_hint;
+  const deletedMediaPagingHint =
+    typeof dmph === "string" && dmph.trim() ? dmph.trim() : undefined;
+
+  return {
+    retentionDays,
+    count,
+    folders,
+    deletedMedia,
+    deletedMediaTotal,
+    deletedMediaPreviewLimit,
+    deletedMediaPagingHint,
+  };
+}
+
+export async function listFoldersMediaTrash(
+  params: ListFoldersMediaTrashParams = {},
+): Promise<ListFoldersMediaTrashResponse> {
+  const qs = new URLSearchParams();
+  if (params.page != null) qs.set("page", String(Math.max(1, Math.floor(params.page))));
+  if (params.limit != null) {
+    qs.set("limit", String(Math.min(500, Math.max(1, Math.floor(params.limit)))));
+  }
+  if (params.folderId?.trim()) qs.set("folderId", params.folderId.trim());
+  const suffix = qs.toString() ? `?${qs.toString()}` : "";
+  const res = await authedFetch(`/api/folders/media/trash${suffix}`, { method: "GET" });
+  const body = await parseJson(res);
+  console.log("[folders:media:trash:list] response", { status: res.status, ok: res.ok, body });
+  if (!res.ok) {
+    throw new FoldersApiError(
+      extractMessage(body, `Failed to load trashed media (${res.status})`),
+      res.status,
+      body,
+    );
+  }
+  const o = body && typeof body === "object" ? (body as Record<string, unknown>) : {};
+  const rawItems = Array.isArray(o.items)
+    ? o.items
+    : Array.isArray(o.media)
+      ? o.media
+      : Array.isArray(o.deletedMedia)
+        ? o.deletedMedia
+        : Array.isArray(o.rows)
+          ? o.rows
+          : Array.isArray(o.data)
+            ? o.data
+            : [];
+  const items = parseTrashMediaRowList(rawItems);
+
+  const totalRaw = o.total ?? o.count ?? o.deletedMediaTotal ?? o.totalCount;
+  const total =
+    typeof totalRaw === "number" && Number.isFinite(totalRaw)
+      ? Math.max(0, Math.floor(totalRaw))
+      : items.length;
+
+  const pageRaw = o.page ?? o.currentPage ?? o.current_page;
+  const page =
+    typeof pageRaw === "number" && Number.isFinite(pageRaw)
+      ? Math.max(1, Math.floor(pageRaw))
+      : 1;
+
+  const limitRaw = o.limit ?? o.pageSize ?? o.page_size;
+  const limit =
+    typeof limitRaw === "number" && Number.isFinite(limitRaw)
+      ? Math.max(1, Math.floor(limitRaw))
+      : params.limit ?? 50;
+
+  return { items, total, page, limit };
+}
+
+/** Restore a gallery from trash (`POST /api/folders/:id/restore`). */
+export async function restoreFolderFromTrash(folderId: string): Promise<ApiFolder> {
+  const res = await authedFetch(`/api/folders/${encodeURIComponent(folderId)}/restore`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: "{}",
+  });
+  const body = await parseJson(res);
+  console.log("[folders:restore] response", { status: res.status, ok: res.ok, body });
+  if (!res.ok) {
+    throw new FoldersApiError(
+      extractMessage(body, `Restore failed (${res.status})`),
+      res.status,
+      body,
+    );
+  }
+  if (body && typeof body === "object" && "folder" in body) {
+    return (body as { folder: ApiFolder }).folder;
+  }
+  return body as ApiFolder;
+}
+
+/** Restore a single soft-deleted media row (`POST /api/folders/:folderId/media/:mediaId/restore`). */
+export async function restoreFolderTrashedMedia(
+  folderId: string,
+  mediaId: string,
+): Promise<{ message: string; kind: string; mediaId: string }> {
+  const res = await authedFetch(
+    `/api/folders/${encodeURIComponent(folderId)}/media/${encodeURIComponent(mediaId)}/restore`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    },
+  );
+  const body = await parseJson(res);
+  console.log("[folders:media:restore] response", { status: res.status, ok: res.ok, body });
+  if (!res.ok) {
+    throw new FoldersApiError(
+      extractMessage(body, `Restore failed (${res.status})`),
+      res.status,
+      body,
+    );
+  }
+  const o = body && typeof body === "object" ? (body as Record<string, unknown>) : {};
+  return {
+    message: extractMessage(body, "Media restored"),
+    kind: typeof o.kind === "string" ? o.kind : "",
+    mediaId:
+      typeof o.mediaId === "string"
+        ? o.mediaId
+        : typeof o.media_id === "string"
+          ? o.media_id
+          : mediaId,
+  };
+}
+
+function parseTrashPurgeResult(body: unknown): TrashPurgeResult {
+  const o = body && typeof body === "object" ? (body as Record<string, unknown>) : {};
+  const skippedRaw = o.skipped;
+  const skipped: TrashPurgeSkippedItem[] = [];
+  if (Array.isArray(skippedRaw)) {
+    for (const item of skippedRaw) {
+      if (!item || typeof item !== "object") continue;
+      const s = item as Record<string, unknown>;
+      const reason = typeof s.reason === "string" ? s.reason : "";
+      skipped.push({
+        folderId:
+          typeof s.folderId === "string"
+            ? s.folderId
+            : typeof s.folder_id === "string"
+              ? s.folder_id
+              : undefined,
+        mediaId:
+          typeof s.mediaId === "string"
+            ? s.mediaId
+            : typeof s.media_id === "string"
+              ? s.media_id
+              : undefined,
+        reason,
+      });
+    }
+  }
+  const pfc = o.purgedFolderCount ?? o.purged_folder_count;
+  const pmc = o.purgedMediaCount ?? o.purged_media_count;
+  return {
+    message: extractMessage(body, "Trash purge completed."),
+    purgedFolderCount:
+      typeof pfc === "number" && Number.isFinite(pfc) ? Math.max(0, Math.floor(pfc)) : 0,
+    purgedMediaCount:
+      typeof pmc === "number" && Number.isFinite(pmc) ? Math.max(0, Math.floor(pmc)) : 0,
+    skipped: skipped.length ? skipped : undefined,
+  };
+}
+
+function buildPurgeTrashJsonBody(payload: PurgeFoldersTrashPayload): Record<string, unknown> {
+  if ("all" in payload && payload.all === true) {
+    return { all: true };
+  }
+  if ("purgeAll" in payload && payload.purgeAll === true) {
+    return { purgeAll: true };
+  }
+  const sel = payload as { folderIds?: string[]; mediaIds?: string[] };
+  const folderIds = sel.folderIds ?? [];
+  const mediaIds = sel.mediaIds ?? [];
+  const body: Record<string, unknown> = {};
+  const f = folderIds.filter((id) => typeof id === "string" && id.trim());
+  const m = mediaIds.filter((id) => typeof id === "string" && id.trim());
+  if (f.length) body.folderIds = f;
+  if (m.length) body.mediaIds = m;
+  return body;
+}
+
+/**
+ * Permanently purge soft-deleted folders and/or media (`POST /api/folders/trash/purge`).
+ * Use `{ all: true }` to empty all trash, or pass `folderIds` / `mediaIds` for a partial purge.
+ */
+export async function purgeFoldersTrash(payload: PurgeFoldersTrashPayload): Promise<TrashPurgeResult> {
+  const jsonBody = buildPurgeTrashJsonBody(payload);
+  const res = await authedFetch("/api/folders/trash/purge", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(jsonBody),
+  });
+  const body = await parseJson(res);
+  console.log("[folders:trash:purge] response", { status: res.status, ok: res.ok, body });
+  if (!res.ok) {
+    throw new FoldersApiError(
+      extractMessage(body, `Trash purge failed (${res.status})`),
+      res.status,
+      body,
+    );
+  }
+  return parseTrashPurgeResult(body);
 }
 
 export async function listFolders(params: {
@@ -401,7 +934,7 @@ export async function updateFolder(
   return body as ApiFolder;
 }
 
-export async function deleteFolder(id: string): Promise<void> {
+export async function deleteFolder(id: string): Promise<FolderMoveToTrashResult> {
   const res = await authedFetch(`/api/folders/${encodeURIComponent(id)}`, {
     method: "DELETE",
   });
@@ -409,11 +942,26 @@ export async function deleteFolder(id: string): Promise<void> {
   console.log("[folders:delete] response", { status: res.status, ok: res.ok, body });
   if (!res.ok) {
     throw new FoldersApiError(
-      extractMessage(body, `Failed to delete folder (${res.status})`),
+      extractMessage(body, `Failed to move gallery to trash (${res.status})`),
       res.status,
       body,
     );
   }
+  const o = body && typeof body === "object" ? (body as Record<string, unknown>) : {};
+  const folderRaw = o.folder;
+  if (!folderRaw || typeof folderRaw !== "object") {
+    throw new FoldersApiError("Invalid response from server.", res.status, body);
+  }
+  return {
+    message: extractMessage(
+      body,
+      "Gallery moved to trash; restore within the retention window or it will be permanently deleted.",
+    ),
+    deletedAt: readIsoField(o, "deletedAt", "deleted_at"),
+    restoreBefore: readIsoField(o, "restoreBefore", "restore_before"),
+    retentionDays: readRetentionDays(o),
+    folder: folderRaw as ApiFolder,
+  };
 }
 
 /** Multipart PUT: field `backgroundMusic` (one file). Replaces any previous track. */
@@ -920,7 +1468,10 @@ export async function unlockFolderFinalDelivery(folderId: string): Promise<ApiFo
   return unwrapFolder(body);
 }
 
-export async function deleteFolderRawMedia(folderId: string, mediaId: string): Promise<void> {
+export async function deleteFolderRawMedia(
+  folderId: string,
+  mediaId: string,
+): Promise<MediaSoftDeleteResult> {
   const res = await authedFetch(
     `/api/folders/${encodeURIComponent(folderId)}/media/raw/${encodeURIComponent(mediaId)}`,
     { method: "DELETE" },
@@ -934,9 +1485,13 @@ export async function deleteFolderRawMedia(folderId: string, mediaId: string): P
       body,
     );
   }
+  return parseMediaSoftDelete(body, "raw");
 }
 
-export async function deleteFolderFinalMedia(folderId: string, mediaId: string): Promise<void> {
+export async function deleteFolderFinalMedia(
+  folderId: string,
+  mediaId: string,
+): Promise<MediaSoftDeleteResult> {
   const res = await authedFetch(
     `/api/folders/${encodeURIComponent(folderId)}/media/final/${encodeURIComponent(mediaId)}`,
     { method: "DELETE" },
@@ -950,10 +1505,11 @@ export async function deleteFolderFinalMedia(folderId: string, mediaId: string):
       body,
     );
   }
+  return parseMediaSoftDelete(body, "final");
 }
 
 /** Deletes every raw upload in the folder (`DELETE …/media/raw`). */
-export async function deleteAllFolderRawMedia(folderId: string): Promise<void> {
+export async function deleteAllFolderRawMedia(folderId: string): Promise<BulkMediaSoftDeleteResult> {
   const res = await authedFetch(
     `/api/folders/${encodeURIComponent(folderId)}/media/raw`,
     { method: "DELETE" },
@@ -967,10 +1523,13 @@ export async function deleteAllFolderRawMedia(folderId: string): Promise<void> {
       body,
     );
   }
+  return parseBulkMediaSoftDelete(body);
 }
 
 /** Deletes every final in the folder (`DELETE …/media/final`). */
-export async function deleteAllFolderFinalMedia(folderId: string): Promise<void> {
+export async function deleteAllFolderFinalMedia(
+  folderId: string,
+): Promise<BulkMediaSoftDeleteResult> {
   const res = await authedFetch(
     `/api/folders/${encodeURIComponent(folderId)}/media/final`,
     { method: "DELETE" },
@@ -984,6 +1543,7 @@ export async function deleteAllFolderFinalMedia(folderId: string): Promise<void>
       body,
     );
   }
+  return parseBulkMediaSoftDelete(body);
 }
 
 export async function patchFolderStatus(folderId: string, status: string): Promise<ApiFolder> {

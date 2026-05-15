@@ -27,6 +27,7 @@ import {
   MessageSquare,
   Search,
   Settings,
+  Trash2,
   UserRound,
   Users,
   X,
@@ -63,7 +64,14 @@ const WORKSPACE_NAV: ShellNavItem[] = [
     label: "Galleries",
     icon: GalleryHorizontal,
     isActive: (p) =>
-      p.startsWith("/dashboard/galleries") || p.startsWith("/dashboard/folder"),
+      (p.startsWith("/dashboard/galleries") && !p.startsWith("/dashboard/galleries/trash")) ||
+      p.startsWith("/dashboard/folder"),
+  },
+  {
+    href: "/dashboard/galleries/trash",
+    label: "Trash",
+    icon: Trash2,
+    isActive: (p) => p.startsWith("/dashboard/galleries/trash"),
   },
   {
     href: "/dashboard/storage",
