@@ -1,5 +1,6 @@
 import { apiUrl, API_BASE_URL, sameOriginUploadsUrl } from "@/lib/api";
 import { parseFolderCoverFocal } from "@/lib/folders-api";
+import { extractMessage, HttpError, parseJson } from "@/lib/http";
 
 export type ShareGalleryAsset = {
   id: string;
@@ -55,34 +56,7 @@ export type NormalizedShareGallery = {
 
 type Raw = Record<string, unknown>;
 
-export class ShareGalleryError extends Error {
-  status: number;
-  body: unknown;
-
-  constructor(message: string, status: number, body: unknown) {
-    super(message);
-    this.status = status;
-    this.body = body;
-  }
-}
-
-async function parseJson(res: Response): Promise<unknown> {
-  try {
-    return await res.json();
-  } catch {
-    return null;
-  }
-}
-
-function extractMessage(body: unknown, fallback: string): string {
-  if (body && typeof body === "object") {
-    const o = body as Record<string, unknown>;
-    if (typeof o.message === "string" && o.message.trim()) return o.message;
-    if (typeof o.error === "string" && o.error.trim()) return o.error;
-    if (typeof o.detail === "string" && o.detail.trim()) return o.detail;
-  }
-  return fallback;
-}
+export class ShareGalleryError extends HttpError {}
 
 function str(v: unknown): string {
   return typeof v === "string" ? v : "";
@@ -171,6 +145,7 @@ function assetFromRow(item: unknown, idx: number): ShareGalleryAsset | null {
     `Photo ${idx + 1}`;
   const smallThumb =
     str(o.thumbUrl) ||
+    str(o.thumbnailUrl) ||
     str(o.thumbnail) ||
     str(o.thumb) ||
     "";
@@ -551,7 +526,6 @@ export async function getShareGallery(
       : { cache: "no-store" }),
   });
   const body = await parseJson(res);
-  console.log("[share:get]", { path, status: res.status, ok: res.ok, body });
   if (!res.ok) {
     throw new ShareGalleryError(
       extractMessage(body, `Gallery could not be loaded (${res.status})`),
@@ -583,7 +557,6 @@ export async function postShareGallerySelection(
     signal,
   });
   const body = await parseJson(res);
-  console.log("[share:selections:post]", { path, status: res.status, body });
   if (!res.ok) {
     throw new ShareGalleryError(
       extractMessage(body, `Could not update selection (${res.status})`),
@@ -610,7 +583,6 @@ export async function syncShareGallerySelections(
     signal,
   });
   const body = await parseJson(res);
-  console.log("[share:selections:sync]", { path, status: res.status, body });
   if (!res.ok) {
     throw new ShareGalleryError(
       extractMessage(body, `Could not sync selections (${res.status})`),
@@ -631,7 +603,6 @@ export async function clearShareGallerySelections(
   const path = `/api/share/${encodeURIComponent(shareToken)}/selections/`;
   const res = await fetch(apiUrl(path), { method: "DELETE", signal });
   const body = await parseJson(res);
-  console.log("[share:selections:clear]", { path, status: res.status, body });
   if (!res.ok) {
     throw new ShareGalleryError(
       extractMessage(body, `Could not clear selections (${res.status})`),
@@ -652,7 +623,6 @@ export async function submitShareGallerySelectionsToPhotographer(
   const path = `/api/share/${encodeURIComponent(shareToken)}/selections/submit`;
   const res = await fetch(apiUrl(path), { method: "POST", signal });
   const body = await parseJson(res);
-  console.log("[share:selections:submit]", { path, status: res.status, body });
   if (!res.ok) {
     throw new ShareGalleryError(
       extractMessage(body, `Could not submit selections (${res.status})`),

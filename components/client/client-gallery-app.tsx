@@ -2,7 +2,44 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
+import {
+  CalendarDays,
+  Check,
+  Copy,
+  Download,
+  Heart,
+  LayoutGrid,
+  Loader2,
+  Lock,
+  Send,
+  Share2,
+  Volume2,
+  VolumeX,
+} from "lucide-react";
+import {
+  clientInitials,
+  editedCardClass,
+  finalDisplaySrc,
+  GALLERY_MUSIC_MUTE_PREFIX,
+  GRID_LAYOUTS,
+  GRID_STORAGE_PREFIX,
+  galleryListClass,
+  isGridLayout,
+  isShareFinalVideo,
+  SELECTED_STRIP_IMAGE_SIZES,
+  SHARE_GRID_IMAGE_QUALITY,
+  SHARE_LIGHTBOX_IMAGE_QUALITY,
+  SHARE_LIGHTBOX_SIZES,
+  shareGalleryGridSizes,
+  toDemoAssets,
+  uploadImageWrapClass,
+  uploadItemClass,
+  type GridLayout,
+} from "@/components/client/share-gallery-bits";
+import { useToast } from "@/components/toast-provider";
+import { ClientGalleryPageSkeleton, InlineStatusSkeleton } from "@/components/ui/skeletons";
 import type { DemoAsset, SelectionState } from "@/lib/demo-data";
+import { folderCoverObjectPositionStyle, type ApiFolder } from "@/lib/folders-api";
 import {
   fetchShareFinalDownloadBlob,
   tryNavigatorShareFinalPhoto,
@@ -17,188 +54,9 @@ import {
   type ShareGalleryAsset,
   type ShareGalleryFinal,
 } from "@/lib/share-gallery-api";
-import { useToast } from "@/components/toast-provider";
-import { cn } from "@/lib/utils";
 import { usePreferInlineFinalSave } from "@/lib/use-prefer-inline-final-save";
 import { useShareSaveHints } from "@/lib/use-share-save-hints";
-import { folderCoverObjectPositionStyle, type ApiFolder } from "@/lib/folders-api";
-import {
-  CalendarDays,
-  Check,
-  Copy,
-  Columns3,
-  Download,
-  Focus,
-  GalleryHorizontal,
-  Heart,
-  LayoutGrid,
-  Loader2,
-  Lock,
-  PanelsTopLeft,
-  Send,
-  Share2,
-  Volume2,
-  VolumeX,
-} from "lucide-react";
-import { ClientGalleryPageSkeleton, InlineStatusSkeleton } from "@/components/ui/skeletons";
-
-const GRID_STORAGE_PREFIX = "gidostorage-share-grid:";
-const GALLERY_MUSIC_MUTE_PREFIX = "gidostorage-share-music-muted:";
-
-type GridLayout = "uniform" | "masonry" | "block" | "filmstrip" | "spotlight";
-
-const GRID_LAYOUTS: {
-  id: GridLayout;
-  label: string;
-  shortLabel: string;
-  description: string;
-  icon: typeof LayoutGrid;
-}[] = [
-  {
-    id: "spotlight",
-    label: "Spotlight",
-    shortLabel: "Hero",
-    description: "Feature the first image prominently",
-    icon: Focus,
-  },
-  {
-    id: "uniform",
-    label: "Standard grid",
-    shortLabel: "Grid",
-    description: "Even rows of uniform thumbnails",
-    icon: LayoutGrid,
-  },
-  {
-    id: "masonry",
-    label: "Masonry",
-    shortLabel: "Masonry",
-    description: "Flowing columns like a collage",
-    icon: Columns3,
-  },
-  {
-    id: "block",
-    label: "Block grid",
-    shortLabel: "Blocks",
-    description: "Larger tiles with generous spacing",
-    icon: PanelsTopLeft,
-  },
-  {
-    id: "filmstrip",
-    label: "Filmstrip",
-    shortLabel: "Strip",
-    description: "Swipe horizontally through photos",
-    icon: GalleryHorizontal,
-  },
-];
-
-function isGridLayout(v: string): v is GridLayout {
-  return GRID_LAYOUTS.some((x) => x.id === v);
-}
-
-function galleryListClass(layout: GridLayout): string {
-  switch (layout) {
-    case "uniform":
-      return "grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6";
-    case "masonry":
-      return "columns-2 gap-x-3 sm:columns-3 md:columns-4 lg:columns-5 xl:columns-6 [column-fill:_balance]";
-    case "block":
-      return "grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:gap-8";
-    case "filmstrip":
-      return "flex flex-row flex-nowrap gap-4 overflow-x-auto pb-3 pt-1 [-webkit-overflow-scrolling:touch] snap-x snap-mandatory px-0.5";
-    case "spotlight":
-      return "grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3";
-    default:
-      return "";
-  }
-}
-
-function uploadItemClass(layout: GridLayout, index: number, isSelected: boolean): string {
-  const ring = isSelected
-    ? "border-brand-on-dark ring-2 ring-brand-soft dark:border-brand dark:ring-brand/40"
-    : "border-zinc-200 dark:border-zinc-800";
-  const base = `group overflow-hidden rounded-xl border bg-white shadow-sm transition dark:bg-zinc-950 ${ring}`;
-  if (layout === "spotlight" && index === 0) {
-    return `${base} col-span-2 row-span-2 flex flex-col sm:min-h-[min(72vw,400px)]`;
-  }
-  if (layout === "masonry") {
-    return `${base} mb-3 break-inside-avoid`;
-  }
-  if (layout === "filmstrip") {
-    return `${base} w-[min(85vw,22rem)] shrink-0 snap-start sm:w-80`;
-  }
-  return base;
-}
-
-function editedCardClass(layout: GridLayout, index: number): string {
-  const base =
-    "overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-950";
-  if (layout === "spotlight" && index === 0) {
-    return `${base} col-span-2 row-span-2 flex flex-col sm:min-h-[min(72vw,420px)]`;
-  }
-  if (layout === "masonry") {
-    return `${base} mb-3 break-inside-avoid`;
-  }
-  if (layout === "filmstrip") {
-    return `${base} w-[min(85vw,22rem)] shrink-0 snap-start sm:w-80`;
-  }
-  return base;
-}
-
-function uploadImageWrapClass(layout: GridLayout, index: number): string {
-  if (layout === "block") {
-    return "relative aspect-[5/6] sm:aspect-square";
-  }
-  if (layout === "spotlight" && index === 0) {
-    return "relative aspect-[5/4] w-full flex-1 sm:aspect-auto sm:min-h-[280px]";
-  }
-  return "relative aspect-square";
-}
-
-function editedImageClass(layout: GridLayout, index: number): string {
-  if (layout === "spotlight" && index === 0) {
-    return "aspect-[5/4] w-full object-cover sm:aspect-auto sm:min-h-[280px] sm:h-full";
-  }
-  if (layout === "block") {
-    return "aspect-[5/6] w-full object-cover sm:aspect-square";
-  }
-  return "aspect-square w-full object-cover";
-}
-
-function clientInitials(name: string): string {
-  const t = name.trim();
-  if (!t) return "?";
-  const parts = t.split(/\s+/).filter(Boolean);
-  if (parts.length >= 2) {
-    const a = parts[0]?.[0];
-    const b = parts[parts.length - 1]?.[0];
-    if (a && b) return `${a}${b}`.toUpperCase();
-  }
-  return t.slice(0, 2).toUpperCase();
-}
-
-function toDemoAssets(shareAssets: ShareGalleryAsset[]): DemoAsset[] {
-  return shareAssets.map((a) => ({
-    id: a.id,
-    originalName: a.originalName,
-    selection: a.selection as SelectionState,
-    editState: "NONE",
-    clientComment: "",
-    hasEdited: false,
-    thumbUrl: a.thumbUrl,
-    ...(a.previewUrl ? { previewUrl: a.previewUrl } : {}),
-  }));
-}
-
-function finalDisplaySrc(f: ShareGalleryFinal, shareToken: string): string {
-  const locked = Boolean(f.locked);
-  return locked ? f.lockedPreviewUrl || getShareFinalLockedPreviewUrl(shareToken, f.id) : f.url;
-}
-
-/** Unlocked originals may be video; locked delivery always uses the JPEG locked-preview URL. */
-function isShareFinalVideo(f: ShareGalleryFinal): boolean {
-  const m = f.mimeType?.toLowerCase() ?? "";
-  return m.startsWith("video/");
-}
+import { cn } from "@/lib/utils";
 
 export function ClientGalleryApp({ token }: { token: string }) {
   const { showToast } = useToast();
@@ -850,11 +708,15 @@ export function ClientGalleryApp({ token }: { token: string }) {
             className="relative isolate flex min-h-[100svh] min-h-[100dvh] w-full flex-col"
             aria-label="Gallery cover"
           >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
+            <Image
               src={gallery.coverImageUrl}
               alt={displayTitle ? `Cover — ${displayTitle}` : "Gallery cover"}
-              className="absolute inset-0 h-full w-full object-cover"
+              fill
+              priority
+              fetchPriority="high"
+              sizes="100vw"
+              quality={SHARE_LIGHTBOX_IMAGE_QUALITY}
+              className="absolute inset-0 object-cover"
               style={folderCoverObjectPositionStyle({
                 _id: gallery.folderId ?? "",
                 client: "",
@@ -1132,11 +994,13 @@ export function ClientGalleryApp({ token }: { token: string }) {
                     className="relative block h-full w-full"
                     onClick={() => openLb(a.id)}
                   >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
+                    <Image
                       src={a.thumbUrl}
                       alt=""
-                      className="h-full w-full object-cover transition group-hover:brightness-95"
+                      fill
+                      sizes={SELECTED_STRIP_IMAGE_SIZES}
+                      quality={SHARE_GRID_IMAGE_QUALITY}
+                      className="object-cover transition group-hover:brightness-95"
                     />
                     <span className="sr-only">Open {a.originalName}</span>
                   </button>
@@ -1249,11 +1113,11 @@ export function ClientGalleryApp({ token }: { token: string }) {
                 const showUnlockedVideo = !locked && isShareFinalVideo(f);
                 return (
                   <li key={f.id} className={`flex flex-col ${editedCardClass(gridLayout, index)}`}>
-                    <div className="relative">
+                    <div className={uploadImageWrapClass(gridLayout, index)}>
                       <button
                         type="button"
                         onClick={() => openFinalLb(f.id)}
-                        className="block w-full border-0 bg-transparent p-0 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 dark:focus-visible:ring-brand-on-dark"
+                        className="absolute inset-0 block h-full w-full border-0 bg-transparent p-0 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 dark:focus-visible:ring-brand-on-dark"
                       >
                         {showUnlockedVideo ? (
                           <video
@@ -1263,23 +1127,21 @@ export function ClientGalleryApp({ token }: { token: string }) {
                             playsInline
                             preload="metadata"
                             aria-label={f.name}
-                            className={cn(
-                              editedImageClass(gridLayout, index),
-                              "cursor-zoom-in bg-black",
-                              "pointer-events-none",
-                            )}
+                            className="absolute inset-0 h-full w-full cursor-zoom-in bg-black object-cover pointer-events-none"
                           />
                         ) : (
-                          /* eslint-disable-next-line @next/next/no-img-element */
-                          <img
+                          <Image
                             src={imgSrc}
                             alt={f.name}
+                            fill
+                            sizes={shareGalleryGridSizes(gridLayout, index)}
+                            quality={SHARE_GRID_IMAGE_QUALITY}
+                            priority={index < 10}
+                            draggable={!locked}
                             className={cn(
-                              editedImageClass(gridLayout, index),
-                              "cursor-zoom-in",
+                              "cursor-zoom-in object-cover",
                               locked && "select-none",
                             )}
-                            draggable={!locked}
                             onContextMenu={(e) => {
                               if (locked) e.preventDefault();
                             }}
@@ -1355,14 +1217,17 @@ export function ClientGalleryApp({ token }: { token: string }) {
                 <div className={uploadImageWrapClass(gridLayout, index)}>
                   <button
                     type="button"
-                    className="block h-full w-full text-left"
+                    className="absolute inset-0 block h-full w-full text-left"
                     onClick={() => openLb(a.id)}
                   >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
+                    <Image
                       src={a.thumbUrl}
                       alt={a.originalName}
-                      className="h-full w-full object-cover transition group-hover:brightness-[0.97]"
+                      fill
+                      sizes={shareGalleryGridSizes(gridLayout, index)}
+                      quality={SHARE_GRID_IMAGE_QUALITY}
+                      priority={index < 10}
+                      className="object-cover transition group-hover:brightness-[0.97]"
                     />
                   </button>
 
@@ -1428,12 +1293,15 @@ export function ClientGalleryApp({ token }: { token: string }) {
               </button>
             </div>
             <div className="flex flex-1 items-center justify-center overflow-auto">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
+              <Image
                 src={lbAsset.previewUrl ?? lbAsset.thumbUrl}
                 alt={lbAsset.originalName}
+                width={1920}
+                height={1920}
+                sizes={SHARE_LIGHTBOX_SIZES}
+                quality={SHARE_LIGHTBOX_IMAGE_QUALITY}
                 className={cn(
-                  "max-h-[75vh] max-w-full object-contain transition-transform duration-200",
+                  "h-auto max-h-[75vh] w-auto max-w-full object-contain transition-transform duration-200",
                   gallery.rightsProtection && "select-none",
                 )}
                 style={{ transform: `scale(${zoom})` }}
@@ -1544,12 +1412,15 @@ export function ClientGalleryApp({ token }: { token: string }) {
                   }}
                 />
               ) : (
-                /* eslint-disable-next-line @next/next/no-img-element */
-                <img
+                <Image
                   src={finalDisplaySrc(finalLb, token)}
                   alt={finalLb.name}
+                  width={1920}
+                  height={1920}
+                  sizes={SHARE_LIGHTBOX_SIZES}
+                  quality={SHARE_LIGHTBOX_IMAGE_QUALITY}
                   className={cn(
-                    "max-h-[75vh] max-w-full object-contain transition-transform duration-200",
+                    "h-auto max-h-[75vh] w-auto max-w-full object-contain transition-transform duration-200",
                     gallery.rightsProtection && "select-none",
                     finalLb.locked && "select-none",
                   )}
@@ -1671,12 +1542,15 @@ export function ClientGalleryApp({ token }: { token: string }) {
               </button>
             </div>
             <div className="flex flex-1 items-center justify-center overflow-auto">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
+              <Image
                 src={gallery.coverImageUrl}
                 alt={displayTitle ? `Cover — ${displayTitle}` : "Gallery cover"}
+                width={1920}
+                height={1920}
+                sizes={SHARE_LIGHTBOX_SIZES}
+                quality={SHARE_LIGHTBOX_IMAGE_QUALITY}
                 className={cn(
-                  "max-h-[75vh] max-w-full object-contain object-center transition-transform duration-200",
+                  "h-auto max-h-[75vh] w-auto max-w-full object-contain object-center transition-transform duration-200",
                   gallery.rightsProtection && "select-none",
                 )}
                 style={{

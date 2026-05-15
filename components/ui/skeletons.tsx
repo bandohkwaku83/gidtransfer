@@ -67,15 +67,36 @@ function GalleryOgSafeImageTileSkeleton() {
   );
 }
 
-/** Client share gallery full-screen load. */
+/**
+ * Tailwind-only shimmer block (no AntD).
+ * Used inside the public share-route skeletons so `/g/[token]` and `/share/[code]` do not
+ * pull AntD into their JS bundles.
+ */
+function TwShimmer({ className }: { className?: string }) {
+  return (
+    <div
+      aria-hidden
+      className={cn(
+        "animate-pulse rounded-md bg-zinc-200/80 dark:bg-zinc-800/80",
+        className,
+      )}
+    />
+  );
+}
+
+/** Client share gallery full-screen load (AntD-free; loaded by `/g/[token]`). */
 export function ClientGalleryPageSkeleton() {
   return (
     <div className="flex min-h-screen flex-col bg-zinc-50 dark:bg-black">
       <div className="border-b border-zinc-200 bg-white px-4 py-4 dark:border-zinc-800 dark:bg-zinc-950 lg:px-8">
-        <Skeleton.Input active size="large" style={{ width: 160, height: 32 }} />
+        <TwShimmer className="h-8 w-40" />
       </div>
-      <div className={cn("mx-auto flex w-full max-w-6xl flex-1 flex-col gap-6 px-4 py-8 lg:px-8", darkSkeleton)}>
-        <Skeleton active title={{ width: "40%" }} paragraph={{ rows: 2, width: ["100%", "70%"] }} />
+      <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-6 px-4 py-8 lg:px-8">
+        <div className="space-y-3">
+          <TwShimmer className="h-6 w-2/5" />
+          <TwShimmer className="h-4 w-full" />
+          <TwShimmer className="h-4 w-7/12" />
+        </div>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
           {Array.from({ length: 8 }).map((_, i) => (
             <GalleryOgSafeImageTileSkeleton key={i} />
@@ -123,12 +144,17 @@ export function ListRefreshSkeleton() {
   );
 }
 
-/** Header / banner “activity” indicator while a request runs (replaces spinners). */
+/**
+ * Header / banner "activity" indicator while a request runs (replaces spinners).
+ * AntD-free so the public share route does not pull AntD into its bundle.
+ */
 export function InlineStatusSkeleton({ size = 16 }: { size?: number }) {
   return (
-    <span className={cn("inline-flex shrink-0", darkSkeleton)} aria-hidden>
-      <Skeleton.Avatar active size={size} shape="circle" />
-    </span>
+    <span
+      aria-hidden
+      className="inline-flex shrink-0 animate-pulse rounded-full bg-zinc-200/85 dark:bg-zinc-700/85"
+      style={{ width: size, height: size }}
+    />
   );
 }
 

@@ -1,7 +1,6 @@
-import { apiUrl } from "@/lib/api";
-import { clearAuth, getAuthToken } from "@/lib/auth-demo";
 import type { ApiClient } from "@/lib/clients-api";
 import type { ApiFolder } from "@/lib/folders-api";
+import { authedFetch, extractMessage, HttpError, parseJson } from "@/lib/http";
 
 export type DashboardUser = {
   _id: string;
@@ -42,16 +41,7 @@ export type DashboardResponse = {
   activity: DashboardActivityItem[];
 };
 
-export class DashboardApiError extends Error {
-  status: number;
-  body: unknown;
-
-  constructor(message: string, status: number, body: unknown) {
-    super(message);
-    this.status = status;
-    this.body = body;
-  }
-}
+export class DashboardApiError extends HttpError {}
 
 /** Map dashboard recent gallery row to {@link ApiFolder} for shared card UI. */
 export function dashboardRecentGalleryToApiFolder(g: DashboardRecentGallery): ApiFolder {
@@ -90,39 +80,14 @@ export const DASHBOARD_HOME_LIST_LIMIT = 6;
  * Prefer returning at least {@link DASHBOARD_HOME_LIST_LIMIT} items each for `recentGalleries` and `activity` so the home grid is filled.
  */
 export async function fetchDashboard(): Promise<DashboardResponse> {
-  const token = getAuthToken();
-  if (!token) {
-    throw new DashboardApiError("Not authenticated", 401, null);
-  }
-
-  const res = await fetch(apiUrl("/api/dashboard"), {
-    method: "GET",
-    headers: { Authorization: `Bearer ${token}` },
-    cache: "no-store",
-  });
-
-  if (res.status === 401) {
-    clearAuth();
-    if (typeof window !== "undefined") {
-      window.location.href = "/login";
-    }
-    throw new DashboardApiError("Your session has expired. Please log in again.", 401, null);
-  }
-
-  let body: unknown = null;
-  try {
-    body = await res.json();
-  } catch {
-    body = null;
-  }
-
+  const res = await authedFetch("/api/dashboard", { method: "GET", cache: "no-store" });
+  const body = await parseJson(res);
   if (!res.ok) {
-    const msg =
-      body && typeof body === "object" && "message" in body && typeof (body as { message: unknown }).message === "string"
-        ? (body as { message: string }).message
-        : `Dashboard request failed (${res.status})`;
-    throw new DashboardApiError(msg, res.status, body);
+    throw new DashboardApiError(
+      extractMessage(body, `Dashboard request failed (${res.status})`),
+      res.status,
+      body,
+    );
   }
-
   return body as DashboardResponse;
 }

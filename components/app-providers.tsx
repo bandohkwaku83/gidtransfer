@@ -3,9 +3,13 @@
 import { AntdRegistry } from "@ant-design/nextjs-registry";
 import { ConfigProvider } from "antd";
 
-import { ToastProvider } from "@/components/toast-provider";
-
-export function AppProviders({ children }: { children: React.ReactNode }) {
+/**
+ * AntD providers (registry + theme).
+ *
+ * Mounted only inside the dashboard layout so public routes (`/g/[token]`,
+ * `/share/[code]`, `/login`, `/`) do not ship AntD in their JS bundles.
+ */
+export function DashboardAntdProviders({ children }: { children: React.ReactNode }) {
   return (
     <AntdRegistry>
       <ConfigProvider
@@ -27,7 +31,7 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
           },
         }}
       >
-        <ToastProvider>{children}</ToastProvider>
+        {children}
       </ConfigProvider>
     </AntdRegistry>
   );

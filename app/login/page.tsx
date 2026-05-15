@@ -77,7 +77,6 @@ export default function LoginPage() {
         body = null;
       }
 
-      console.log("[forgot-password] response", { status: res.status, ok: res.ok, body });
 
       if (!res.ok) {
         const message =
@@ -132,7 +131,6 @@ export default function LoginPage() {
         body = null;
       }
 
-      console.log("[login] response", { status: res.status, ok: res.ok, body });
 
       if (!res.ok) {
         const message =

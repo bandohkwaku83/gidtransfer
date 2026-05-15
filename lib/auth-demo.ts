@@ -56,20 +56,13 @@ export async function logout(): Promise<void> {
   const token = getAuthToken();
   try {
     if (token) {
-      const res = await fetch(apiUrl("/api/auth/logout"), {
+      await fetch(apiUrl("/api/auth/logout"), {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
       });
-      let body: unknown = null;
-      try {
-        body = await res.json();
-      } catch {
-        body = null;
-      }
-      console.log("[logout] response", { status: res.status, ok: res.ok, body });
     }
-  } catch (err) {
-    console.warn("[logout] request failed", err);
+  } catch {
+    /* network/logout failures are non-fatal — local session is cleared below */
   } finally {
     clearAuth();
   }

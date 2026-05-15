@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 
-export const dynamic = "force-dynamic";
-
 function backendBase(): string {
   return (
     process.env.BACKEND_API_URL ??
@@ -10,15 +8,46 @@ function backendBase(): string {
   ).replace(/\/$/, "");
 }
 
+/** Long cache for fingerprinted static media (override per file via upstream headers). */
+const DEFAULT_CACHE_CONTROL = "public, max-age=31536000, immutable";
+
+/** Headers worth forwarding from upstream so caching, conditional GETs, and range scrubbing work. */
+const FORWARD_RESPONSE_HEADERS = [
+  "content-type",
+  "content-length",
+  "content-range",
+  "accept-ranges",
+  "etag",
+  "last-modified",
+] as const;
+
+/** Headers worth forwarding from the inbound browser request (conditional GETs, range scrubbing). */
+const FORWARD_REQUEST_HEADERS = [
+  "range",
+  "if-none-match",
+  "if-modified-since",
+  "accept",
+  "accept-encoding",
+] as const;
+
+function pickRequestHeaders(req: NextRequest): HeadersInit {
+  const out = new Headers();
+  for (const h of FORWARD_REQUEST_HEADERS) {
+    const v = req.headers.get(h);
+    if (v) out.set(h, v);
+  }
+  return out;
+}
+
 /**
- * Same-origin proxy for `/uploads/*` static files. Keeps `<img src>` on the app origin
- * and forwards to BACKEND_API_URL (more reliable than relying only on next.config rewrites
- * for binary responses in some dev setups).
+ * Same-origin proxy for `/uploads/*` static files. Streams the upstream body so a 50 MB raw
+ * does not get buffered in serverless memory, and adds a long `Cache-Control` so the CDN /
+ * browser can hold onto fingerprinted media.
  */
 async function forward(
   request: NextRequest,
   segments: string[],
-  method: string,
+  method: "GET" | "HEAD",
 ): Promise<NextResponse> {
   if (segments.length === 0) {
     return NextResponse.json({ message: "Missing uploads path." }, { status: 404 });
@@ -29,7 +58,10 @@ async function forward(
 
   let res: Response;
   try {
-    res = await fetch(target, { method, cache: "no-store" });
+    res = await fetch(target, {
+      method,
+      headers: pickRequestHeaders(request),
+    });
   } catch {
     return NextResponse.json(
       { message: "Could not reach the storage service. Is the API running?" },
@@ -38,13 +70,14 @@ async function forward(
   }
 
   const outHeaders = new Headers();
-  const ct = res.headers.get("content-type");
-  if (ct) outHeaders.set("content-type", ct);
-  const cc = res.headers.get("cache-control");
-  if (cc) outHeaders.set("cache-control", cc);
+  for (const h of FORWARD_RESPONSE_HEADERS) {
+    const v = res.headers.get(h);
+    if (v) outHeaders.set(h, v);
+  }
+  const upstreamCacheControl = res.headers.get("cache-control");
+  outHeaders.set("cache-control", upstreamCacheControl ?? DEFAULT_CACHE_CONTROL);
 
-  const buf = await res.arrayBuffer();
-  return new NextResponse(buf, {
+  return new NextResponse(res.body, {
     status: res.status,
     headers: outHeaders,
   });

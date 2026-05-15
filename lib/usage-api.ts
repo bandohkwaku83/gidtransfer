@@ -1,5 +1,4 @@
-import { apiUrl } from "@/lib/api";
-import { clearAuth, getAuthToken } from "@/lib/auth-demo";
+import { authedFetch, extractMessage, HttpError, parseJson } from "@/lib/http";
 
 export type UsageCategoryBreakdown = {
   bytes: number;
@@ -40,54 +39,7 @@ export type UsageGalleriesResponse = {
   galleries: UsageGalleryRow[];
 };
 
-export class UsageApiError extends Error {
-  status: number;
-  body: unknown;
-
-  constructor(message: string, status: number, body: unknown) {
-    super(message);
-    this.status = status;
-    this.body = body;
-  }
-}
-
-async function authedFetch(path: string, init: RequestInit = {}): Promise<Response> {
-  const token = getAuthToken();
-  const headers = new Headers(init.headers ?? {});
-  if (token) headers.set("Authorization", `Bearer ${token}`);
-
-  const res = await fetch(apiUrl(path), { ...init, headers });
-
-  if (res.status === 401) {
-    clearAuth();
-    if (typeof window !== "undefined") {
-      window.location.href = "/login";
-    }
-    throw new UsageApiError("Your session has expired. Please log in again.", 401, null);
-  }
-
-  return res;
-}
-
-async function parseJson(res: Response): Promise<unknown> {
-  try {
-    return await res.json();
-  } catch {
-    return null;
-  }
-}
-
-function extractMessage(body: unknown, fallback: string): string {
-  if (
-    body &&
-    typeof body === "object" &&
-    "message" in body &&
-    typeof (body as { message: unknown }).message === "string"
-  ) {
-    return (body as { message: string }).message;
-  }
-  return fallback;
-}
+export class UsageApiError extends HttpError {}
 
 function num(v: unknown): number {
   return typeof v === "number" && Number.isFinite(v) ? v : 0;

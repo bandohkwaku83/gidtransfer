@@ -1,6 +1,5 @@
-import { apiUrl } from "@/lib/api";
-import { clearAuth, getAuthToken } from "@/lib/auth-demo";
 import { ApiError } from "@/lib/clients-api";
+import { authedFetch, extractMessage, parseJson } from "@/lib/http";
 
 /** Notification document from GET /api/notifications (fields may vary by backend). */
 export type ApiNotification = {
@@ -31,40 +30,6 @@ export type ListNotificationsResponse = {
   skip?: number;
   limit?: number;
 };
-
-async function authedFetch(path: string, init: RequestInit = {}): Promise<Response> {
-  const token = getAuthToken();
-  const headers = new Headers(init.headers ?? {});
-  if (token) headers.set("Authorization", `Bearer ${token}`);
-  if (init.body && !headers.has("Content-Type")) {
-    headers.set("Content-Type", "application/json");
-  }
-  const res = await fetch(apiUrl(path), { ...init, headers });
-  if (res.status === 401) {
-    clearAuth();
-    if (typeof window !== "undefined") {
-      window.location.href = "/login";
-    }
-    throw new ApiError("Your session has expired. Please log in again.", 401, null);
-  }
-  return res;
-}
-
-async function parseJson(res: Response): Promise<unknown> {
-  try {
-    return await res.json();
-  } catch {
-    return null;
-  }
-}
-
-function extractMessage(body: unknown, fallback: string): string {
-  if (body && typeof body === "object" && "message" in body) {
-    const m = (body as { message: unknown }).message;
-    if (typeof m === "string" && m.trim()) return m;
-  }
-  return fallback;
-}
 
 export function notificationRecordId(n: ApiNotification): string {
   const id = n._id ?? n.id;

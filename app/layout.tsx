@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Libre_Franklin, Geist_Mono } from "next/font/google";
-import { AppProviders } from "@/components/app-providers";
+import { AppBootstrap } from "@/components/app-bootstrap";
+import { ToastProvider } from "@/components/toast-provider";
 import "./globals.css";
 
 const libreSans = Libre_Franklin({
@@ -32,7 +33,9 @@ export default function RootLayout({
       className={`${libreSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
-        <AppProviders>{children}</AppProviders>
+        <ToastProvider>
+          <AppBootstrap>{children}</AppBootstrap>
+        </ToastProvider>
       </body>
     </html>
   );

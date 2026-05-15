@@ -10,11 +10,43 @@ function backendBase(): string {
   ).replace(/\/$/, "");
 }
 
+/** Headers worth forwarding from upstream (caching + conditional GETs + binary downloads). */
+const FORWARD_RESPONSE_HEADERS = [
+  "content-type",
+  "content-length",
+  "content-range",
+  "content-disposition",
+  "accept-ranges",
+  "etag",
+  "last-modified",
+  "cache-control",
+] as const;
+
+/** Headers worth forwarding from the inbound browser request. */
+const FORWARD_REQUEST_HEADERS = [
+  "range",
+  "if-none-match",
+  "if-modified-since",
+  "accept",
+  "accept-encoding",
+] as const;
+
+function pickRequestHeaders(req: NextRequest, contentType: string | null): HeadersInit {
+  const out = new Headers();
+  for (const h of FORWARD_REQUEST_HEADERS) {
+    const v = req.headers.get(h);
+    if (v) out.set(h, v);
+  }
+  if (contentType) out.set("content-type", contentType);
+  return out;
+}
+
 /**
- * Server-side proxy for public client gallery APIs.
- * Browser requests stay same-origin (`/api/share/...`); this handler forwards to
- * the real API. Relying only on `next.config` rewrites for client `fetch` is unreliable
- * in some Next.js / Turbopack setups.
+ * Server-side proxy for public client gallery APIs (`/api/share/...`).
+ *
+ * Streams the upstream body (`res.body` passthrough) instead of buffering everything in
+ * memory — important for selection ZIP downloads and large JSON payloads. Forwards
+ * conditional / range headers so clients can resume / scrub.
  */
 async function forward(
   request: NextRequest,
@@ -33,11 +65,12 @@ async function forward(
     cache: "no-store",
   };
 
+  const contentType = request.headers.get("content-type");
+  init.headers = pickRequestHeaders(request, method !== "GET" && method !== "HEAD" ? contentType : null);
+
   if (method !== "GET" && method !== "HEAD") {
     const body = await request.arrayBuffer();
     if (body.byteLength) init.body = body;
-    const ct = request.headers.get("content-type");
-    init.headers = ct ? { "content-type": ct } : undefined;
   }
 
   let res: Response;
@@ -51,11 +84,12 @@ async function forward(
   }
 
   const outHeaders = new Headers();
-  const ct = res.headers.get("content-type");
-  if (ct) outHeaders.set("content-type", ct);
+  for (const h of FORWARD_RESPONSE_HEADERS) {
+    const v = res.headers.get(h);
+    if (v) outHeaders.set(h, v);
+  }
 
-  const buf = await res.arrayBuffer();
-  return new NextResponse(buf, {
+  return new NextResponse(res.body, {
     status: res.status,
     headers: outHeaders,
   });

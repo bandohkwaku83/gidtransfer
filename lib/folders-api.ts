@@ -1,266 +1,35 @@
-import { apiUrl, API_BASE_URL, sameOriginUploadsUrl } from "@/lib/api";
+import { apiUrl, sameOriginUploadsUrl } from "@/lib/api";
 import { clearAuth, getAuthToken } from "@/lib/auth-demo";
-import type { ApiClient } from "@/lib/clients-api";
-import type { DemoAsset, DemoFinalAsset, FolderStatus } from "@/lib/demo-data";
-import type { DuplicateUploadAction } from "@/lib/upload-preferences";
+import { authedFetch, extractMessage, parseJson } from "@/lib/http";
 
-export type { DuplicateUploadAction } from "@/lib/upload-preferences";
+import {
+  resolveCoverUrl,
+  type FolderMediaDuplicatePreviewKind,
+} from "@/lib/folders/helpers";
+import {
+  type ApiFolder,
+  type ApiFolderMedia,
+  type BulkMediaSoftDeleteResult,
+  type CreateFolderInput,
+  type DuplicateUploadAction,
+  FoldersApiError,
+  type FolderMoveToTrashResult,
+  type ListFoldersResponse,
+  type ListFoldersTrashResponse,
+  type ListFoldersMediaTrashParams,
+  type ListFoldersMediaTrashResponse,
+  type MediaSoftDeleteResult,
+  type PurgeFoldersTrashPayload,
+  type TrashFolderRow,
+  type TrashMediaRow,
+  type TrashPurgeResult,
+  type TrashPurgeSkippedItem,
+  type UpdateFolderInput,
+} from "@/lib/folders/types";
 
-export type ApiFolderShare = {
-  enabled?: boolean;
-  code?: string;
-  slug?: string;
-  sharedAt?: string | null;
-  expiresAt?: string | null;
-  viewCount?: number;
-  linkExpiryPreset?: string | null;
-  selectionSubmittedAt?: string | null;
-  selectionLocked?: boolean;
-  /** When true, client share treats finals as payment-locked until unlock (some backends nest here). */
-  finalsLocked?: boolean;
-};
-
-/**
- * Raw / selection / final media row from folder detail API (shape may vary).
- * See `docs/backend-api-watermark-and-media.md`: `url` vs `displayUrl`, nested `selection[].raw`.
- */
-export type ApiFolderMedia = {
-  _id?: string;
-  id?: string;
-  filename?: string;
-  originalName?: string;
-  /** Common on GET folder `uploads` / upload responses */
-  originalFilename?: string;
-  name?: string;
-  /** Whether this final is payment-locked for the client share (downloads disabled until unlock). */
-  locked?: boolean;
-  /** Primary file URL (often original / full-quality for admin views). */
-  url?: string;
-  /** When present, preferred URL for UI (e.g. watermarked preview when watermarking is enabled). */
-  displayUrl?: string;
-  thumbUrl?: string;
-  thumbnailUrl?: string;
-  previewUrl?: string;
-  image?: string;
-  selected?: boolean;
-  selection?: string;
-  isSelected?: boolean;
-  editStatus?: string;
-  clientComment?: string;
-  comment?: string;
-  /** On selection rows: nested raw file (GET folder detail). */
-  raw?: ApiFolderMedia;
-  rawMediaId?: string;
-};
-
-export type ApiFolder = {
-  _id: string;
-  /** Usually populated as a full client object; fall back to id string just in case. */
-  client: string | ApiClient;
-  eventName?: string;
-  eventDate: string;
-  description: string;
-  /** Relative path stored on the server (e.g. "uploads/covers/..."). */
-  coverImage?: string;
-  /** Fully-qualified URL when available (preferred for rendering). */
-  coverImageUrl?: string;
-  /** Stored path for optional gallery background music (e.g. uploads/gallery-music/...). */
-  backgroundMusic?: string;
-  /** Fully-qualified URL when available (admin; empty when disabled). */
-  backgroundMusicUrl?: string;
-  /** When false, share responses omit playable music URL for clients. Default true when omitted. */
-  backgroundMusicEnabled?: boolean;
-  /** Focal point for `object-position` on cover (0–100). Omitted = centered. */
-  coverFocalX?: number;
-  coverFocalY?: number;
-  usingDefaultCover?: boolean;
-  share?: ApiFolderShare;
-  /** Fully-qualified shareable URL (e.g. https://example.com/share/<code>). */
-  shareUrl?: string;
-  shareExpired?: boolean;
-  /** Backend workflow status (e.g. draft, completed). */
-  status?: string;
-  /** Some responses nest this under `share` only; see {@link ApiFolderShare.selectionLocked}. */
-  selectionLocked?: boolean;
-  /** Raw uploads (detail GET). */
-  uploads?: ApiFolderMedia[];
-  /** Client selection rows (detail GET). */
-  selection?: ApiFolderMedia[];
-  /** Delivered finals (detail GET). */
-  finals?: ApiFolderMedia[];
-  rawMedia?: ApiFolderMedia[];
-  selectionMedia?: ApiFolderMedia[];
-  finalMedia?: ApiFolderMedia[];
-  /** When false, client gallery may hide final delivery UI until backend enables it. */
-  finalDelivery?: boolean;
-  /** When true, finals are payment-locked for the client until unlock (some backends send this without per-media `locked`). */
-  finalsPaymentLocked?: boolean;
-  /** Extra protection hints for client gallery (e.g. discourage saving screenshots). */
-  rightsProtection?: boolean;
-  /** Nested bucket some APIs use */
-  media?: {
-    raw?: ApiFolderMedia[];
-    selections?: ApiFolderMedia[];
-    selection?: ApiFolderMedia[];
-    finals?: ApiFolderMedia[];
-    final?: ApiFolderMedia[];
-  };
-  createdBy?: string;
-  createdAt?: string;
-  updatedAt?: string;
-  /** When set, folder is in trash (soft-delete). */
-  deletedAt?: string | null;
-};
-
-export type ListFoldersResponse = {
-  count?: number;
-  folders: ApiFolder[];
-};
-
-export type CreateFolderInput = {
-  clientId: string;
-  eventName: string;
-  eventDate: string;
-  description: string;
-  /** Share link expiry preset id, e.g. `30d`, `never` (must match API / share-link-expiry-presets). */
-  linkExpiry: string;
-  coverImage?: File | null;
-  useDefaultCover?: boolean;
-  /** 0–100; used with custom cover for client `object-position`. */
-  coverFocalX?: number;
-  coverFocalY?: number;
-};
-
-export type UpdateFolderInput = {
-  eventName?: string;
-  eventDate?: string;
-  description?: string;
-  coverImage?: File | null;
-  useDefaultCover?: boolean;
-  coverFocalX?: number;
-  coverFocalY?: number;
-  backgroundMusicEnabled?: boolean;
-};
-
-/** Response when moving a gallery to trash (`DELETE /api/folders/:id`). */
-export type FolderMoveToTrashResult = {
-  message: string;
-  deletedAt: string;
-  restoreBefore: string;
-  retentionDays: number;
-  folder: ApiFolder;
-};
-
-export type TrashFolderRow = {
-  folder: ApiFolder;
-  deletedAt: string;
-  restoreBefore: string;
-};
-
-/** Single trashed media row (`deletedBy: "media"`) from trash or media-trash APIs. */
-export type TrashMediaRow = {
-  folderId: string;
-  folder?: ApiFolder;
-  mediaId: string;
-  kind: string;
-  deletedAt: string;
-  restoreBefore: string;
-  url?: string;
-  thumbUrl?: string;
-  originalFilename?: string;
-};
-
-export type ListFoldersTrashResponse = {
-  retentionDays: number;
-  count: number;
-  folders: TrashFolderRow[];
-  deletedMedia: TrashMediaRow[];
-  /** Full count of trashed media (may exceed `deletedMedia.length`). */
-  deletedMediaTotal: number;
-  /** Server chunk size for embedded `deletedMedia` (for aligning paginated fetches). */
-  deletedMediaPreviewLimit: number;
-  /** When more rows exist than embedded, backend may point at the paginated route. */
-  deletedMediaPagingHint?: string;
-};
-
-/** Paginated trashed media (`GET /api/folders/media/trash`). */
-export type ListFoldersMediaTrashParams = {
-  page?: number;
-  limit?: number;
-  folderId?: string;
-};
-
-export type ListFoldersMediaTrashResponse = {
-  items: TrashMediaRow[];
-  page: number;
-  limit: number;
-  total: number;
-};
-
-/** `POST /api/folders/trash/purge` — permanent delete (not restore). */
-export type TrashPurgeSkippedItem = {
-  mediaId?: string;
-  folderId?: string;
-  reason: string;
-};
-
-export type TrashPurgeResult = {
-  message: string;
-  purgedFolderCount: number;
-  purgedMediaCount: number;
-  skipped?: TrashPurgeSkippedItem[];
-};
-
-export type PurgeFoldersTrashPayload =
-  | { all: true }
-  | { purgeAll: true }
-  | { folderIds?: string[]; mediaIds?: string[] };
-
-export type SoftDeletedMediaRef = {
-  _id: string;
-  kind: string;
-};
-
-export type MediaSoftDeleteResult = {
-  message: string;
-  deleted: SoftDeletedMediaRef;
-  restoreBefore: string;
-};
-
-export type BulkMediaSoftDeleteResult = {
-  message: string;
-  deletedCount: number;
-  restoreBefore: string;
-};
-
-export class FoldersApiError extends Error {
-  status: number;
-  body: unknown;
-
-  constructor(message: string, status: number, body: unknown) {
-    super(message);
-    this.status = status;
-    this.body = body;
-  }
-}
-
-async function authedFetch(path: string, init: RequestInit = {}): Promise<Response> {
-  const token = getAuthToken();
-  const headers = new Headers(init.headers ?? {});
-  if (token) headers.set("Authorization", `Bearer ${token}`);
-
-  const res = await fetch(apiUrl(path), { ...init, headers });
-
-  if (res.status === 401) {
-    clearAuth();
-    if (typeof window !== "undefined") {
-      window.location.href = "/login";
-    }
-    throw new FoldersApiError("Your session has expired. Please log in again.", 401, null);
-  }
-
-  return res;
-}
+// Re-export the public surface so existing `from "@/lib/folders-api"` imports keep working.
+export * from "@/lib/folders/types";
+export * from "@/lib/folders/helpers";
 
 /** FormData POST with upload progress (fetch does not expose upload progress). */
 function authedFormDataPostWithProgress(
@@ -326,26 +95,6 @@ function authedFormDataPostWithProgress(
   });
 }
 
-async function parseJson(res: Response): Promise<unknown> {
-  try {
-    return await res.json();
-  } catch {
-    return null;
-  }
-}
-
-function extractMessage(body: unknown, fallback: string): string {
-  if (
-    body &&
-    typeof body === "object" &&
-    "message" in body &&
-    typeof (body as { message: unknown }).message === "string"
-  ) {
-    return (body as { message: string }).message;
-  }
-  return fallback;
-}
-
 function readIsoField(o: Record<string, unknown>, ...keys: string[]): string {
   for (const k of keys) {
     const v = o[k];
@@ -362,20 +111,6 @@ function readRetentionDays(o: Record<string, unknown>): number {
     if (Number.isFinite(n)) return Math.max(0, Math.floor(n));
   }
   return 30;
-}
-
-/** Human-readable local deadline for restore UI. */
-export function formatRestoreBeforeLabel(iso: string | undefined | null): string {
-  if (!iso?.trim()) return "";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
-}
-
-export function isRestoreDeadlinePassed(restoreBefore: string): boolean {
-  const d = new Date(restoreBefore);
-  if (Number.isNaN(d.getTime())) return false;
-  return d.getTime() < Date.now();
 }
 
 function parseMediaSoftDelete(body: unknown, fallbackKind: string): MediaSoftDeleteResult {
@@ -555,7 +290,6 @@ export async function listFoldersTrash(
   const suffix = qs.toString() ? `?${qs.toString()}` : "";
   const res = await authedFetch(`/api/folders/trash${suffix}`, { method: "GET" });
   const body = await parseJson(res);
-  console.log("[folders:trash:list] response", { status: res.status, ok: res.ok, body });
   if (!res.ok) {
     throw new FoldersApiError(
       extractMessage(body, `Failed to load trash (${res.status})`),
@@ -622,7 +356,6 @@ export async function listFoldersMediaTrash(
   const suffix = qs.toString() ? `?${qs.toString()}` : "";
   const res = await authedFetch(`/api/folders/media/trash${suffix}`, { method: "GET" });
   const body = await parseJson(res);
-  console.log("[folders:media:trash:list] response", { status: res.status, ok: res.ok, body });
   if (!res.ok) {
     throw new FoldersApiError(
       extractMessage(body, `Failed to load trashed media (${res.status})`),
@@ -673,7 +406,6 @@ export async function restoreFolderFromTrash(folderId: string): Promise<ApiFolde
     body: "{}",
   });
   const body = await parseJson(res);
-  console.log("[folders:restore] response", { status: res.status, ok: res.ok, body });
   if (!res.ok) {
     throw new FoldersApiError(
       extractMessage(body, `Restore failed (${res.status})`),
@@ -701,7 +433,6 @@ export async function restoreFolderTrashedMedia(
     },
   );
   const body = await parseJson(res);
-  console.log("[folders:media:restore] response", { status: res.status, ok: res.ok, body });
   if (!res.ok) {
     throw new FoldersApiError(
       extractMessage(body, `Restore failed (${res.status})`),
@@ -790,7 +521,6 @@ export async function purgeFoldersTrash(payload: PurgeFoldersTrashPayload): Prom
     body: JSON.stringify(jsonBody),
   });
   const body = await parseJson(res);
-  console.log("[folders:trash:purge] response", { status: res.status, ok: res.ok, body });
   if (!res.ok) {
     throw new FoldersApiError(
       extractMessage(body, `Trash purge failed (${res.status})`),
@@ -811,7 +541,6 @@ export async function listFolders(params: {
   const suffix = qs.toString() ? `?${qs.toString()}` : "";
   const res = await authedFetch(`/api/folders${suffix}`, { method: "GET" });
   const body = await parseJson(res);
-  console.log("[folders:list] response", { status: res.status, ok: res.ok, body });
   if (!res.ok) {
     throw new FoldersApiError(
       extractMessage(body, `Failed to load folders (${res.status})`),
@@ -827,7 +556,6 @@ export async function listFolders(params: {
 export async function getFolder(id: string): Promise<ApiFolder> {
   const res = await authedFetch(`/api/folders/${encodeURIComponent(id)}`, { method: "GET" });
   const body = await parseJson(res);
-  console.log("[folders:get] response", { status: res.status, ok: res.ok, body });
   if (!res.ok) {
     throw new FoldersApiError(
       extractMessage(body, `Failed to load folder (${res.status})`),
@@ -878,7 +606,6 @@ export async function createFolder(input: CreateFolderInput): Promise<ApiFolder>
   }
 
   const body = await parseJson(res);
-  console.log("[folders:create] response", { status: res.status, ok: res.ok, body });
   if (!res.ok) {
     throw new FoldersApiError(
       extractMessage(body, `Failed to create folder (${res.status})`),
@@ -920,7 +647,6 @@ export async function updateFolder(
   });
 
   const body = await parseJson(res);
-  console.log("[folders:update] response", { status: res.status, ok: res.ok, body });
   if (!res.ok) {
     throw new FoldersApiError(
       extractMessage(body, `Failed to update folder (${res.status})`),
@@ -939,7 +665,6 @@ export async function deleteFolder(id: string): Promise<FolderMoveToTrashResult>
     method: "DELETE",
   });
   const body = await parseJson(res);
-  console.log("[folders:delete] response", { status: res.status, ok: res.ok, body });
   if (!res.ok) {
     throw new FoldersApiError(
       extractMessage(body, `Failed to move gallery to trash (${res.status})`),
@@ -979,7 +704,6 @@ export async function uploadFolderBackgroundMusic(
     },
   );
   const body = await parseJson(res);
-  console.log("[folders:background-music:put]", { status: res.status, ok: res.ok, body });
   if (!res.ok) {
     throw new FoldersApiError(
       extractMessage(body, `Could not upload background music (${res.status})`),
@@ -999,7 +723,6 @@ export async function deleteFolderBackgroundMusic(folderId: string): Promise<Api
     { method: "DELETE" },
   );
   const body = await parseJson(res);
-  console.log("[folders:background-music:delete]", { status: res.status, ok: res.ok, body });
   if (!res.ok) {
     throw new FoldersApiError(
       extractMessage(body, `Could not remove background music (${res.status})`),
@@ -1081,7 +804,6 @@ function normalizeExpiryPresetEntry(x: unknown): ShareLinkExpiryPreset | null {
 export async function getShareLinkExpiryPresets(): Promise<ShareLinkExpiryPreset[]> {
   const res = await authedFetch("/api/folders/share-link-expiry-presets", { method: "GET" });
   const body = await parseJson(res);
-  console.log("[folders:expiry-presets] response", { status: res.status, ok: res.ok, body });
   if (!res.ok) {
     throw new FoldersApiError(
       extractMessage(body, `Failed to load expiry presets (${res.status})`),
@@ -1123,7 +845,6 @@ export async function patchFolderShare(
     body: JSON.stringify(input),
   });
   const body = await parseJson(res);
-  console.log("[folders:share:patch] response", { status: res.status, ok: res.ok, body });
   if (!res.ok) {
     throw new FoldersApiError(
       extractMessage(body, `Failed to update share (${res.status})`),
@@ -1174,18 +895,7 @@ export type FolderMediaBatchProgress = {
 };
 
 /** Extract duplicate-skip count from a single upload JSON response. */
-export function readIgnoredDuplicatesCount(body: unknown): number {
-  if (!body || typeof body !== "object") return 0;
-  const o = body as Record<string, unknown>;
-  const nested =
-    o.data && typeof o.data === "object" ? (o.data as Record<string, unknown>) : null;
-  const pick = (x: Record<string, unknown>) =>
-    x.ignoredDuplicatesCount ?? x.ignored_duplicates_count;
-  const raw = pick(o) ?? (nested ? pick(nested) : undefined);
-  return typeof raw === "number" && Number.isFinite(raw) ? Math.max(0, Math.floor(raw)) : 0;
-}
-
-export type FolderMediaDuplicatePreviewKind = "raw" | "final";
+import { readIgnoredDuplicatesCount } from "@/lib/folders/helpers";
 
 function readHasConflicts(body: unknown): boolean {
   if (!body || typeof body !== "object") return false;
@@ -1278,7 +988,6 @@ export async function regenerateFolderShare(
     },
   );
   const body = await parseJson(res);
-  console.log("[folders:share:regenerate] response", { status: res.status, ok: res.ok, body });
   if (!res.ok) {
     throw new FoldersApiError(
       extractMessage(body, `Failed to regenerate share link (${res.status})`),
@@ -1360,12 +1069,6 @@ export async function uploadFolderRawMedia(
     bytesDone += file.size;
     onProgress?.(bytesDone, totalBytes, true, batch);
   }
-  console.log("[folders:media:raw] response", {
-    ok: true,
-    fileCount: files.length,
-    ignoredDuplicatesCount,
-    body: lastBody,
-  });
   return { lastBody, ignoredDuplicatesCount };
 }
 
@@ -1408,12 +1111,6 @@ export async function uploadFolderFinalMedia(
     bytesDone += file.size;
     onProgress?.(bytesDone, totalBytes, true, batch);
   }
-  console.log("[folders:media:final] response", {
-    ok: true,
-    fileCount: files.length,
-    ignoredDuplicatesCount,
-    body: lastBody,
-  });
   return { lastBody, ignoredDuplicatesCount };
 }
 
@@ -1435,7 +1132,6 @@ export async function lockFolderFinalDelivery(
     },
   );
   const body = await parseJson(res);
-  console.log("[folders:final-delivery:lock]", { status: res.status, ok: res.ok, body });
   if (!res.ok) {
     throw new FoldersApiError(
       extractMessage(body, `Could not lock final delivery (${res.status})`),
@@ -1457,7 +1153,6 @@ export async function unlockFolderFinalDelivery(folderId: string): Promise<ApiFo
     },
   );
   const body = await parseJson(res);
-  console.log("[folders:final-delivery:unlock]", { status: res.status, ok: res.ok, body });
   if (!res.ok) {
     throw new FoldersApiError(
       extractMessage(body, `Could not unlock final delivery (${res.status})`),
@@ -1477,7 +1172,6 @@ export async function deleteFolderRawMedia(
     { method: "DELETE" },
   );
   const body = await parseJson(res);
-  console.log("[folders:media:raw:delete] response", { status: res.status, ok: res.ok, body });
   if (!res.ok) {
     throw new FoldersApiError(
       extractMessage(body, `Failed to delete photo (${res.status})`),
@@ -1497,7 +1191,6 @@ export async function deleteFolderFinalMedia(
     { method: "DELETE" },
   );
   const body = await parseJson(res);
-  console.log("[folders:media:final:delete] response", { status: res.status, ok: res.ok, body });
   if (!res.ok) {
     throw new FoldersApiError(
       extractMessage(body, `Failed to delete final (${res.status})`),
@@ -1515,7 +1208,6 @@ export async function deleteAllFolderRawMedia(folderId: string): Promise<BulkMed
     { method: "DELETE" },
   );
   const body = await parseJson(res);
-  console.log("[folders:media:raw:deleteAll] response", { status: res.status, ok: res.ok, body });
   if (!res.ok) {
     throw new FoldersApiError(
       extractMessage(body, `Failed to delete all raw photos (${res.status})`),
@@ -1535,7 +1227,6 @@ export async function deleteAllFolderFinalMedia(
     { method: "DELETE" },
   );
   const body = await parseJson(res);
-  console.log("[folders:media:final:deleteAll] response", { status: res.status, ok: res.ok, body });
   if (!res.ok) {
     throw new FoldersApiError(
       extractMessage(body, `Failed to delete all finals (${res.status})`),
@@ -1553,7 +1244,6 @@ export async function patchFolderStatus(folderId: string, status: string): Promi
     body: JSON.stringify({ status }),
   });
   const body = await parseJson(res);
-  console.log("[folders:status:patch] response", { status: res.status, ok: res.ok, body });
   if (!res.ok) {
     throw new FoldersApiError(
       extractMessage(body, `Failed to update status (${res.status})`),
@@ -1562,433 +1252,4 @@ export async function patchFolderStatus(folderId: string, status: string): Promi
     );
   }
   return unwrapFolder(body);
-}
-
-export function extractRawMediaList(folder: ApiFolder): ApiFolderMedia[] {
-  const f = folder as Record<string, unknown>;
-  for (const k of ["uploads", "rawMedia", "rawFiles", "mediaRaw"]) {
-    const v = f[k];
-    if (Array.isArray(v)) return v as ApiFolderMedia[];
-  }
-  const m = f.media;
-  if (m && typeof m === "object" && Array.isArray((m as { raw?: unknown }).raw)) {
-    return (m as { raw: ApiFolderMedia[] }).raw;
-  }
-  return [];
-}
-
-/**
- * GET `/api/folders/:id` often returns selection as
- * `{ _id, editStatus, raw: { url, originalFilename, ... }, rawMediaId }[]`.
- */
-function normalizeSelectionListItem(item: unknown): ApiFolderMedia | null {
-  if (!item || typeof item !== "object") return null;
-  const row = item as Record<string, unknown>;
-  const nestedRaw = row.raw;
-  if (nestedRaw && typeof nestedRaw === "object") {
-    const r = nestedRaw as Record<string, unknown>;
-    const selectionId =
-      (typeof row._id === "string" && row._id) ||
-      (typeof row.id === "string" && row.id) ||
-      "";
-    if (selectionId) {
-      return {
-        _id: selectionId,
-        url: typeof r.url === "string" ? r.url : undefined,
-        originalFilename:
-          typeof r.originalFilename === "string" ? r.originalFilename : undefined,
-        originalName: typeof r.originalName === "string" ? r.originalName : undefined,
-        filename: typeof r.filename === "string" ? r.filename : undefined,
-        name: typeof r.name === "string" ? r.name : undefined,
-        editStatus: typeof row.editStatus === "string" ? row.editStatus : undefined,
-        rawMediaId: typeof row.rawMediaId === "string" ? row.rawMediaId : undefined,
-        clientComment:
-          typeof row.clientComment === "string"
-            ? row.clientComment
-            : typeof row.comment === "string"
-              ? row.comment
-              : undefined,
-        selected: true,
-        selection: "SELECTED",
-        isSelected: true,
-      };
-    }
-  }
-  return item as ApiFolderMedia;
-}
-
-export function extractSelectionMediaList(folder: ApiFolder): ApiFolderMedia[] {
-  const f = folder as Record<string, unknown>;
-  const chunks: unknown[] = [];
-  for (const k of ["selection", "selectionMedia", "selections", "clientSelections"]) {
-    const v = f[k];
-    if (Array.isArray(v)) {
-      chunks.push(...v);
-      break;
-    }
-  }
-  if (chunks.length === 0) {
-    const m = f.media;
-    if (m && typeof m === "object") {
-      const o = m as { selections?: unknown[]; selection?: unknown[] };
-      if (Array.isArray(o.selections)) chunks.push(...o.selections);
-      else if (Array.isArray(o.selection)) chunks.push(...o.selection);
-    }
-  }
-  const out: ApiFolderMedia[] = [];
-  for (const item of chunks) {
-    const n = normalizeSelectionListItem(item);
-    if (n) out.push(n);
-  }
-  return out;
-}
-
-export function extractFinalMediaList(folder: ApiFolder): ApiFolderMedia[] {
-  const f = folder as Record<string, unknown>;
-  for (const k of ["finals", "finalMedia", "finalFiles"]) {
-    const v = f[k];
-    if (Array.isArray(v)) return v as ApiFolderMedia[];
-  }
-  const m = f.media;
-  if (m && typeof m === "object") {
-    const o = m as { finals?: ApiFolderMedia[]; final?: ApiFolderMedia[] };
-    if (Array.isArray(o.finals)) return o.finals;
-    if (Array.isArray(o.final)) return o.final;
-  }
-  return [];
-}
-
-/** Display filename for a folder media row (aligned with gallery / duplicate checks). */
-export function folderMediaRowFilename(m: ApiFolderMedia): string {
-  return (m.originalName || m.originalFilename || m.filename || m.name || "").trim();
-}
-
-/**
- * Filenames in {@link incoming} that match an existing file name in the folder
- * for raw uploads or finals (same string match as typical duplicate checks).
- */
-export function incomingFilenamesConflictingWithFolder(
-  kind: FolderMediaDuplicatePreviewKind,
-  incoming: string[],
-  folder: ApiFolder,
-): string[] {
-  const existingRows =
-    kind === "raw" ? extractRawMediaList(folder) : extractFinalMediaList(folder);
-  const existing = new Set<string>();
-  for (const m of existingRows) {
-    const n = folderMediaRowFilename(m);
-    if (n) existing.add(n);
-  }
-  const out: string[] = [];
-  const seenOut = new Set<string>();
-  for (const raw of incoming) {
-    const name = raw.trim();
-    if (!name || !existing.has(name) || seenOut.has(name)) continue;
-    seenOut.add(name);
-    out.push(name);
-  }
-  return out;
-}
-
-function apiEditStatusToUi(s?: string): "NONE" | "IN_PROGRESS" | "EDITED" {
-  const v = (s || "").toLowerCase().replace(/-/g, "_");
-  if (v === "in_progress") return "IN_PROGRESS";
-  if (v === "edited" || v === "complete" || v === "completed") return "EDITED";
-  return "NONE";
-}
-
-/** Map API media row → in-app DemoAsset shape for folder detail UI. */
-export function apiFolderMediaToDemoAsset(m: ApiFolderMedia): DemoAsset {
-  const id = m._id || m.id || `m-${Math.random().toString(36).slice(2, 10)}`;
-  const originalName =
-    m.originalName || m.originalFilename || m.filename || m.name || "Photo";
-  const thumbRaw = m.thumbUrl || m.thumbnailUrl || m.previewUrl || m.url || m.image || "";
-  const thumbUrl = resolveCoverUrl(thumbRaw) || thumbRaw || "";
-  const selected =
-    m.selected === true ||
-    (typeof m.selection === "string" && m.selection.toUpperCase() === "SELECTED") ||
-    m.isSelected === true;
-  return {
-    id,
-    originalName,
-    selection: selected ? "SELECTED" : "UNSELECTED",
-    editState: apiEditStatusToUi(m.editStatus),
-    clientComment: m.clientComment || m.comment || "",
-    hasEdited: false,
-    thumbUrl,
-  };
-}
-
-function readOutstandingAmountGhs(o: Record<string, unknown>): number {
-  const raw =
-    o.outstandingAmountGHS ??
-    o.outstanding_amount_ghs ??
-    o.amountRemainingGHS ??
-    o.amount_remaining_ghs;
-  if (typeof raw === "number" && Number.isFinite(raw)) return Math.max(0, raw);
-  if (typeof raw === "string" && raw.trim()) {
-    const n = Number(raw.trim().replace(/,/g, ""));
-    if (Number.isFinite(n)) return Math.max(0, n);
-  }
-  return 0;
-}
-
-function nestedRecord(v: unknown): Record<string, unknown> | null {
-  return v && typeof v === "object" ? (v as Record<string, unknown>) : null;
-}
-
-/** True when the folder detail API indicates client finals are still payment-locked. */
-export function folderFinalsPaymentLocked(folder: ApiFolder): boolean {
-  const root = folder as Record<string, unknown>;
-
-  if (readOutstandingAmountGhs(root) > 0) return true;
-
-  const fd = nestedRecord(root.finalDelivery) ?? nestedRecord(root.final_delivery);
-  if (fd) {
-    if (
-      truthyFolderFlag(fd.locked) ||
-      truthyFolderFlag(fd.paymentLocked) ||
-      truthyFolderFlag(fd.payment_locked)
-    ) {
-      return true;
-    }
-    if (readOutstandingAmountGhs(fd) > 0) return true;
-  }
-
-  if (truthyFolderFlag(root.finalDeliveryLock) || truthyFolderFlag(root.final_delivery_lock)) {
-    return true;
-  }
-  if (truthyFolderFlag(root.finalsPaymentLocked) || truthyFolderFlag(root.finals_payment_locked)) {
-    return true;
-  }
-  if (truthyFolderFlag(root.finalDeliveryLocked) || truthyFolderFlag(root.final_delivery_locked)) {
-    return true;
-  }
-  const share = root.share;
-  if (share && typeof share === "object") {
-    const s = share as Record<string, unknown>;
-    if (readOutstandingAmountGhs(s) > 0) return true;
-    const shareLockKeys = [
-      "finalsPaymentLocked",
-      "finals_payment_locked",
-      "finalsLocked",
-      "finals_locked",
-      "finalDeliveryLocked",
-      "final_delivery_locked",
-      "finalLocked",
-      "final_locked",
-      "paymentLockOnFinals",
-      "payment_lock_on_finals",
-    ] as const;
-    for (const k of shareLockKeys) {
-      if (truthyFolderFlag(s[k])) return true;
-    }
-  }
-  return false;
-}
-
-function truthyFolderFlag(v: unknown): boolean {
-  return v === true || v === "true" || v === 1 || v === "1";
-}
-
-export function apiFolderMediaToFinal(m: ApiFolderMedia): DemoFinalAsset {
-  const id = m._id || m.id || `f-${Math.random().toString(36).slice(2, 10)}`;
-  const name = m.originalName || m.originalFilename || m.filename || m.name || "Final";
-  const urlRaw = m.url || m.previewUrl || m.thumbUrl || "";
-  const url = resolveCoverUrl(urlRaw) || urlRaw || "";
-  const o = m as Record<string, unknown>;
-  const truthyFlag = (v: unknown) => v === true || v === "true";
-  const lockStatus =
-    typeof o.lockStatus === "string"
-      ? o.lockStatus
-      : typeof o.lock_status === "string"
-        ? o.lock_status
-        : "";
-  const locked =
-    m.locked === true ||
-    truthyFlag(o.isLocked) ||
-    truthyFlag(o.is_locked) ||
-    truthyFlag(o.isPaymentLocked) ||
-    truthyFlag(o.is_payment_locked) ||
-    truthyFlag(o.finalLocked) ||
-    truthyFlag(o.final_locked) ||
-    truthyFlag(o.clientLocked) ||
-    truthyFlag(o.client_locked) ||
-    truthyFlag(o.lockImages) ||
-    truthyFlag(o.paymentLocked) ||
-    truthyFlag(o.payment_locked) ||
-    truthyFlag(o.downloadLocked) ||
-    truthyFlag(o.download_locked) ||
-    lockStatus.toLowerCase() === "locked";
-  return { id, name, url, locked };
-}
-
-/**
- * Whether client final images behave as locked (after `PATCH .../final-delivery/lock`, until unlock).
- * Combines folder-level flags, outstanding balance hints, and per-final `locked` from GET folder.
- */
-export function finalImagesLockedForClient(folder: ApiFolder): boolean {
-  if (folderFinalsPaymentLocked(folder)) return true;
-  for (const m of extractFinalMediaList(folder)) {
-    if (apiFolderMediaToFinal(m).locked) return true;
-  }
-  return false;
-}
-
-export function apiFolderStatusToUi(s?: string): FolderStatus {
-  const v = (s || "").toLowerCase();
-  if (v === "completed" || v === "complete" || v === "delivered") return "COMPLETED";
-  if (v === "selection_pending" || v === "selection-pending" || v === "selectionpending")
-    return "SELECTION_PENDING";
-  return "DRAFT";
-}
-
-/* ------------------------------------------------------------------ */
-/* helpers used by UI                                                  */
-/* ------------------------------------------------------------------ */
-
-export function getFolderClientId(folder: ApiFolder): string {
-  return typeof folder.client === "string" ? folder.client : folder.client?._id ?? "";
-}
-
-export function getFolderClientName(
-  folder: ApiFolder,
-  clientNameById?: Map<string, string>,
-): string {
-  if (typeof folder.client === "object" && folder.client?.name) {
-    return folder.client.name;
-  }
-  const id = getFolderClientId(folder);
-  return clientNameById?.get(id) ?? "Unknown client";
-}
-
-/** Selection lock may be on `share` (detail GET) or duplicated on the folder root. */
-export function folderSelectionLocked(folder: ApiFolder): boolean {
-  return Boolean(folder.share?.selectionLocked ?? folder.selectionLocked);
-}
-
-/** Resolve a coverImage value (could be absolute URL or a relative path). */
-export function resolveCoverUrl(coverImage?: string | null): string | null {
-  if (!coverImage) return null;
-  const normalized = sameOriginUploadsUrl(coverImage.trim());
-  if (/^https?:\/\//i.test(normalized)) return normalized;
-  if (normalized.startsWith("/")) {
-    if (API_BASE_URL) return `${API_BASE_URL}${normalized}`;
-    return normalized;
-  }
-  if (API_BASE_URL) return `${API_BASE_URL}/${normalized}`;
-  return `/${normalized}`;
-}
-
-/** Pick the best cover URL for an ApiFolder (prefers `coverImageUrl`). */
-export function getFolderCoverUrl(folder: ApiFolder): string | null {
-  if (folder.coverImageUrl) return resolveCoverUrl(folder.coverImageUrl);
-  return resolveCoverUrl(folder.coverImage);
-}
-
-function readNumericField(o: Record<string, unknown>, camel: string, snake: string): number | null {
-  const tryOne = (v: unknown): number | null => {
-    if (typeof v === "number" && Number.isFinite(v)) return v;
-    if (typeof v === "string" && v.trim() !== "") {
-      const n = Number(v);
-      if (Number.isFinite(n)) return n;
-    }
-    return null;
-  };
-  return tryOne(o[camel]) ?? tryOne(o[snake]);
-}
-
-/** Read cover focal from API folder (camelCase or snake_case). Default center 50,50. */
-export function parseFolderCoverFocal(
-  source: ApiFolder | Record<string, unknown> | null | undefined,
-): { x: number; y: number } {
-  if (!source || typeof source !== "object") return { x: 50, y: 50 };
-  const o = source as Record<string, unknown>;
-  const x = readNumericField(o, "coverFocalX", "cover_focal_x");
-  const y = readNumericField(o, "coverFocalY", "cover_focal_y");
-  const clamp = (n: number) => Math.min(100, Math.max(0, n));
-  return {
-    x: x == null ? 50 : clamp(x),
-    y: y == null ? 50 : clamp(y),
-  };
-}
-
-/** CSS `object-position` for folder cover thumbnails / hero. */
-export function folderCoverObjectPositionStyle(folder: ApiFolder): { objectPosition: string } {
-  const { x, y } = parseFolderCoverFocal(folder);
-  return { objectPosition: `${x}% ${y}%` };
-}
-
-function pathFromShareUrlField(shareUrl: string): string | null {
-  const trimmed = shareUrl.trim();
-  if (!trimmed) return null;
-  if (trimmed.startsWith("/")) {
-    const i = trimmed.indexOf("#");
-    return i >= 0 ? trimmed.slice(0, i) : trimmed;
-  }
-  try {
-    const u = new URL(trimmed);
-    return `${u.pathname}${u.search}` || null;
-  } catch {
-    return null;
-  }
-}
-
-/** Client gallery lives at `/g/[token]` (see `app/g/[token]/page.tsx`). */
-function pathToClientGalleryPath(pathWithSearch: string): string | null {
-  const hashIdx = pathWithSearch.indexOf("#");
-  const noHash = hashIdx >= 0 ? pathWithSearch.slice(0, hashIdx) : pathWithSearch;
-  const qIdx = noHash.indexOf("?");
-  const pathname = qIdx >= 0 ? noHash.slice(0, qIdx) : noHash;
-  const search = qIdx >= 0 ? noHash.slice(qIdx) : "";
-
-  const trySegment = (rawSegment: string) => {
-    let slug = rawSegment;
-    try {
-      slug = decodeURIComponent(rawSegment);
-    } catch {
-      slug = rawSegment;
-    }
-    if (!slug) return null;
-    return `/g/${encodeURIComponent(slug)}${search}`;
-  };
-
-  const shareM = pathname.match(/^\/share\/(.+)$/);
-  if (shareM) return trySegment(shareM[1]);
-
-  const gM = pathname.match(/^\/g\/(.+)$/);
-  if (gM) return trySegment(gM[1]);
-
-  return null;
-}
-
-/**
- * Relative client-gallery path on this app (`/g/:token`).
- * Re-homes API URLs that used `/share/...` to `/g/...` so links match Next routes.
- */
-export function getFolderSharePath(folder: ApiFolder): string | null {
-  const code = folder.share?.slug ?? folder.share?.code;
-  if (code) return `/g/${encodeURIComponent(code)}`;
-  if (folder.shareUrl) {
-    const raw = pathFromShareUrlField(folder.shareUrl);
-    if (!raw) return null;
-    return pathToClientGalleryPath(raw);
-  }
-  return null;
-}
-
-/** Same as {@link getFolderSharePath} — kept for existing imports. */
-export function getFolderShareUrl(folder: ApiFolder): string | null {
-  return getFolderSharePath(folder);
-}
-
-/** Absolute share URL on `appOrigin` (clipboard, “Open”, email). */
-export function getFolderShareAbsoluteUrl(
-  folder: ApiFolder,
-  appOrigin: string,
-): string | null {
-  const path = getFolderSharePath(folder);
-  if (!path) return null;
-  const origin = appOrigin.replace(/\/$/, "");
-  return `${origin}${path}`;
 }

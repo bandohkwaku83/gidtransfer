@@ -1,8 +1,7 @@
-import { apiUrl } from "@/lib/api";
-import { clearAuth, getAuthToken } from "@/lib/auth-demo";
 import type { BookedShoot, ShootKind } from "@/components/schedules/booking-types";
 import { KIND_META } from "@/components/schedules/booking-types";
 import { ApiError } from "@/lib/clients-api";
+import { authedFetch, extractMessage, parseJson } from "@/lib/http";
 
 export type BookingShootTypeMeta = {
   id: string;
@@ -59,40 +58,6 @@ export type CreateBookingBody = {
   location: string;
   description: string;
 };
-
-async function authedFetch(path: string, init: RequestInit = {}): Promise<Response> {
-  const token = getAuthToken();
-  const headers = new Headers(init.headers ?? {});
-  if (token) headers.set("Authorization", `Bearer ${token}`);
-  if (init.body && !headers.has("Content-Type")) {
-    headers.set("Content-Type", "application/json");
-  }
-  const res = await fetch(apiUrl(path), { ...init, headers });
-  if (res.status === 401) {
-    clearAuth();
-    if (typeof window !== "undefined") {
-      window.location.href = "/login";
-    }
-    throw new ApiError("Your session has expired. Please log in again.", 401, null);
-  }
-  return res;
-}
-
-async function parseJson(res: Response): Promise<unknown> {
-  try {
-    return await res.json();
-  } catch {
-    return null;
-  }
-}
-
-function extractMessage(body: unknown, fallback: string): string {
-  if (body && typeof body === "object" && "message" in body) {
-    const m = (body as { message: unknown }).message;
-    if (typeof m === "string" && m.trim()) return m;
-  }
-  return fallback;
-}
 
 /** Map API `shootType` string (e.g. `Wedding`, `Other`) to app shoot kind. */
 export function apiShootTypeToKind(shootType: string): ShootKind {
@@ -183,7 +148,6 @@ export function kindToApiShootType(kind: ShootKind): string {
 export async function getBookingsMeta(): Promise<BookingsMetaResponse> {
   const res = await authedFetch("/api/bookings/meta", { method: "GET" });
   const body = await parseJson(res);
-  console.log("[bookings:meta] response", { status: res.status, ok: res.ok, body });
   if (!res.ok) {
     throw new ApiError(extractMessage(body, `Failed to load bookings meta (${res.status})`), res.status, body);
   }
@@ -197,7 +161,6 @@ export async function getBookingsMeta(): Promise<BookingsMetaResponse> {
 export async function getBookingsWeekSummary(): Promise<BookingsWeekSummary> {
   const res = await authedFetch("/api/bookings/summary/week", { method: "GET" });
   const body = await parseJson(res);
-  console.log("[bookings:week] response", { status: res.status, ok: res.ok, body });
   if (!res.ok) {
     throw new ApiError(extractMessage(body, `Failed to load week summary (${res.status})`), res.status, body);
   }
@@ -225,7 +188,6 @@ export async function listBookings(params: {
   qs.set("to", params.to ?? "");
   const res = await authedFetch(`/api/bookings?${qs.toString()}`, { method: "GET" });
   const body = await parseJson(res);
-  console.log("[bookings:list] response", { status: res.status, ok: res.ok, body });
   if (!res.ok) {
     throw new ApiError(extractMessage(body, `Failed to load bookings (${res.status})`), res.status, body);
   }
@@ -253,7 +215,6 @@ export async function createBooking(input: CreateBookingBody): Promise<{ message
     body: JSON.stringify(input),
   });
   const body = await parseJson(res);
-  console.log("[bookings:create] response", { status: res.status, ok: res.ok, body });
   if (!res.ok) {
     throw new ApiError(extractMessage(body, `Could not save booking (${res.status})`), res.status, body);
   }

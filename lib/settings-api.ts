@@ -1,6 +1,5 @@
-import { apiUrl } from "@/lib/api";
 import { resolveCoverUrl } from "@/lib/folders-api";
-import { clearAuth, getAuthToken } from "@/lib/auth-demo";
+import { authedFetch, extractMessage, HttpError, parseJson } from "@/lib/http";
 import {
   setDuplicateUploadPreference,
   type DuplicateUploadAction,
@@ -26,61 +25,7 @@ export type UpdateSettingsInput = {
   duplicateUploadAction?: DuplicateUploadAction;
 };
 
-export class SettingsApiError extends Error {
-  status: number;
-  body: unknown;
-
-  constructor(message: string, status: number, body: unknown) {
-    super(message);
-    this.status = status;
-    this.body = body;
-  }
-}
-
-async function authedFetch(path: string, init: RequestInit = {}): Promise<Response> {
-  const token = getAuthToken();
-  const headers = new Headers(init.headers ?? {});
-  if (token) headers.set("Authorization", `Bearer ${token}`);
-  if (
-    init.body &&
-    !(init.body instanceof FormData) &&
-    !headers.has("Content-Type")
-  ) {
-    headers.set("Content-Type", "application/json");
-  }
-
-  const res = await fetch(apiUrl(path), { ...init, headers });
-
-  if (res.status === 401) {
-    clearAuth();
-    if (typeof window !== "undefined") {
-      window.location.href = "/login";
-    }
-    throw new SettingsApiError("Your session has expired. Please log in again.", 401, null);
-  }
-
-  return res;
-}
-
-async function parseJson(res: Response): Promise<unknown> {
-  try {
-    return await res.json();
-  } catch {
-    return null;
-  }
-}
-
-function extractMessage(body: unknown, fallback: string): string {
-  if (
-    body &&
-    typeof body === "object" &&
-    "message" in body &&
-    typeof (body as { message: unknown }).message === "string"
-  ) {
-    return (body as { message: string }).message;
-  }
-  return fallback;
-}
+export class SettingsApiError extends HttpError {}
 
 function normalizeSettingsPayload(raw: unknown): ApiSettings {
   const obj =
@@ -130,7 +75,6 @@ export function getSettingsDefaultCoverUrl(settings: ApiSettings): string | null
 export async function getSettings(): Promise<ApiSettings> {
   const res = await authedFetch("/api/settings", { method: "GET" });
   const body = await parseJson(res);
-  console.log("[settings:get] response", { status: res.status, ok: res.ok, body });
   if (!res.ok) {
     throw new SettingsApiError(
       extractMessage(body, `Failed to load settings (${res.status})`),
@@ -172,7 +116,6 @@ export async function updateSettings(input: UpdateSettingsInput): Promise<ApiSet
   }
 
   const body = await parseJson(res);
-  console.log("[settings:update] response", { status: res.status, ok: res.ok, body });
   if (!res.ok) {
     throw new SettingsApiError(
       extractMessage(body, `Failed to save settings (${res.status})`),
