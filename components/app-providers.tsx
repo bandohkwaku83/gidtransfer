@@ -4,10 +4,8 @@ import { AntdRegistry } from "@ant-design/nextjs-registry";
 import { ConfigProvider } from "antd";
 
 /**
- * AntD providers (registry + theme).
- *
- * Mounted only inside the dashboard layout so public routes (`/g/[token]`,
- * `/share/[code]`, `/login`, `/`) do not ship AntD in their JS bundles.
+ * Ant Design for **dashboard routes only** (tables, forms, pickers, etc.).
+ * Keeps AntD tokens and CSS off public pages so layout/colors stay unchanged there.
  */
 export function DashboardAntdProviders({ children }: { children: React.ReactNode }) {
   return (
