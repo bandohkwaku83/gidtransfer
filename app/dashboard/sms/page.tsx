@@ -11,9 +11,12 @@ import {
   SendOutlined,
 } from "@ant-design/icons";
 import { Alert, Button, Input, Modal, Select, Spin, Table, Tag, Tooltip } from "antd";
+import type { TextAreaRef } from "antd/es/input/TextArea";
 import type { ColumnsType } from "antd/es/table";
+import { Send } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useToast } from "@/components/toast-provider";
+import { FormTextArea } from "@/components/ui/form-input";
 import { useFolderListSearch } from "@/components/photographer/photographer-shell";
 import type { ApiClient } from "@/lib/clients-api";
 import { ApiError, listClients } from "@/lib/clients-api";
@@ -96,7 +99,7 @@ function mapApiRow(m: {
   return {
     id: m._id,
     recipientName: m.recipientName,
-    phone: m.recipientPhone || "—",
+    phone: m.recipientPhone || "N/A",
     audienceTag: m.recipientKind,
     preview,
     body,
@@ -111,7 +114,7 @@ function mapApiRow(m: {
 export default function SmsPage() {
   const { showToast } = useToast();
   const { query: shellQuery } = useFolderListSearch();
-  const broadcastRef = useRef<HTMLTextAreaElement | null>(null);
+  const broadcastRef = useRef<TextAreaRef | null>(null);
 
   const [meta, setMeta] = useState<SmsMeta | null>(null);
   const [metaLoading, setMetaLoading] = useState(true);
@@ -273,7 +276,7 @@ export default function SmsPage() {
   const placeholders = meta?.placeholders ?? [];
 
   const insertToken = useCallback((token: string) => {
-    const ta = broadcastRef.current;
+    const ta = broadcastRef.current?.resizableTextArea?.textArea;
     if (!ta) {
       setBroadcastMessage((prev) => prev + token);
       return;
@@ -283,7 +286,7 @@ export default function SmsPage() {
     setBroadcastMessage((prev) => {
       const next = prev.slice(0, start) + token + prev.slice(end);
       requestAnimationFrame(() => {
-        ta.focus();
+        broadcastRef.current?.focus();
         const pos = start + token.length;
         ta.setSelectionRange(pos, pos);
       });
@@ -449,7 +452,7 @@ export default function SmsPage() {
     () =>
       folders.map((f) => ({
         value: f._id,
-        label: `${f.eventName || "Gallery"} · ${getFolderClientName(f)}`,
+        label: `${f.eventName || "Gallery"}, ${getFolderClientName(f)}`,
       })),
     [folders],
   );
@@ -458,31 +461,38 @@ export default function SmsPage() {
     () =>
       clients.map((c) => ({
         value: c._id,
-        label: `${c.name} · ${c.contact || c.email || "—"}`,
+        label: `${c.name}, ${c.contact || c.email || "N/A"}`,
       })),
     [clients],
   );
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
-            SMS
-          </h1>
-          <p className="mt-1 text-sm text-zinc-500">
-            SMS to clients — delivery status and costs from your provider.
-          </p>
+    <div className="dashboard-page space-y-6">
+      <section className="relative overflow-hidden rounded-2xl border border-slate-800/50 bg-gradient-to-br from-slate-950 via-indigo-950/85 to-slate-900 shadow-lg shadow-slate-900/20">
+        <div
+          className="pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full bg-brand/15 blur-3xl"
+          aria-hidden
+        />
+        <div className="relative flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6">
+          <div className="min-w-0">
+            <h1 className="text-2xl font-semibold tracking-tight text-white sm:text-[1.65rem]">
+              SMS
+            </h1>
+            <p className="mt-2 max-w-xl text-sm leading-relaxed text-slate-400">
+              Text clients from your studio. Track delivery status and message costs from your
+              provider.
+            </p>
+          </div>
+          <button
+            type="button"
+            className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-brand px-4 py-2.5 text-sm font-semibold text-white shadow-md transition hover:bg-brand-hover"
+            onClick={openSendModal}
+          >
+            <Send className="h-4 w-4" aria-hidden />
+            Send SMS
+          </button>
         </div>
-        <button
-          type="button"
-          className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#2563EB] px-5 py-2.5 text-sm font-semibold text-white shadow-sm shadow-[#2563EB]/25 transition hover:brightness-105 focus:outline-none focus:ring-2 focus:ring-[#2563EB]/40"
-          onClick={openSendModal}
-        >
-          <SendOutlined className="text-base" aria-hidden />
-          Send SMS
-        </button>
-      </div>
+      </section>
 
       {meta && !meta.configured ? (
         <Alert
@@ -572,25 +582,15 @@ export default function SmsPage() {
                 <label className="text-sm font-medium text-zinc-800 dark:text-zinc-200">
                   <span className="text-red-500">*</span> Recipient type
                 </label>
-                <div className="relative">
-                  <select
-                    value={recipientType}
-                    onChange={(e) => {
-                      setRecipientType(e.target.value);
-                      setSelectedClientId(undefined);
-                    }}
-                    className="w-full appearance-none rounded-lg border border-zinc-200 bg-white py-2.5 pl-3 pr-10 text-sm outline-none ring-brand/25 focus:border-brand focus:ring-2 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-                  >
-                    {recipientOptions.map((o) => (
-                      <option key={o.id} value={o.id}>
-                        {o.label}
-                      </option>
-                    ))}
-                  </select>
-                  <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400">
-                    ▾
-                  </span>
-                </div>
+                <Select
+                  value={recipientType}
+                  onChange={(value) => {
+                    setRecipientType(value);
+                    setSelectedClientId(undefined);
+                  }}
+                  options={recipientOptions.map((o) => ({ value: o.id, label: o.label }))}
+                  className="w-full"
+                />
               </div>
 
               {recipientType === "client" ? (
@@ -663,13 +663,13 @@ export default function SmsPage() {
                   <span className="text-red-500">*</span> Message
                 </label>
                 <div className="relative">
-                  <textarea
+                  <FormTextArea
                     ref={broadcastRef}
                     rows={5}
                     value={broadcastMessage}
                     onChange={(e) => setBroadcastMessage(e.target.value)}
                     placeholder="Enter your SMS message…"
-                    className="min-h-[120px] w-full resize-y rounded-lg border border-zinc-200 bg-white py-3 px-3 pb-9 text-sm outline-none focus:border-brand focus:ring-2 dark:border-zinc-700 dark:bg-zinc-950"
+                    className="min-h-[120px] [&_.ant-input]:!pb-9"
                   />
                   <div className="pointer-events-none absolute bottom-3 right-3 text-xs tabular-nums text-zinc-500">
                   {broadcastLen <= SMS_COMPOSER_CHAR_UNIT ? (

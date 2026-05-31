@@ -2,6 +2,7 @@
 
 import { useParams } from "next/navigation";
 import { ClientGalleryApp } from "@/components/client/client-gallery-app";
+import { publicGalleryKeyFromToken } from "@/lib/share-gallery-api";
 
 export default function ClientGalleryPage() {
   const params = useParams();
@@ -20,5 +21,6 @@ export default function ClientGalleryPage() {
   } catch {
     safeToken = token;
   }
-  return <ClientGalleryApp key={safeToken} token={safeToken} />;
+  const publicKey = publicGalleryKeyFromToken(safeToken);
+  return <ClientGalleryApp key={safeToken} publicKey={publicKey} />;
 }

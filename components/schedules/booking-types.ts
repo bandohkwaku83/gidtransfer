@@ -6,11 +6,13 @@ import {
   CircleDot,
   GraduationCap,
   Heart,
+  Sparkles,
   Trees,
 } from "lucide-react";
 
 export type ShootKind =
   | "wedding"
+  | "christening"
   | "outdoor"
   | "birthday"
   | "graduation"
@@ -47,6 +49,12 @@ export const KIND_META: Record<
     dot: "bg-rose-500",
     chip: "bg-rose-500/15 text-rose-800 ring-rose-500/25 dark:text-rose-200 dark:ring-rose-500/30",
     Icon: Heart,
+  },
+  christening: {
+    label: "Christening",
+    dot: "bg-teal-500",
+    chip: "bg-teal-500/15 text-teal-900 ring-teal-500/25 dark:text-teal-100 dark:ring-teal-500/35",
+    Icon: Sparkles,
   },
   outdoor: {
     label: "Outdoor",
@@ -89,6 +97,7 @@ export const KIND_META: Record<
 /** Display / dropdown order for shoot types */
 export const SHOOT_KINDS_ORDER: ShootKind[] = [
   "wedding",
+  "christening",
   "portraits",
   "outdoor",
   "birthday",

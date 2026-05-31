@@ -1,66 +1,66 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
-import { getAuth, logout } from "@/lib/auth-demo";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { SettingsShell } from "@/components/settings/settings-shell";
+import {
+  SettingsBillingSection,
+  SettingsGallerySection,
+  SettingsProfileSection,
+  SettingsReferSection,
+  SettingsSupportSection,
+  SettingsWatermarkSection,
+} from "@/components/settings/settings-sections";
 import { useToast } from "@/components/toast-provider";
+import { getAuth } from "@/lib/auth-demo";
 import {
   getSettings,
-  getSettingsDefaultCoverUrl,
   updateSettings,
   type ApiSettings,
 } from "@/lib/settings-api";
-import { SettingsWorkflowSkeleton } from "@/components/ui/skeletons";
+import {
+  PLANS,
+  countGalleriesTowardQuota,
+  getSubscriptionPlanIdForEmail,
+  setSubscriptionPlanIdForEmail,
+  type PlanId,
+} from "@/lib/subscription-plan";
+import { isSettingsTabId, type SettingsTabId } from "@/lib/settings-tabs";
+import { PRODUCT_TAGLINE } from "@/lib/branding";
 
-function Toggle({
-  checked,
-  onChange,
-  disabled,
-  label,
-  hint,
-}: {
-  checked: boolean;
-  onChange: (next: boolean) => void;
-  disabled?: boolean;
-  label: string;
-  hint: string;
-}) {
-  return (
-    <label className="flex items-center justify-between gap-4 rounded-xl border border-zinc-200 px-4 py-3 dark:border-zinc-800">
-      <div>
-        <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">{label}</p>
-        <p className="text-xs text-zinc-500 dark:text-zinc-400">{hint}</p>
-      </div>
-      <button
-        type="button"
-        aria-pressed={checked}
-        disabled={disabled}
-        onClick={() => onChange(!checked)}
-        className={`relative h-7 w-12 rounded-full transition disabled:opacity-50 ${
-          checked ? "bg-brand" : "bg-zinc-300 dark:bg-zinc-700"
-        }`}
-      >
-        <span
-          className={`absolute top-0.5 h-6 w-6 rounded-full bg-white transition ${
-            checked ? "left-[25px]" : "left-0.5"
-          }`}
-        />
-      </button>
-    </label>
-  );
-}
-
-export default function SettingsPage() {
+function SettingsPageContent() {
   const { showToast } = useToast();
   const router = useRouter();
-  const auth = useMemo(() => getAuth(), []);
+  const searchParams = useSearchParams();
+  const [authVersion, setAuthVersion] = useState(0);
+  const auth = useMemo(() => {
+    void authVersion;
+    return getAuth();
+  }, [authVersion]);
+
+  const tabParam = searchParams.get("tab");
+  const activeTab: SettingsTabId = isSettingsTabId(tabParam) ? tabParam : "profile";
 
   const [settings, setSettings] = useState<ApiSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [savingWatermark, setSavingWatermark] = useState(false);
   const [uploadingCover, setUploadingCover] = useState(false);
-  const [reloading, setReloading] = useState(false);
+  const authEmail = (auth?.user?.email ?? auth?.email ?? "").trim();
+  const [planId, setPlanId] = useState<PlanId>("free");
+  const [siteOrigin, setSiteOrigin] = useState("");
+
+  useEffect(() => {
+    setSiteOrigin(window.location.origin);
+  }, []);
+
+  useEffect(() => {
+    if (!authEmail) {
+      setPlanId("free");
+      return;
+    }
+    setPlanId(getSubscriptionPlanIdForEmail(authEmail));
+  }, [authEmail]);
 
   const load = useCallback(async () => {
     setLoadError(null);
@@ -68,9 +68,7 @@ export default function SettingsPage() {
       const data = await getSettings();
       setSettings(data);
     } catch (err) {
-      setLoadError(
-        err instanceof Error ? err.message : "Could not load settings.",
-      );
+      setLoadError(err instanceof Error ? err.message : "Could not load settings.");
     } finally {
       setLoading(false);
     }
@@ -80,8 +78,9 @@ export default function SettingsPage() {
     void load();
   }, [load]);
 
-  const coverUrl = settings ? getSettingsDefaultCoverUrl(settings) : null;
-  const accountEmail = auth?.user?.email ?? auth?.email ?? "—";
+  function setTab(tab: SettingsTabId) {
+    router.replace(`/dashboard/settings?tab=${tab}`, { scroll: false });
+  }
 
   async function onWatermarkChange(next: boolean) {
     if (!settings || savingWatermark) return;
@@ -91,10 +90,7 @@ export default function SettingsPage() {
       setSettings(data);
       showToast("Settings saved.", "success");
     } catch (err) {
-      showToast(
-        err instanceof Error ? err.message : "Failed to save watermark option.",
-        "error",
-      );
+      showToast(err instanceof Error ? err.message : "Failed to save.", "error");
     } finally {
       setSavingWatermark(false);
     }
@@ -113,50 +109,106 @@ export default function SettingsPage() {
         watermarkPreviewImages: settings?.watermarkPreviewImages,
       });
       setSettings(data);
-      showToast("Default cover image updated.", "success");
+      showToast("Default cover updated.", "success");
     } catch (err) {
-      showToast(
-        err instanceof Error ? err.message : "Failed to upload cover image.",
-        "error",
-      );
+      showToast(err instanceof Error ? err.message : "Failed to upload cover.", "error");
     } finally {
       setUploadingCover(false);
     }
   }
 
-  async function resetFromServer() {
-    if (reloading) return;
-    setReloading(true);
-    try {
-      const data = await getSettings();
-      setSettings(data);
-      showToast("Reloaded settings from server.", "info");
-    } catch (err) {
-      showToast(
-        err instanceof Error ? err.message : "Could not reload settings.",
-        "error",
-      );
-    } finally {
-      setReloading(false);
+  function selectPlan(id: PlanId) {
+    if (!authEmail) {
+      showToast("Sign in to change plans.", "error");
+      return;
+    }
+    setSubscriptionPlanIdForEmail(authEmail, id);
+    setPlanId(id);
+    showToast(
+      id === "free" ? "Free plan selected (demo)." : `${PLANS[id].label} plan selected (demo).`,
+      "success",
+    );
+  }
+
+  function copyReferralLink() {
+    if (!authEmail) {
+      showToast("Sign in first.", "error");
+      return;
+    }
+    const url = `${window.location.origin}/login?ref=${encodeURIComponent(authEmail)}`;
+    void navigator.clipboard.writeText(url).then(
+      () => showToast("Link copied.", "success"),
+      () => showToast("Could not copy.", "error"),
+    );
+  }
+
+  function renderPanel() {
+    switch (activeTab) {
+      case "profile":
+        return (
+          <SettingsProfileSection
+            auth={auth}
+            planId={planId}
+            onTabChange={setTab}
+            onProfileUpdated={() => setAuthVersion((v) => v + 1)}
+          />
+        );
+      case "billing":
+        return (
+          <SettingsBillingSection
+            planId={planId}
+            galleriesUsed={countGalleriesTowardQuota()}
+            onSelectPlan={selectPlan}
+          />
+        );
+      case "watermark":
+        return (
+          <SettingsWatermarkSection
+            settings={settings}
+            loading={loading}
+            onSaved={setSettings}
+          />
+        );
+      case "gallery":
+        return (
+          <SettingsGallerySection
+            settings={settings}
+            loading={loading}
+            savingWatermark={savingWatermark}
+            uploadingCover={uploadingCover}
+            onWatermarkChange={(n) => void onWatermarkChange(n)}
+            onCoverUpload={(f) => void onCoverImageUpload(f)}
+          />
+        );
+      case "refer":
+        return (
+          <SettingsReferSection
+            authEmail={authEmail}
+            siteOrigin={siteOrigin}
+            onCopyLink={copyReferralLink}
+          />
+        );
+      case "support":
+        return <SettingsSupportSection auth={auth} planId={planId} />;
+      default:
+        return null;
     }
   }
 
-  async function signOut() {
-    await logout();
-    showToast("Signed out successfully.", "success");
-    router.replace("/login");
-  }
-
   return (
-    <div className="mx-auto max-w-4xl space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
-          Settings
-        </h1>
-        <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-          Manage workflow behavior and account actions.
-        </p>
-      </div>
+    <div className="dashboard-page space-y-6">
+      <section className="relative overflow-hidden rounded-2xl border border-slate-800/50 bg-gradient-to-br from-slate-950 via-indigo-950/85 to-slate-900 shadow-lg shadow-slate-900/20">
+        <div
+          className="pointer-events-none absolute -right-12 -top-12 h-40 w-40 rounded-full bg-brand/15 blur-3xl"
+          aria-hidden
+        />
+        <div className="relative p-5 sm:p-6">
+          <h1 className="text-2xl font-semibold tracking-tight text-white sm:text-[1.65rem]">
+            Settings
+          </h1>
+          <p className="mt-1.5 max-w-xl text-sm text-slate-400">{PRODUCT_TAGLINE}</p>
+        </div>
+      </section>
 
       {loadError ? (
         <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-200">
@@ -174,93 +226,23 @@ export default function SettingsPage() {
         </div>
       ) : null}
 
-      <section className="rounded-2xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-950">
-        <div className="mb-4">
-          <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">Workflow</h2>
-        </div>
-
-        {loading ? (
-          <SettingsWorkflowSkeleton />
-        ) : settings ? (
-          <div className="space-y-3">
-            <Toggle
-              checked={settings.watermarkPreviewImages}
-              onChange={onWatermarkChange}
-              disabled={savingWatermark}
-              label="Watermark preview images"
-              hint="Applies watermark to gallery previews only (not final edits)."
-            />
-
-            <div className="rounded-xl border border-zinc-200 px-4 py-4 dark:border-zinc-800">
-              <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
-                Default cover image
-              </p>
-              <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-                This image is used as the default gallery cover when none is chosen.
-              </p>
-
-              {coverUrl ? (
-                <div className="mt-3 overflow-hidden rounded-xl border border-zinc-200 dark:border-zinc-800">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={coverUrl}
-                    alt="Default cover preview"
-                    className="h-40 w-full object-cover"
-                  />
-                </div>
-              ) : (
-                <div className="mt-3 flex h-24 items-center justify-center rounded-xl border border-dashed border-zinc-300 text-xs text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
-                  No default cover on the server yet
-                </div>
-              )}
-
-              <div className="mt-3 flex flex-wrap items-center gap-2">
-                <label
-                  className={`inline-flex cursor-pointer items-center rounded-lg bg-brand px-3 py-2 text-xs font-semibold text-white hover:bg-brand-hover ${
-                    uploadingCover ? "pointer-events-none opacity-60" : ""
-                  }`}
-                >
-                  {uploadingCover ? "Uploading…" : "Upload cover image"}
-                  <input
-                    type="file"
-                    accept="image/*"
-                    className="sr-only"
-                    disabled={uploadingCover}
-                    onChange={(e) => {
-                      void onCoverImageUpload(e.target.files?.[0] ?? null);
-                      e.currentTarget.value = "";
-                    }}
-                  />
-                </label>
-              </div>
-            </div>
-          </div>
-        ) : null}
-      </section>
-
-      <section className="rounded-2xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-950">
-        <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">Account</h2>
-        <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-          Signed in as <span className="font-medium">{accountEmail}</span>
-        </p>
-        <div className="mt-4 flex flex-wrap gap-3">
-          <button
-            type="button"
-            onClick={() => void resetFromServer()}
-            disabled={reloading || loading}
-            className="rounded-xl border border-zinc-200 px-4 py-2 text-sm font-semibold hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-900"
-          >
-            {reloading ? "Reloading…" : "Reload from server"}
-          </button>
-          <button
-            type="button"
-            onClick={() => void signOut()}
-            className="rounded-xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
-          >
-            Sign out
-          </button>
-        </div>
-      </section>
+      <SettingsShell activeTab={activeTab} onTabChange={setTab}>
+        {renderPanel()}
+      </SettingsShell>
     </div>
+  );
+}
+
+export default function SettingsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="dashboard-page px-4 py-16 text-center text-sm text-zinc-500">
+          Loading settings…
+        </div>
+      }
+    >
+      <SettingsPageContent />
+    </Suspense>
   );
 }

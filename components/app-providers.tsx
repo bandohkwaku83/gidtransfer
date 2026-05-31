@@ -3,11 +3,8 @@
 import { AntdRegistry } from "@ant-design/nextjs-registry";
 import { ConfigProvider } from "antd";
 
-/**
- * Ant Design for **dashboard routes only** (tables, forms, pickers, etc.).
- * Keeps AntD tokens and CSS off public pages so layout/colors stay unchanged there.
- */
-export function DashboardAntdProviders({ children }: { children: React.ReactNode }) {
+/** Ant Design registry + theme for forms, tables, and inputs app-wide. */
+export function AppAntdProviders({ children }: { children: React.ReactNode }) {
   return (
     <AntdRegistry>
       <ConfigProvider
@@ -34,3 +31,6 @@ export function DashboardAntdProviders({ children }: { children: React.ReactNode
     </AntdRegistry>
   );
 }
+
+/** @deprecated Use {@link AppAntdProviders} */
+export const DashboardAntdProviders = AppAntdProviders;

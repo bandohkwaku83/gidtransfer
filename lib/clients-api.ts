@@ -1,4 +1,5 @@
-import { authedFetch, extractMessage, HttpError, parseJson } from "@/lib/http";
+import { getAuthToken } from "@/lib/auth-demo";
+import { authedJson, HttpError } from "@/lib/http";
 
 export type ApiClient = {
   _id: string;
@@ -29,89 +30,111 @@ export type ListClientsResponse = {
  */
 export class ApiError extends HttpError {}
 
-export async function listClients(search = ""): Promise<ListClientsResponse> {
-  const qs = search ? `?search=${encodeURIComponent(search)}` : "";
-  const res = await authedFetch(`/api/clients${qs}`, { method: "GET" });
-  const body = await parseJson(res);
-  if (!res.ok) {
-    throw new ApiError(
-      extractMessage(body, `Failed to load clients (${res.status})`),
-      res.status,
-      body,
-    );
-  }
-  const data = body as ListClientsResponse;
+type RawClient = {
+  _id: string;
+  name: string;
+  email?: string;
+  phone?: string;
+  contact?: string;
+  location: string;
+  createdBy?: string;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+function mapClient(raw: RawClient): ApiClient {
   return {
-    count: data?.count ?? data?.clients?.length ?? 0,
-    clients: Array.isArray(data?.clients) ? data.clients : [],
+    _id: String(raw._id),
+    name: raw.name,
+    email: raw.email?.trim() ?? "",
+    contact: (raw.phone ?? raw.contact ?? "").trim(),
+    location: raw.location,
+    createdBy: raw.createdBy,
+    createdAt: raw.createdAt,
+    updatedAt: raw.updatedAt,
   };
 }
 
+function toApiBody(input: Partial<ClientInput>): Record<string, string> {
+  const body: Record<string, string> = {};
+  if (input.name !== undefined) body.name = input.name.trim();
+  if (input.email !== undefined) body.email = input.email.trim();
+  if (input.contact !== undefined) {
+    body.phone = input.contact.trim();
+  }
+  if (input.location !== undefined) body.location = input.location.trim();
+  return body;
+}
+
+function requireAuthToken(): string {
+  const token = getAuthToken();
+  if (!token) {
+    throw new ApiError("Not signed in. Please log in again.", 401, null);
+  }
+  return token;
+}
+
+export async function listClients(search = ""): Promise<ListClientsResponse> {
+  requireAuthToken();
+  const q = search.trim();
+  const path = q
+    ? `/api/clients?search=${encodeURIComponent(q)}`
+    : "/api/clients";
+  const res = await authedJson<{ count: number; clients: RawClient[] }>(
+    path,
+    { method: "GET" },
+    "Failed to load clients",
+    ApiError,
+  );
+  const clients = (res.clients ?? []).map(mapClient);
+  return { count: res.count ?? clients.length, clients };
+}
+
 export async function getClient(id: string): Promise<ApiClient> {
-  const res = await authedFetch(`/api/clients/${encodeURIComponent(id)}`, { method: "GET" });
-  const body = await parseJson(res);
-  if (!res.ok) {
-    throw new ApiError(
-      extractMessage(body, `Failed to load client (${res.status})`),
-      res.status,
-      body,
-    );
-  }
-  if (body && typeof body === "object" && "client" in body) {
-    return (body as { client: ApiClient }).client;
-  }
-  return body as ApiClient;
+  const res = await authedJson<{ client: RawClient }>(
+    `/api/clients/${encodeURIComponent(id)}`,
+    { method: "GET" },
+    "Failed to load client",
+    ApiError,
+  );
+  return mapClient(res.client);
 }
 
 export async function createClient(input: ClientInput): Promise<ApiClient> {
-  const res = await authedFetch("/api/clients", {
-    method: "POST",
-    body: JSON.stringify(input),
-  });
-  const body = await parseJson(res);
-  if (!res.ok) {
-    throw new ApiError(
-      extractMessage(body, `Failed to create client (${res.status})`),
-      res.status,
-      body,
-    );
-  }
-  if (body && typeof body === "object" && "client" in body) {
-    return (body as { client: ApiClient }).client;
-  }
-  return body as ApiClient;
+  const res = await authedJson<{ client: RawClient }>(
+    "/api/clients",
+    {
+      method: "POST",
+      body: JSON.stringify(toApiBody(input)),
+    },
+    "Failed to create client",
+    ApiError,
+  );
+  return mapClient(res.client);
 }
 
 export async function updateClient(
   id: string,
   input: Partial<ClientInput>,
 ): Promise<ApiClient> {
-  const res = await authedFetch(`/api/clients/${encodeURIComponent(id)}`, {
-    method: "PUT",
-    body: JSON.stringify(input),
-  });
-  const body = await parseJson(res);
-  if (!res.ok) {
-    throw new ApiError(
-      extractMessage(body, `Failed to update client (${res.status})`),
-      res.status,
-      body,
-    );
-  }
-  return (body as { client: ApiClient }).client;
+  const res = await authedJson<{ client: RawClient }>(
+    `/api/clients/${encodeURIComponent(id)}`,
+    {
+      method: "PUT",
+      body: JSON.stringify(toApiBody(input)),
+    },
+    "Failed to update client",
+    ApiError,
+  );
+  return mapClient(res.client);
 }
 
 export async function deleteClient(id: string): Promise<ApiClient> {
-  const res = await authedFetch(`/api/clients/${encodeURIComponent(id)}`, {
-    method: "DELETE",
-  });
-  const body = await parseJson(res);
-  if (!res.ok) {
-    throw new ApiError(
-      extractMessage(body, `Failed to delete client (${res.status})`),
-      res.status,
-      body,
-    );
-  }
-  return (body as { client: ApiClient }).client;
+  const res = await authedJson<{ client: RawClient }>(
+    `/api/clients/${encodeURIComponent(id)}`,
+    { method: "DELETE" },
+    "Failed to delete client",
+    ApiError,
+  );
+  return mapClient(res.client);
 }

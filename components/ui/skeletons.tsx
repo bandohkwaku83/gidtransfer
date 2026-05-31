@@ -41,14 +41,14 @@ export function StatValueSkeleton() {
 /** Full folder detail page initial load. */
 export function FolderDetailPageSkeleton() {
   return (
-    <div className={cn("mx-auto max-w-6xl space-y-6", darkSkeleton)}>
+    <div className={cn("dashboard-page space-y-5", darkSkeleton)}>
       <Skeleton active title={{ width: 220 }} paragraph={false} />
-      <div className="overflow-hidden rounded-2xl border border-zinc-200/80 dark:border-zinc-800">
-        <Skeleton.Image active className="!h-[200px] !w-full md:!h-[240px]" />
+      <Skeleton active title={{ width: "40%" }} paragraph={{ rows: 1, width: "28%" }} />
+      <Skeleton active title={false} paragraph={{ rows: 1, width: "100%", style: { height: 44 } }} />
+      <div className="flex flex-col gap-6 lg:flex-row">
+        <Skeleton active title={false} paragraph={{ rows: 1, width: "100%", style: { height: 420 } }} className="flex-1" />
+        <Skeleton active title={false} paragraph={{ rows: 1, width: "100%", style: { height: 420 } }} className="!w-full lg:!max-w-[380px]" />
       </div>
-      <Skeleton active title={false} paragraph={{ rows: 1, width: "100%", style: { height: 160 } }} />
-      <Skeleton active title={false} paragraph={{ rows: 1, width: "100%", style: { height: 56 } }} />
-      <Skeleton active title={false} paragraph={{ rows: 1, width: "100%", style: { height: 288 } }} />
     </div>
   );
 }

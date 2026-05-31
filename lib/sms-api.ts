@@ -1,4 +1,4 @@
-import { authedFetch, extractMessage, HttpError, parseJson } from "@/lib/http";
+import { HttpError } from "@/lib/http";
 
 export type SmsPlaceholder = {
   key: string;
@@ -60,21 +60,19 @@ export type SendSmsResponse = {
 
 export class SmsApiError extends HttpError {}
 
+async function delay(ms = 25) {
+  await new Promise((r) => setTimeout(r, ms));
+}
+
 export async function getSmsMeta(): Promise<SmsMeta> {
-  const res = await authedFetch("/api/sms/meta", { method: "GET" });
-  const body = await parseJson(res);
-  if (!res.ok) {
-    throw new SmsApiError(
-      extractMessage(body, `Failed to load SMS settings (${res.status})`),
-      res.status,
-      body,
-    );
-  }
-  const data = body as Partial<SmsMeta>;
+  await delay();
   return {
-    placeholders: Array.isArray(data.placeholders) ? data.placeholders : [],
-    recipientTypes: Array.isArray(data.recipientTypes) ? data.recipientTypes : [],
-    configured: Boolean(data.configured),
+    placeholders: [{ key: "client", token: "{client}", label: "Client name" }],
+    recipientTypes: [
+      { id: "client", label: "Client" },
+      { id: "custom", label: "Custom list (demo)" },
+    ],
+    configured: false,
   };
 }
 
@@ -84,54 +82,25 @@ export async function listSmsMessages(params: {
   search?: string;
   status?: "" | "sent" | "failed" | "skipped";
 }): Promise<ListSmsMessagesResponse> {
-  const qs = new URLSearchParams();
-  qs.set("page", String(params.page ?? 1));
-  qs.set("limit", String(params.limit ?? 10));
-  qs.set("search", params.search ?? "");
-  qs.set("status", params.status ?? "");
-  const res = await authedFetch(`/api/sms/messages?${qs.toString()}`, { method: "GET" });
-  const body = await parseJson(res);
-  if (!res.ok) {
-    throw new SmsApiError(
-      extractMessage(body, `Failed to load messages (${res.status})`),
-      res.status,
-      body,
-    );
-  }
-  const data = body as Partial<ListSmsMessagesResponse>;
-  const messages = Array.isArray(data.messages) ? data.messages : [];
-  const p = data.pagination;
+  await delay();
+  void params;
   return {
-    messages,
+    messages: [],
     pagination: {
-      page: typeof p?.page === "number" ? p.page : 1,
-      limit: typeof p?.limit === "number" ? p.limit : 10,
-      total: typeof p?.total === "number" ? p.total : messages.length,
-      totalPages: typeof p?.totalPages === "number" ? p.totalPages : 1,
+      page: params.page ?? 1,
+      limit: params.limit ?? 10,
+      total: 0,
+      totalPages: 1,
     },
   };
 }
 
 export async function sendSms(input: SendSmsInput): Promise<SendSmsResponse> {
-  const payload: Record<string, string> = {
-    recipientType: input.recipientType,
-    message: input.message,
-    folderId: input.folderId ?? "",
+  await delay();
+  return {
+    message: "Demo mode: no SMS was sent.",
+    summary: { sent: 0, failed: 0, skipped: 1 },
+    results: [],
+    skipped: [{ reason: "demo", recipientType: input.recipientType }],
   };
-  /** Backend matches folder APIs: Mongo ref field is `client`. */
-  if (input.clientId) payload.client = input.clientId;
-
-  const res = await authedFetch("/api/sms/send", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
-  const body = await parseJson(res);
-  if (!res.ok) {
-    throw new SmsApiError(
-      extractMessage(body, `Send failed (${res.status})`),
-      res.status,
-      body,
-    );
-  }
-  return body as SendSmsResponse;
 }

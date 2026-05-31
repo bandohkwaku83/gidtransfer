@@ -1,10 +1,23 @@
 "use client";
 
 import type { FormEvent } from "react";
-import { useEffect, useMemo, useState } from "react";
-import { UserPlus, X } from "lucide-react";
+import { useEffect, useId, useMemo, useState } from "react";
+import { CalendarPlus, UserPlus } from "lucide-react";
 import { useToast } from "@/components/toast-provider";
 import { CreateClientModal } from "@/components/photographer/create-client-modal";
+import { ClientSearchSelect } from "@/components/ui/client-search-select";
+import { FormSelect } from "@/components/ui/form-select";
+import {
+  FormField,
+  FormModal,
+  FormModalBody,
+  FormModalFooter,
+  FormModalForm,
+  FormModalHeader,
+  FormModalSection,
+  formModalSecondaryButtonClass,
+} from "@/components/ui/form-modal";
+import { FormInput, FormTextArea } from "@/components/ui/form-input";
 import type { BookedShoot, ShootKind } from "@/components/schedules/booking-types";
 import { KIND_META, SHOOT_KINDS_ORDER } from "@/components/schedules/booking-types";
 import type { BookingShootTypeMeta } from "@/lib/bookings-api";
@@ -18,6 +31,8 @@ type Props = {
   onClose: () => void;
   /** ISO date YYYY-MM-DD */
   defaultDate: string;
+  /** When set, the form opens in edit mode for this booking. */
+  booking?: BookedShoot | null;
   /** From `GET /api/bookings/meta` `shootTypes`; when empty, local defaults are used. */
   shootTypes?: BookingShootTypeMeta[];
   onSave: (draft: NewBookingDraft) => void | Promise<void>;
@@ -30,8 +45,18 @@ function defaultKindFromShootTypes(shootTypes: BookingShootTypeMeta[] | undefine
   return "portraits";
 }
 
-export function NewBookingModal({ open, onClose, defaultDate, shootTypes, onSave }: Props) {
+export function NewBookingModal({
+  open,
+  onClose,
+  defaultDate,
+  booking,
+  shootTypes,
+  onSave,
+}: Props) {
+  const isEdit = Boolean(booking?.id);
   const { showToast } = useToast();
+  const formId = useId();
+
   const [title, setTitle] = useState("");
   const [clientId, setClientId] = useState("");
   const [date, setDate] = useState(defaultDate);
@@ -51,6 +76,21 @@ export function NewBookingModal({ open, onClose, defaultDate, shootTypes, onSave
     [clients],
   );
 
+  const clientsForSelect = useMemo(() => {
+    if (!booking?.clientId) return sortedClients;
+    if (sortedClients.some((c) => c._id === booking.clientId)) return sortedClients;
+    return [
+      ...sortedClients,
+      {
+        _id: booking.clientId,
+        name: booking.clientName,
+        email: "",
+        contact: "",
+        location: "",
+      },
+    ];
+  }, [sortedClients, booking]);
+
   const typeOptions = useMemo(() => {
     if (shootTypes && shootTypes.length > 0) {
       return shootTypes.map((t) => ({
@@ -63,14 +103,25 @@ export function NewBookingModal({ open, onClose, defaultDate, shootTypes, onSave
 
   useEffect(() => {
     if (!open) return;
-    setDate(defaultDate);
-    setTitle("");
-    setClientId("");
-    setStartTime("09:00");
-    setEndTime("");
-    setKind(defaultKindFromShootTypes(shootTypes));
-    setLocation("");
-    setDescription("");
+    if (booking) {
+      setDate(booking.date);
+      setTitle(booking.title);
+      setClientId(booking.clientId);
+      setStartTime(booking.startTime);
+      setEndTime(booking.endTime ?? "");
+      setKind(booking.kind);
+      setLocation(booking.location ?? "");
+      setDescription(booking.description ?? "");
+    } else {
+      setDate(defaultDate);
+      setTitle("");
+      setClientId("");
+      setStartTime("09:00");
+      setEndTime("");
+      setKind(defaultKindFromShootTypes(shootTypes));
+      setLocation("");
+      setDescription("");
+    }
     setAddClientOpen(false);
     setSubmitting(false);
 
@@ -93,16 +144,19 @@ export function NewBookingModal({ open, onClose, defaultDate, shootTypes, onSave
     return () => {
       cancelled = true;
     };
-  }, [open, defaultDate, showToast]);
+  }, [open, defaultDate, booking?.id, showToast, shootTypes]);
 
-  if (!open) return null;
+  function handleClose() {
+    if (submitting) return;
+    onClose();
+  }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     const t = title.trim();
     if (!t || !clientId || submitting) return;
-    const client = clients.find((c) => c._id === clientId);
-    const name = client?.name?.trim() ?? "";
+    const client = clientsForSelect.find((c) => c._id === clientId);
+    const name = client?.name?.trim() ?? booking?.clientName?.trim() ?? "";
     if (!name) {
       showToast("Select a valid client.", "error");
       return;
@@ -138,205 +192,141 @@ export function NewBookingModal({ open, onClose, defaultDate, shootTypes, onSave
     setAddClientOpen(false);
   }
 
-  const inputClass =
-    "w-full rounded-xl border border-zinc-200 bg-white px-3 py-2.5 text-sm outline-none ring-brand/25 focus:border-brand focus:ring-2 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100";
-
   return (
     <>
-      <div className="fixed inset-0 z-40 flex items-center justify-center p-4">
-        <button
-          type="button"
-          className="absolute inset-0 bg-black/50 backdrop-blur-[2px]"
-          aria-label="Close"
-          onClick={() => {
-            if (!submitting) onClose();
-          }}
+      <FormModal open={open} onClose={handleClose} busy={submitting}>
+        <FormModalHeader
+          icon={CalendarPlus}
+          title={isEdit ? "Edit booking" : "New booking"}
+          description={
+            isEdit
+              ? "Update shoot details, time, or client."
+              : "Schedule a shoot and link it to a client."
+          }
+          onClose={handleClose}
+          busy={submitting}
         />
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="new-booking-title"
-          className="relative z-10 max-h-[min(90vh,720px)] w-full max-w-lg overflow-y-auto rounded-2xl border border-zinc-200 bg-white shadow-2xl dark:border-zinc-800 dark:bg-zinc-950"
-        >
-          <div className="sticky top-0 flex items-center justify-between border-b border-zinc-100 bg-white px-5 py-4 dark:border-zinc-800 dark:bg-zinc-950">
-            <h2 id="new-booking-title" className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">
-              New booking
-            </h2>
-            <button
-              type="button"
-              onClick={onClose}
-              disabled={submitting}
-              className="rounded-lg p-2 text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-800 disabled:opacity-50 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
-              aria-label="Close"
-            >
-              <X className="h-5 w-5" />
-            </button>
-          </div>
+        <FormModalForm id={formId} onSubmit={(e) => void handleSubmit(e)}>
+          <FormModalBody>
+            <FormModalSection title="Details">
+              <FormField label="Shoot title" required>
+                <FormInput
+                  required
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder="e.g. Smith wedding, ceremony"
+                  disabled={submitting}
+                />
+              </FormField>
 
-          <form onSubmit={(e) => void handleSubmit(e)} className="space-y-4 px-5 py-5">
-            <div className="grid gap-2">
-              <label className="text-sm font-medium text-zinc-800 dark:text-zinc-200">
-                <span className="text-red-500">*</span> Shoot title
-              </label>
-              <input
+              <FormField
+                label="Client"
                 required
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder="e.g. Smith wedding — ceremony"
-                className={inputClass}
-                disabled={submitting}
-              />
-            </div>
-
-            <div className="grid gap-2">
-              <span className="text-sm font-medium text-zinc-800 dark:text-zinc-200">
-                <span className="text-red-500">*</span> Client
-              </span>
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-stretch">
-                <select
-                  required
+                htmlFor="new-booking-client"
+                action={
+                  <button
+                    type="button"
+                    disabled={submitting}
+                    onClick={() => setAddClientOpen(true)}
+                    className={formModalSecondaryButtonClass}
+                  >
+                    <UserPlus className="h-3.5 w-3.5 shrink-0 text-brand dark:text-brand-on-dark" aria-hidden />
+                    Add client
+                  </button>
+                }
+                hint={
+                  !clientsLoading && clients.length === 0
+                    ? "No clients yet. Use Add client to create one."
+                    : undefined
+                }
+              >
+                <ClientSearchSelect
                   id="new-booking-client"
+                  clients={clientsForSelect}
                   value={clientId}
-                  onChange={(e) => setClientId(e.target.value)}
-                  disabled={clientsLoading || submitting}
-                  className={`min-w-0 flex-1 ${inputClass} disabled:opacity-60`}
-                >
-                  <option value="" disabled>
-                    {clientsLoading ? "Loading clients…" : "Select a client"}
-                  </option>
-                  {sortedClients.map((c) => (
-                    <option key={c._id} value={c._id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
-                <button
-                  type="button"
-                  disabled={submitting}
-                  onClick={() => setAddClientOpen(true)}
-                  className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2.5 text-sm font-semibold text-zinc-800 transition hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100 dark:hover:bg-zinc-900"
-                >
-                  <UserPlus className="h-4 w-4 shrink-0" aria-hidden />
-                  Add client
-                </button>
-              </div>
-              {!clientsLoading && clients.length === 0 ? (
-                <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                  No clients yet. Use <span className="font-semibold">Add client</span> to create one.
-                </p>
-              ) : null}
-            </div>
-
-            <div className="grid gap-2 sm:grid-cols-2 sm:gap-3">
-              <div className="grid gap-2">
-                <label className="text-sm font-medium text-zinc-800 dark:text-zinc-200">
-                  <span className="text-red-500">*</span> Date
-                </label>
-                <input
-                  required
-                  type="date"
-                  value={date}
-                  onChange={(e) => setDate(e.target.value)}
-                  className={inputClass}
+                  onChange={setClientId}
+                  loading={clientsLoading}
                   disabled={submitting}
                 />
-              </div>
-              <div className="grid gap-2">
-                <label
-                  htmlFor="new-booking-shoot-type"
-                  className="text-sm font-medium text-zinc-800 dark:text-zinc-200"
-                >
-                  Shoot type
-                </label>
-                <select
-                  id="new-booking-shoot-type"
-                  value={kind}
-                  onChange={(e) => setKind(e.target.value as ShootKind)}
-                  className={inputClass}
-                  disabled={submitting}
-                >
-                  {typeOptions.map((o) => (
-                    <option key={`${o.value}-${o.label}`} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
+              </FormField>
 
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="grid gap-2">
-                <label className="text-sm font-medium text-zinc-800 dark:text-zinc-200">
-                  <span className="text-red-500">*</span> Start
-                </label>
-                <input
-                  required
-                  type="time"
-                  value={startTime}
-                  onChange={(e) => setStartTime(e.target.value)}
-                  className={inputClass}
+              <div className="grid gap-4 sm:grid-cols-2">
+                <FormField label="Date" required>
+                  <FormInput
+                    required
+                    type="date"
+                    value={date}
+                    onChange={(e) => setDate(e.target.value)}
+                    disabled={submitting}
+                  />
+                </FormField>
+                <FormField label="Shoot type" htmlFor="new-booking-shoot-type">
+                  <FormSelect<ShootKind>
+                    id="new-booking-shoot-type"
+                    value={kind}
+                    onChange={setKind}
+                    disabled={submitting}
+                    options={typeOptions.map((o) => ({ value: o.value, label: o.label }))}
+                  />
+                </FormField>
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <FormField label="Start" required>
+                  <FormInput
+                    required
+                    type="time"
+                    value={startTime}
+                    onChange={(e) => setStartTime(e.target.value)}
+                    disabled={submitting}
+                  />
+                </FormField>
+                <FormField label="End" optional>
+                  <FormInput
+                    type="time"
+                    value={endTime}
+                    onChange={(e) => setEndTime(e.target.value)}
+                    disabled={submitting}
+                  />
+                </FormField>
+              </div>
+
+              <FormField label="Location" optional>
+                <FormInput
+                  value={location}
+                  onChange={(e) => setLocation(e.target.value)}
+                  placeholder="Venue or address"
                   disabled={submitting}
                 />
-              </div>
-              <div className="grid gap-2">
-                <label className="text-sm font-medium text-zinc-800 dark:text-zinc-200">End</label>
-                <input
-                  type="time"
-                  value={endTime}
-                  onChange={(e) => setEndTime(e.target.value)}
-                  className={inputClass}
+              </FormField>
+
+              <FormField label="Notes" optional>
+                <FormTextArea
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  rows={2}
+                  placeholder="Optional notes for this booking…"
+                  className="min-h-[72px]"
                   disabled={submitting}
                 />
-              </div>
-            </div>
-
-            <div className="grid gap-2">
-              <label className="text-sm font-medium text-zinc-800 dark:text-zinc-200">Location</label>
-              <input
-                value={location}
-                onChange={(e) => setLocation(e.target.value)}
-                placeholder="Venue or address"
-                className={inputClass}
-                disabled={submitting}
-              />
-            </div>
-
-            {/* <div className="grid gap-2">
-              <label className="text-sm font-medium text-zinc-800 dark:text-zinc-200">Description</label>
-              <textarea
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                rows={2}
-                placeholder="Optional notes for this booking…"
-                className={`${inputClass} min-h-[72px] resize-y`}
-                disabled={submitting}
-              />
-            </div> */}
-
-            <div className="flex flex-wrap justify-end gap-2 border-t border-zinc-100 pt-4 dark:border-zinc-800">
-              <button
-                type="button"
-                disabled={submitting}
-                onClick={onClose}
-                className="rounded-xl border border-zinc-200 px-4 py-2.5 text-sm font-semibold text-zinc-800 transition hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-600 dark:text-zinc-200 dark:hover:bg-zinc-900"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={!clientId || clientsLoading || submitting}
-                className="rounded-xl bg-brand px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {submitting ? "Saving…" : "Save booking"}
-              </button>
-            </div>
-          </form>
-        </div>
-      </div>
+              </FormField>
+            </FormModalSection>
+          </FormModalBody>
+        </FormModalForm>
+        <FormModalFooter
+          onCancel={handleClose}
+          formId={formId}
+          submitLabel={isEdit ? "Save changes" : "Save booking"}
+          busyLabel="Saving…"
+          busy={submitting}
+          submitDisabled={!clientId || clientsLoading}
+        />
+      </FormModal>
 
       <CreateClientModal
         open={addClientOpen}
         client={null}
+        elevated
         onClose={() => setAddClientOpen(false)}
         onSaved={handleNewClientSaved}
       />

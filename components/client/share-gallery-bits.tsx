@@ -1,69 +1,49 @@
-import {
-  Columns3,
-  Focus,
-  GalleryHorizontal,
-  LayoutGrid,
-  PanelsTopLeft,
-} from "lucide-react";
+/**
+ * Layout helpers and constants for the client share gallery only.
+ * Used by `client-gallery-app.tsx` — not the photographer dashboard.
+ */
+
 import type { DemoAsset, SelectionState } from "@/lib/demo-data";
 import {
+  GALLERY_IMAGE_LAYOUTS,
+  type GalleryImageLayout,
+  type GridLayout,
+  editedCardClass,
+  galleryListClass,
+  isCollageGridLayout,
+  isGridLayout,
+  isGalleryImageLayout,
+  normalizeGalleryImageLayout,
+  shareGalleryGridSizes,
+  uploadImageWrapClass,
+  uploadItemClass,
+} from "@/lib/gallery-image-layout";
+import {
   getShareFinalLockedPreviewUrl,
+  resolvePublicGalleryKey,
+  type PublicGalleryKey,
   type ShareGalleryAsset,
   type ShareGalleryFinal,
 } from "@/lib/share-gallery-api";
 
-export const GRID_STORAGE_PREFIX = "gidostorage-share-grid:";
+export const GRID_STORAGE_PREFIX = "gidostorage-share-grid:v3:";
 export const GALLERY_MUSIC_MUTE_PREFIX = "gidostorage-share-music-muted:";
 
-export type GridLayout = "uniform" | "masonry" | "block" | "filmstrip" | "spotlight";
+export type { GalleryImageLayout, GridLayout };
 
-export const GRID_LAYOUTS: {
-  id: GridLayout;
-  label: string;
-  shortLabel: string;
-  description: string;
-  icon: typeof LayoutGrid;
-}[] = [
-  {
-    id: "spotlight",
-    label: "Spotlight",
-    shortLabel: "Hero",
-    description: "Feature the first image prominently",
-    icon: Focus,
-  },
-  {
-    id: "uniform",
-    label: "Standard grid",
-    shortLabel: "Grid",
-    description: "Even rows of uniform thumbnails",
-    icon: LayoutGrid,
-  },
-  {
-    id: "masonry",
-    label: "Masonry",
-    shortLabel: "Masonry",
-    description: "Flowing columns like a collage",
-    icon: Columns3,
-  },
-  {
-    id: "block",
-    label: "Block grid",
-    shortLabel: "Blocks",
-    description: "Larger tiles with generous spacing",
-    icon: PanelsTopLeft,
-  },
-  {
-    id: "filmstrip",
-    label: "Filmstrip",
-    shortLabel: "Strip",
-    description: "Swipe horizontally through photos",
-    icon: GalleryHorizontal,
-  },
-];
+export const GRID_LAYOUTS = GALLERY_IMAGE_LAYOUTS;
 
-export function isGridLayout(v: string): v is GridLayout {
-  return GRID_LAYOUTS.some((x) => x.id === v);
-}
+export {
+  editedCardClass,
+  galleryListClass,
+  isCollageGridLayout,
+  isGridLayout,
+  isGalleryImageLayout,
+  normalizeGalleryImageLayout,
+  shareGalleryGridSizes,
+  uploadImageWrapClass,
+  uploadItemClass,
+};
 
 /* ----------------------------- next/image hints ----------------------------- */
 
@@ -75,84 +55,19 @@ export const SELECTED_STRIP_IMAGE_SIZES = "(max-width: 640px) 25vw, (max-width: 
 
 export const SHARE_LIGHTBOX_SIZES = "(max-width: 1280px) 100vw, 896px";
 
-export function shareGalleryGridSizes(layout: GridLayout, index: number): string {
-  switch (layout) {
-    case "filmstrip":
-      return "(max-width: 640px) 85vw, 320px";
-    case "spotlight":
-      return index === 0
-        ? "(max-width: 640px) 100vw, (max-width: 1024px) 66vw, 55vw"
-        : "(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 24vw";
-    case "block":
-      return "(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 280px";
-    case "masonry":
-      return "(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 320px";
-    case "uniform":
-    default:
-      return "(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 24vw";
-  }
+export function isClientAssetVideo(asset: Pick<DemoAsset, "isVideo" | "originalName" | "previewUrl" | "thumbUrl">): boolean {
+  if (asset.isVideo) return true;
+  return [asset.originalName, asset.previewUrl, asset.thumbUrl].some((value) =>
+    /\.(mp4|mov|webm|m4v|avi|mkv|ogv)(?:[?#].*)?$/i.test(value ?? ""),
+  );
 }
 
-/* ----------------------------- layout class helpers ----------------------------- */
+/** Bottom-right icon row on gallery tiles (reference: heart, download, share). */
+export const galleryTileHoverActionsClass =
+  "pointer-events-auto absolute inset-x-0 bottom-0 z-10 flex justify-end gap-3 p-3 opacity-100 transition-opacity duration-200 sm:pointer-events-none sm:opacity-0 sm:group-hover:pointer-events-auto sm:group-hover:opacity-100 sm:group-focus-within:pointer-events-auto sm:group-focus-within:opacity-100";
 
-export function galleryListClass(layout: GridLayout): string {
-  switch (layout) {
-    case "uniform":
-      return "grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6";
-    case "masonry":
-      return "columns-2 gap-x-3 sm:columns-3 md:columns-4 lg:columns-5 xl:columns-6 [column-fill:_balance]";
-    case "block":
-      return "grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:gap-8";
-    case "filmstrip":
-      return "flex flex-row flex-nowrap gap-4 overflow-x-auto pb-3 pt-1 [-webkit-overflow-scrolling:touch] snap-x snap-mandatory px-0.5";
-    case "spotlight":
-      return "grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3";
-    default:
-      return "";
-  }
-}
-
-export function uploadItemClass(layout: GridLayout, index: number, isSelected: boolean): string {
-  const ring = isSelected
-    ? "border-brand-on-dark ring-2 ring-brand-soft dark:border-brand dark:ring-brand/40"
-    : "border-zinc-200 dark:border-zinc-800";
-  const base = `group overflow-hidden rounded-xl border bg-white shadow-sm transition dark:bg-zinc-950 ${ring}`;
-  if (layout === "spotlight" && index === 0) {
-    return `${base} col-span-2 row-span-2 flex flex-col sm:min-h-[min(72vw,400px)]`;
-  }
-  if (layout === "masonry") {
-    return `${base} mb-3 break-inside-avoid`;
-  }
-  if (layout === "filmstrip") {
-    return `${base} w-[min(85vw,22rem)] shrink-0 snap-start sm:w-80`;
-  }
-  return base;
-}
-
-export function editedCardClass(layout: GridLayout, index: number): string {
-  const base =
-    "overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-950";
-  if (layout === "spotlight" && index === 0) {
-    return `${base} col-span-2 row-span-2 flex flex-col sm:min-h-[min(72vw,420px)]`;
-  }
-  if (layout === "masonry") {
-    return `${base} mb-3 break-inside-avoid`;
-  }
-  if (layout === "filmstrip") {
-    return `${base} w-[min(85vw,22rem)] shrink-0 snap-start sm:w-80`;
-  }
-  return base;
-}
-
-export function uploadImageWrapClass(layout: GridLayout, index: number): string {
-  if (layout === "block") {
-    return "relative aspect-[5/6] sm:aspect-square";
-  }
-  if (layout === "spotlight" && index === 0) {
-    return "relative aspect-[5/4] w-full flex-1 sm:aspect-auto sm:min-h-[280px]";
-  }
-  return "relative aspect-square";
-}
+export const galleryTileHoverIconClass =
+  "inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/65 text-white shadow-lg ring-1 ring-white/20 backdrop-blur-sm transition hover:bg-black/80 disabled:opacity-40";
 
 /* ----------------------------- small helpers ----------------------------- */
 
@@ -174,20 +89,32 @@ export function toDemoAssets(shareAssets: ShareGalleryAsset[]): DemoAsset[] {
     originalName: a.originalName,
     selection: a.selection as SelectionState,
     editState: "NONE",
-    clientComment: "",
+    clientComment: a.clientComment ?? a.rejectionComment ?? "",
+    photographerReply: a.photographerReply ?? "",
     hasEdited: false,
     thumbUrl: a.thumbUrl,
     ...(a.previewUrl ? { previewUrl: a.previewUrl } : {}),
+    ...(a.isVideo ? { isVideo: true } : {}),
   }));
 }
 
-export function finalDisplaySrc(f: ShareGalleryFinal, shareToken: string): string {
+export function finalDisplaySrc(
+  f: ShareGalleryFinal,
+  key: PublicGalleryKey | string,
+): string {
   const locked = Boolean(f.locked);
-  return locked ? f.lockedPreviewUrl || getShareFinalLockedPreviewUrl(shareToken, f.id) : f.url;
+  const resolved = resolvePublicGalleryKey(key);
+  return locked
+    ? f.lockedPreviewUrl || getShareFinalLockedPreviewUrl(resolved, f.id)
+    : f.url;
 }
 
 /** Unlocked originals may be video; locked delivery always uses the JPEG locked-preview URL. */
 export function isShareFinalVideo(f: ShareGalleryFinal): boolean {
+  if (f.isVideo) return true;
   const m = f.mimeType?.toLowerCase() ?? "";
-  return m.startsWith("video/");
+  if (m.startsWith("video/")) return true;
+  return [f.name, f.url].some((value) =>
+    /\.(mp4|mov|webm|m4v|avi|mkv|ogv)(?:[?#].*)?$/i.test(value ?? ""),
+  );
 }

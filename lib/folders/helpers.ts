@@ -1,6 +1,12 @@
 import { API_BASE_URL, sameOriginUploadsUrl } from "@/lib/api";
+import { loadProjectById } from "@/lib/demo-data";
 import type { DemoAsset, DemoFinalAsset, FolderStatus } from "@/lib/demo-data";
 import type { ApiFolder, ApiFolderMedia } from "@/lib/folders/types";
+
+/** True when the folder id refers to a local demo/seed gallery (not the remote API). */
+export function isLocalDemoFolderId(folderId: string): boolean {
+  return loadProjectById(folderId) != null;
+}
 
 export type FolderMediaDuplicatePreviewKind = "raw" | "final";
 
@@ -16,6 +22,18 @@ export function isRestoreDeadlinePassed(restoreBefore: string): boolean {
   const d = new Date(restoreBefore);
   if (Number.isNaN(d.getTime())) return false;
   return d.getTime() < Date.now();
+}
+
+/** Label for client share gallery selection UI (e.g. `3/10` or `3`). */
+export function formatClientSelectionCount(
+  selectedCount: number,
+  selectionLimit: number | null | undefined,
+): string {
+  const n = Math.max(0, Math.floor(selectedCount));
+  if (selectionLimit != null && Number.isFinite(selectionLimit) && selectionLimit > 0) {
+    return `${n}/${Math.floor(selectionLimit)}`;
+  }
+  return String(n);
 }
 
 /** Count of `ignoredDuplicatesCount` from a (possibly nested) upload response. */
@@ -58,6 +76,19 @@ function normalizeSelectionListItem(item: unknown): ApiFolderMedia | null {
       (typeof row.id === "string" && row.id) ||
       "";
     if (selectionId) {
+      const selectedAt =
+        typeof row.selectedAt === "string" && row.selectedAt.trim()
+          ? row.selectedAt
+          : typeof (row as Record<string, unknown>).selected_at === "string" &&
+              String((row as Record<string, unknown>).selected_at).trim()
+            ? String((row as Record<string, unknown>).selected_at)
+            : typeof (nestedRaw as Record<string, unknown>).selectedAt === "string" &&
+                String((nestedRaw as Record<string, unknown>).selectedAt).trim()
+              ? String((nestedRaw as Record<string, unknown>).selectedAt)
+              : typeof (nestedRaw as Record<string, unknown>).selected_at === "string" &&
+                  String((nestedRaw as Record<string, unknown>).selected_at).trim()
+                ? String((nestedRaw as Record<string, unknown>).selected_at)
+                : null;
       return {
         _id: selectionId,
         url: typeof r.url === "string" ? r.url : undefined,
@@ -74,9 +105,14 @@ function normalizeSelectionListItem(item: unknown): ApiFolderMedia | null {
             : typeof row.comment === "string"
               ? row.comment
               : undefined,
+        photographerReply:
+          typeof row.photographerReply === "string"
+            ? row.photographerReply
+            : undefined,
         selected: true,
         selection: "SELECTED",
         isSelected: true,
+        selectedAt,
       };
     }
   }
@@ -168,27 +204,51 @@ export function apiFolderMediaToDemoAsset(m: ApiFolderMedia): DemoAsset {
   const id = m._id || m.id || `m-${Math.random().toString(36).slice(2, 10)}`;
   const originalName =
     m.originalName || m.originalFilename || m.filename || m.name || "Photo";
-  const thumbRaw =
-    m.thumbUrl ||
-    m.thumbnailUrl ||
-    m.displayUrl ||
-    m.previewUrl ||
-    m.url ||
-    m.image ||
-    "";
+  const smallThumb = m.thumbUrl || m.thumbnailUrl || "";
+  const largePreview =
+    m.displayUrl || m.url || m.previewUrl || m.image || "";
+  const thumbRaw = smallThumb || largePreview;
   const thumbUrl = resolveCoverUrl(thumbRaw) || thumbRaw || "";
+  const largeResolved = largePreview ? resolveCoverUrl(largePreview) : "";
+  const mimeType = (m.mimeType || m.contentType || m.content_type || "").toLowerCase();
+  const isVideo =
+    m.isVideo === true ||
+    mimeType.startsWith("video/") ||
+    /\.(mp4|mov|webm|m4v|avi|mkv|ogv)$/i.test(originalName);
+  const mediaUrl = largeResolved || thumbUrl;
+  const previewUrl = isVideo
+    ? mediaUrl
+    : largeResolved && largeResolved !== thumbUrl
+      ? largeResolved
+      : undefined;
   const selected =
     m.selected === true ||
     (typeof m.selection === "string" && m.selection.toUpperCase() === "SELECTED") ||
     m.isSelected === true;
+  let setId: string | null = null;
+  if (m.setId != null && m.setId !== "") {
+    setId = String(m.setId);
+  } else if (m.raw && typeof m.raw === "object") {
+    const nested = (m.raw as ApiFolderMedia).setId;
+    if (nested != null && nested !== "") setId = String(nested);
+  }
   return {
     id,
     originalName,
     selection: selected ? "SELECTED" : "UNSELECTED",
     editState: apiEditStatusToUi(m.editStatus),
     clientComment: m.clientComment || m.comment || "",
+    photographerReply: m.photographerReply || "",
     hasEdited: false,
-    thumbUrl,
+    selectedAt:
+      (typeof m.selectedAt === "string" ? m.selectedAt : null) ??
+      (typeof (m as Record<string, unknown>).selected_at === "string"
+        ? ((m as Record<string, unknown>).selected_at as string)
+        : null),
+    thumbUrl: isVideo ? mediaUrl : thumbUrl,
+    ...(previewUrl ? { previewUrl } : {}),
+    ...(isVideo ? { isVideo: true } : {}),
+    setId,
   };
 }
 
@@ -267,8 +327,14 @@ export function folderFinalsPaymentLocked(folder: ApiFolder): boolean {
 export function apiFolderMediaToFinal(m: ApiFolderMedia): DemoFinalAsset {
   const id = m._id || m.id || `f-${Math.random().toString(36).slice(2, 10)}`;
   const name = m.originalName || m.originalFilename || m.filename || m.name || "Final";
-  const urlRaw = m.url || m.previewUrl || m.thumbUrl || "";
+  const urlRaw = m.url || m.displayUrl || m.previewUrl || m.thumbUrl || "";
   const url = resolveCoverUrl(urlRaw) || urlRaw || "";
+  const mimeType = m.mimeType || m.contentType || m.content_type || "";
+  const isVideo =
+    m.isVideo === true ||
+    mimeType.toLowerCase().startsWith("video/") ||
+    /\.(mp4|mov|webm|m4v|avi|mkv|ogv)$/i.test(name) ||
+    /\.(mp4|mov|webm|m4v|avi|mkv|ogv)(?:[?#].*)?$/i.test(url);
   const o = m as Record<string, unknown>;
   const truthyFlag = (v: unknown) => v === true || v === "true";
   const lockStatus =
@@ -293,7 +359,17 @@ export function apiFolderMediaToFinal(m: ApiFolderMedia): DemoFinalAsset {
     truthyFlag(o.downloadLocked) ||
     truthyFlag(o.download_locked) ||
     lockStatus.toLowerCase() === "locked";
-  return { id, name, url, locked };
+  const setId =
+    m.setId != null && m.setId !== "" ? String(m.setId) : null;
+  return {
+    id,
+    name,
+    url,
+    locked,
+    setId,
+    ...(mimeType ? { mimeType } : {}),
+    ...(isVideo ? { isVideo: true } : {}),
+  };
 }
 
 /**
@@ -310,8 +386,14 @@ export function finalImagesLockedForClient(folder: ApiFolder): boolean {
 
 export function apiFolderStatusToUi(s?: string): FolderStatus {
   const v = (s || "").toLowerCase();
-  if (v === "completed" || v === "complete" || v === "delivered") return "COMPLETED";
-  if (v === "selection_pending" || v === "selection-pending" || v === "selectionpending")
+  if (v === "completed" || v === "complete" || v === "delivered" || v === "done")
+    return "COMPLETED";
+  if (
+    v === "selection_pending" ||
+    v === "selection-pending" ||
+    v === "selectionpending" ||
+    v === "selecting"
+  )
     return "SELECTION_PENDING";
   return "DRAFT";
 }
@@ -336,6 +418,15 @@ export function folderSelectionLocked(folder: ApiFolder): boolean {
   return Boolean(folder.share?.selectionLocked ?? folder.selectionLocked);
 }
 
+/** Max client heart-picks; omit or 0 = unlimited. */
+export function folderSelectionLimit(folder: ApiFolder): number | null {
+  const raw = folder.selectionLimit ?? folder.share?.selectionLimit;
+  if (raw == null || raw === 0) return null;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 1) return null;
+  return Math.floor(n);
+}
+
 /** Resolve a coverImage value (could be absolute URL or a relative path). */
 export function resolveCoverUrl(coverImage?: string | null): string | null {
   if (!coverImage) return null;
@@ -353,6 +444,43 @@ export function resolveCoverUrl(coverImage?: string | null): string | null {
 export function getFolderCoverUrl(folder: ApiFolder): string | null {
   if (folder.coverImageUrl) return resolveCoverUrl(folder.coverImageUrl);
   return resolveCoverUrl(folder.coverImage);
+}
+
+function firstNonEmptyCoverRef(...values: unknown[]): string | null {
+  for (const v of values) {
+    if (typeof v === "string" && v.trim()) return v.trim();
+  }
+  return null;
+}
+
+/** Resolve cover `src` for dashboard cards (custom cover, studio default, or API-resolved URL). */
+export function resolveFolderCoverSrc(
+  folder: ApiFolder,
+  studioDefaultCoverUrl?: string | null,
+): string | null {
+  const o = folder as Record<string, unknown>;
+  const displayUrl = firstNonEmptyCoverRef(
+    o.displayCoverUrl,
+    o.display_cover_url,
+    o.effectiveCoverUrl,
+    o.effective_cover_url,
+    o.resolvedCoverUrl,
+    o.resolved_cover_url,
+  );
+  if (displayUrl) return resolveCoverUrl(displayUrl);
+
+  const usesDefault = folder.usingDefaultCover !== false;
+  if (usesDefault) {
+    const studio = studioDefaultCoverUrl?.trim();
+    if (studio) return resolveCoverUrl(studio) ?? studio;
+  }
+
+  return getFolderCoverUrl(folder);
+}
+
+/** Placeholder label when a folder has no renderable cover image. */
+export function folderCoverPlaceholderLabel(folder: ApiFolder): string {
+  return folder.usingDefaultCover !== false ? "Studio default" : "No image";
 }
 
 function readNumericField(o: Record<string, unknown>, camel: string, snake: string): number | null {

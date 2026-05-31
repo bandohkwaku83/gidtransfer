@@ -2,15 +2,10 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import {
-  CalendarDays,
-  ChevronLeft,
-  ChevronRight,
-  Clock,
-  MapPin,
-  Plus,
-} from "lucide-react";
+import { CalendarDays, ChevronLeft, ChevronRight, Plus } from "lucide-react";
 import { useToast } from "@/components/toast-provider";
+import { BookingCard, BookingDayPill } from "@/components/schedules/booking-card";
+import { BookingsOverviewStrip } from "@/components/schedules/bookings-overview-strip";
 import { NewBookingModal, type NewBookingDraft } from "@/components/schedules/new-booking-modal";
 import {
   formatBookedTimeLabel,
@@ -24,13 +19,16 @@ import {
   apiColorToDotClass,
   apiShootTypeToKind,
   createBooking,
+  deleteBooking,
   formatHmToApi12h,
   getBooking,
   getBookingsMeta,
-  getBookingsWeekSummary,
+  getBookingsStats,
+  getUpcomingBooking,
   kindToApiShootType,
   listBookings,
   mapApiBookingToBookedShoot,
+  updateBooking,
   type BookingShootTypeMeta,
 } from "@/lib/bookings-api";
 import { ApiError } from "@/lib/clients-api";
@@ -76,6 +74,27 @@ function isToday(y: number, m: number, day: number) {
   return t.getFullYear() === y && t.getMonth() === m && t.getDate() === day;
 }
 
+function todayIsoLocal() {
+  const t = new Date();
+  return toIso(t.getFullYear(), t.getMonth(), t.getDate());
+}
+
+function relativeDayLabel(iso: string): string {
+  const today = todayIsoLocal();
+  if (iso === today) return "Today";
+  const t0 = new Date(today + "T12:00:00").getTime();
+  const t1 = new Date(iso + "T12:00:00").getTime();
+  const diff = Math.round((t1 - t0) / 86400000);
+  if (diff === 1) return "Tomorrow";
+  if (diff === -1) return "Yesterday";
+  if (diff > 1 && diff <= 7) return `In ${diff} days`;
+  return new Date(iso + "T12:00:00").toLocaleDateString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
+}
+
 function shootDotClass(s: BookedShoot): string {
   return apiColorToDotClass(s.shootColor) ?? KIND_META[s.kind].dot;
 }
@@ -94,9 +113,16 @@ export function SchedulesClient() {
   const [bookings, setBookings] = useState<BookedShoot[]>([]);
   const [bookingsLoading, setBookingsLoading] = useState(true);
   const [bookingModalOpen, setBookingModalOpen] = useState(false);
+  const [editingBooking, setEditingBooking] = useState<BookedShoot | null>(null);
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [shootTypesMeta, setShootTypesMeta] = useState<BookingShootTypeMeta[]>([]);
   const [legendMeta, setLegendMeta] = useState<BookingShootTypeMeta[]>([]);
-  const [weekBookedCount, setWeekBookedCount] = useState<number | null>(null);
+  const [stats, setStats] = useState<{
+    thisWeekCount: number;
+    thisMonthCount: number;
+    todayCount: number;
+  } | null>(null);
+  const [nextShoot, setNextShoot] = useState<BookedShoot | null>(null);
 
   const filterKeys = useMemo((): readonly (ShootKind | "all")[] => {
     if (shootTypesMeta.length > 0) {
@@ -152,20 +178,34 @@ export function SchedulesClient() {
     };
   }, [showToast]);
 
+  const refreshStats = useCallback(async () => {
+    try {
+      const s = await getBookingsStats();
+      setStats(s);
+    } catch {
+      setStats(null);
+    }
+  }, []);
+
+  const refreshUpcoming = useCallback(async () => {
+    try {
+      const b = await getUpcomingBooking();
+      setNextShoot(b ? mapApiBookingToBookedShoot(b) : null);
+    } catch {
+      setNextShoot(null);
+    }
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      try {
-        const w = await getBookingsWeekSummary();
-        if (!cancelled) setWeekBookedCount(w.bookedCount);
-      } catch {
-        if (!cancelled) setWeekBookedCount(null);
-      }
+      await Promise.all([refreshStats(), refreshUpcoming()]);
+      if (cancelled) return;
     })();
     return () => {
       cancelled = true;
     };
-  }, [showToast]);
+  }, [refreshStats, refreshUpcoming]);
 
   useEffect(() => {
     void loadMonth();
@@ -268,8 +308,14 @@ export function SchedulesClient() {
     });
   }, [shoots]);
 
-  async function handleSaveBooking(draft: NewBookingDraft) {
-    const { booking } = await createBooking({
+  const todayIso = todayIsoLocal();
+
+  const futureUpcoming = useMemo(() => {
+    return upcomingSorted.filter((s) => s.date >= todayIso).slice(0, 10);
+  }, [upcomingSorted, todayIso]);
+
+  function bookingPayloadFromDraft(draft: NewBookingDraft) {
+    return {
       title: draft.title,
       clientId: draft.clientId,
       date: draft.date,
@@ -278,26 +324,90 @@ export function SchedulesClient() {
       end: draft.endTime ? formatHmToApi12h(draft.endTime) : "",
       location: draft.location?.trim() ?? "",
       description: draft.description?.trim() ?? "",
-    });
-    const mapped = mapApiBookingToBookedShoot(booking);
+    };
+  }
+
+  function applyBookingToState(mapped: BookedShoot, focusDate: string) {
     setBookings((prev) => {
       const rest = prev.filter((b) => b.id !== mapped.id);
       return [...rest, mapped];
     });
-    const { y, m, d } = parseIso(draft.date);
+    const { y, m, d } = parseIso(focusDate);
     setViewYear(y);
     setViewMonth(m);
     setSelectedDay(d);
-    showToast("Booking saved.", "success");
-    void (async () => {
-      try {
-        const w = await getBookingsWeekSummary();
-        setWeekBookedCount(w.bookedCount);
-      } catch {
-        /* ignore */
-      }
-    })();
+    void loadMonth();
+    void refreshStats();
+    void refreshUpcoming();
   }
+
+  function openCreateBooking() {
+    setEditingBooking(null);
+    setBookingModalOpen(true);
+  }
+
+  function openEditBooking(shoot: BookedShoot) {
+    setEditingBooking(shoot);
+    setBookingModalOpen(true);
+  }
+
+  function closeBookingModal() {
+    setBookingModalOpen(false);
+    setEditingBooking(null);
+  }
+
+  async function handleSaveBooking(draft: NewBookingDraft) {
+    const { booking } = await createBooking(bookingPayloadFromDraft(draft));
+    const mapped = mapApiBookingToBookedShoot(booking);
+    applyBookingToState(mapped, draft.date);
+    showToast("Booking saved.", "success");
+  }
+
+  async function handleUpdateBooking(draft: NewBookingDraft) {
+    if (!editingBooking) return;
+    const { booking } = await updateBooking(
+      editingBooking.id,
+      bookingPayloadFromDraft(draft),
+    );
+    const mapped = mapApiBookingToBookedShoot(booking);
+    applyBookingToState(mapped, draft.date);
+    showToast("Booking updated.", "success");
+  }
+
+  const handleDeleteBooking = useCallback(
+    async (shoot: BookedShoot) => {
+      if (pendingDeleteId) return;
+      if (
+        !window.confirm(
+          `Delete "${shoot.title}"? This cannot be undone.`,
+        )
+      ) {
+        return;
+      }
+      setPendingDeleteId(shoot.id);
+      try {
+        await deleteBooking(shoot.id);
+        setBookings((prev) => prev.filter((b) => b.id !== shoot.id));
+        if (nextShoot?.id === shoot.id) setNextShoot(null);
+        showToast("Booking deleted.", "success");
+        void loadMonth();
+        void refreshStats();
+        void refreshUpcoming();
+      } catch (e) {
+        showToast(
+          e instanceof ApiError
+            ? e.message
+            : e instanceof Error
+              ? e.message
+              : "Could not delete booking.",
+          "error",
+        );
+      } finally {
+        setPendingDeleteId(null);
+      }
+    },
+    [pendingDeleteId, nextShoot?.id, showToast, loadMonth, refreshStats, refreshUpcoming],
+  );
 
   function filterChipLabel(k: ShootKind | "all"): string {
     if (k === "all") return "All";
@@ -309,22 +419,48 @@ export function SchedulesClient() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl space-y-8">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
-            Schedules
-          </h1>
+    <div className="dashboard-page space-y-6">
+      <section className="relative overflow-hidden rounded-2xl border border-slate-800/50 bg-gradient-to-br from-slate-950 via-indigo-950/85 to-slate-900 shadow-lg shadow-slate-900/20">
+        <div
+          className="pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full bg-brand/15 blur-3xl"
+          aria-hidden
+        />
+        <div className="relative flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6">
+          <div className="min-w-0">
+            <h1 className="text-2xl font-semibold tracking-tight text-white sm:text-[1.65rem]">
+              Bookings
+            </h1>
+            <p className="mt-2 max-w-xl text-sm leading-relaxed text-slate-400">
+              Plan shoots, see what&apos;s on the calendar, and keep session details next to each
+              client.
+            </p>
+            {nextShoot ? (
+              <p className="mt-3 inline-flex max-w-full flex-wrap items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-300">
+                <span className="font-semibold text-white/90">Next up</span>
+                <span className="truncate text-slate-300">
+                  {nextShoot.title}, {relativeDayLabel(nextShoot.date)},{" "}
+                  {formatBookedTimeLabel(nextShoot.startTime)}
+                </span>
+              </p>
+            ) : null}
+          </div>
+          <button
+            type="button"
+            onClick={openCreateBooking}
+            className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-brand px-4 py-2.5 text-sm font-semibold text-white shadow-md transition hover:bg-brand-hover"
+          >
+            <Plus className="h-4 w-4" aria-hidden />
+            New booking
+          </button>
         </div>
-        <button
-          type="button"
-          onClick={() => setBookingModalOpen(true)}
-          className="inline-flex items-center justify-center gap-2 rounded-xl bg-brand px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-hover"
-        >
-          <Plus className="h-4 w-4" aria-hidden />
-          New booking
-        </button>
-      </div>
+      </section>
+
+      <BookingsOverviewStrip
+        weekCount={stats?.thisWeekCount ?? null}
+        monthCount={stats?.thisMonthCount ?? shoots.length}
+        todayCount={stats?.todayCount ?? 0}
+        loading={bookingsLoading && stats == null}
+      />
 
       <div className="flex flex-wrap gap-2">
         {filterKeys.map((k) => {
@@ -348,12 +484,17 @@ export function SchedulesClient() {
         })}
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(280px,340px)] 2xl:grid-cols-[minmax(0,1fr)_minmax(320px,420px)] 2xl:gap-8">
         <section className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-950 sm:p-6">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-100 pb-4 dark:border-zinc-800">
             <div className="flex items-center gap-2">
               <CalendarDays className="h-5 w-5 text-brand dark:text-brand-on-dark" aria-hidden />
               <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">{monthTitle}</h2>
+              {!bookingsLoading ? (
+                <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
+                  {shoots.length} shoot{shoots.length === 1 ? "" : "s"}
+                </span>
+              ) : null}
             </div>
             <div className="flex items-center gap-1">
               <button
@@ -383,10 +524,25 @@ export function SchedulesClient() {
           </div>
 
           {bookingsLoading ? (
-            <p className="mt-6 text-center text-sm text-zinc-500 dark:text-zinc-400">Loading bookings…</p>
+            <div
+              className="mt-4 grid grid-cols-7 gap-2"
+              aria-hidden
+            >
+              {Array.from({ length: 35 }).map((_, i) => (
+                <div
+                  key={i}
+                  className="min-h-[6.5rem] animate-pulse rounded-lg bg-zinc-100 dark:bg-zinc-900"
+                />
+              ))}
+            </div>
           ) : null}
 
-          <div className={cn("mt-4 grid grid-cols-7 gap-px rounded-xl bg-zinc-200 dark:bg-zinc-800", bookingsLoading && "opacity-50")}>
+          <div
+            className={cn(
+              "mt-4 grid grid-cols-7 gap-px rounded-xl bg-zinc-200 dark:bg-zinc-800",
+              bookingsLoading && "pointer-events-none opacity-0",
+            )}
+          >
             {WEEKDAYS.map((wd) => (
               <div
                 key={wd}
@@ -415,7 +571,7 @@ export function SchedulesClient() {
                   type="button"
                   onClick={() => setSelectedDay(day)}
                   className={cn(
-                    "flex min-h-[5.5rem] flex-col items-stretch border border-transparent bg-white p-1.5 text-left transition hover:bg-zinc-50 dark:bg-zinc-950 dark:hover:bg-zinc-900/80",
+                    "flex min-h-[6.5rem] flex-col items-stretch border border-transparent bg-white p-1.5 text-left transition hover:bg-zinc-50 dark:bg-zinc-950 dark:hover:bg-zinc-900/80",
                     selected && "ring-2 ring-inset ring-brand dark:ring-brand-on-dark",
                     todayCell && !selected && "ring-1 ring-inset ring-zinc-300 dark:ring-zinc-600",
                   )}
@@ -430,16 +586,16 @@ export function SchedulesClient() {
                   >
                     {day}
                   </span>
-                  <div className="mt-1 flex min-h-0 flex-1 flex-wrap content-start gap-0.5">
-                    {dayShoots.slice(0, 4).map((s) => (
-                      <span
-                        key={s.id}
-                        title={`${s.title} · ${formatBookedTimeLabel(s.startTime)}`}
-                        className={cn("h-1.5 w-1.5 shrink-0 rounded-full", shootDotClass(s))}
-                      />
+                  <div className="mt-1 flex min-h-0 flex-1 flex-col gap-0.5 overflow-hidden">
+                    {dayShoots.slice(0, 2).map((s) => (
+                      <BookingDayPill key={s.id} shoot={s} />
                     ))}
-                    {dayShoots.length > 4 ? (
-                      <span className="text-[9px] font-medium text-zinc-400">+{dayShoots.length - 4}</span>
+                    {dayShoots.length > 2 ? (
+                      <span className="px-0.5 text-[9px] font-semibold text-zinc-500">
+                        +{dayShoots.length - 2} more
+                      </span>
+                    ) : dayShoots.length === 0 ? (
+                      <span className="flex-1" aria-hidden />
                     ) : null}
                   </div>
                 </button>
@@ -471,92 +627,75 @@ export function SchedulesClient() {
 
         <aside className="flex flex-col gap-4">
           <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">This week</p>
-            <p className="mt-2 text-3xl font-semibold tabular-nums text-zinc-900 dark:text-zinc-50">
-              {weekBookedCount ?? "—"}
-            </p>
-            <p className="mt-1 text-xs text-zinc-500">Booked shoots</p>
-          </div>
-
-          <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
             <div className="flex items-start justify-between gap-2">
-              <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
-                {selectedIso
-                  ? new Date(selectedIso + "T12:00:00").toLocaleDateString(undefined, {
-                      weekday: "long",
-                      month: "short",
-                      day: "numeric",
-                    })
-                  : "Pick a day"}
-              </h3>
+              <div>
+                <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
+                  {selectedIso
+                    ? new Date(selectedIso + "T12:00:00").toLocaleDateString(undefined, {
+                        weekday: "long",
+                        month: "short",
+                        day: "numeric",
+                      })
+                    : "Pick a day"}
+                </h3>
+                {selectedIso ? (
+                  <p className="mt-0.5 text-[11px] text-zinc-500">
+                    {relativeDayLabel(selectedIso)}
+                    {selectedShoots.length > 0
+                      ? `, ${selectedShoots.length} shoot${selectedShoots.length === 1 ? "" : "s"}`
+                      : ""}
+                  </p>
+                ) : null}
+              </div>
               <button
                 type="button"
-                onClick={() => setBookingModalOpen(true)}
-                className="shrink-0 rounded-lg border border-zinc-200 px-2 py-1 text-[11px] font-semibold text-zinc-700 transition hover:bg-zinc-50 dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                onClick={openCreateBooking}
+                className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-zinc-200 px-2.5 py-1 text-[11px] font-semibold text-zinc-700 transition hover:bg-zinc-50 dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-800"
               >
+                <Plus className="h-3 w-3" aria-hidden />
                 Add
               </button>
             </div>
             {selectedShoots.length === 0 ? (
-              <p className="mt-3 text-sm text-zinc-500">No shoots on this day.</p>
+              <div className="mt-4 rounded-xl border border-dashed border-zinc-200 bg-zinc-50/80 px-4 py-6 text-center dark:border-zinc-700 dark:bg-zinc-900/40">
+                <CalendarDays className="mx-auto h-8 w-8 text-zinc-300 dark:text-zinc-600" aria-hidden />
+                <p className="mt-2 text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                  Nothing scheduled
+                </p>
+                <p className="mt-1 text-xs text-zinc-500">Add a booking for this day.</p>
+                <button
+                  type="button"
+                  onClick={openCreateBooking}
+                  className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-brand px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-hover"
+                >
+                  <Plus className="h-3.5 w-3.5" aria-hidden />
+                  New booking
+                </button>
+              </div>
             ) : (
               <ul className="mt-3 space-y-3">
-                {selectedShoots.map((s) => {
-                  const meta = KIND_META[s.kind];
-                  const Icon = meta.Icon;
-                  return (
-                    <li
-                      key={s.id}
-                      className="rounded-xl border border-zinc-100 bg-zinc-50/80 p-3 dark:border-zinc-800 dark:bg-zinc-900/50"
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">{s.title}</p>
-                        <span
-                          className={cn(
-                            "inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1",
-                            meta.chip,
-                          )}
-                        >
-                          <Icon className="h-3 w-3" aria-hidden />
-                          {meta.label}
-                        </span>
-                      </div>
-                      <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">{s.clientName}</p>
-                      <div className="mt-2 flex flex-col gap-1 text-xs text-zinc-500 dark:text-zinc-400">
-                        <span className="inline-flex items-center gap-1.5">
-                          <Clock className="h-3.5 w-3.5 shrink-0" aria-hidden />
-                          {formatBookedTimeLabel(s.startTime)}
-                          {s.endTime ? ` – ${formatBookedTimeLabel(s.endTime)}` : ""}
-                        </span>
-                        {s.location ? (
-                          <span className="inline-flex items-center gap-1.5">
-                            <MapPin className="h-3.5 w-3.5 shrink-0" aria-hidden />
-                            {s.location}
-                          </span>
-                        ) : null}
-                        {s.description ? (
-                          <p className="mt-1 border-t border-zinc-200/80 pt-2 text-[11px] leading-snug text-zinc-600 dark:border-zinc-700 dark:text-zinc-300">
-                            {s.description}
-                          </p>
-                        ) : null}
-                      </div>
-                    </li>
-                  );
-                })}
+                {selectedShoots.map((s) => (
+                  <li key={s.id}>
+                    <BookingCard
+                      shoot={s}
+                      onEdit={openEditBooking}
+                      onDelete={handleDeleteBooking}
+                      deleting={pendingDeleteId === s.id}
+                    />
+                  </li>
+                ))}
               </ul>
             )}
           </div>
 
           <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
-            <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">Month overview</h3>
-            <ul className="mt-3 max-h-64 space-y-2 overflow-y-auto pr-1">
-              {upcomingSorted.map((s) => {
-                const meta = KIND_META[s.kind];
-                const when = new Date(s.date + "T12:00:00").toLocaleDateString(undefined, {
-                  month: "short",
-                  day: "numeric",
-                });
-                return (
+            <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">Upcoming</h3>
+            <p className="mt-0.5 text-[11px] text-zinc-500">From today onward in this month</p>
+            {futureUpcoming.length === 0 ? (
+              <p className="mt-4 text-sm text-zinc-500">No upcoming shoots this month.</p>
+            ) : (
+              <ul className="mt-3 max-h-72 space-y-1 overflow-y-auto pr-1 [scrollbar-width:thin]">
+                {futureUpcoming.map((s) => (
                   <li key={s.id}>
                     <button
                       type="button"
@@ -566,37 +705,38 @@ export function SchedulesClient() {
                         setViewMonth(m);
                         setSelectedDay(d);
                       }}
-                      className="flex w-full items-start gap-3 rounded-xl border border-transparent px-2 py-2 text-left transition hover:border-zinc-200 hover:bg-zinc-50 dark:hover:border-zinc-700 dark:hover:bg-zinc-900/60"
+                      className="flex w-full items-start gap-3 rounded-xl border border-transparent px-2 py-2.5 text-left transition hover:border-zinc-200 hover:bg-zinc-50 dark:hover:border-zinc-700 dark:hover:bg-zinc-900/60"
                     >
                       <span
-                        className={cn(
-                          "mt-0.5 h-2 w-2 shrink-0 rounded-full",
-                          shootDotClass(s),
-                        )}
+                        className={cn("mt-1.5 h-2 w-2 shrink-0 rounded-full", shootDotClass(s))}
                       />
                       <span className="min-w-0 flex-1">
                         <span className="block truncate text-xs font-semibold text-zinc-900 dark:text-zinc-50">
                           {s.title}
                         </span>
-                        <span className="mt-0.5 block text-[11px] text-zinc-500">
-                          {when} · {formatBookedTimeLabel(s.startTime)}
+                        <span className="mt-0.5 block truncate text-[11px] text-zinc-500">
+                          {s.clientName}
+                        </span>
+                        <span className="mt-0.5 block text-[11px] font-medium text-brand dark:text-brand-on-dark">
+                          {relativeDayLabel(s.date)}, {formatBookedTimeLabel(s.startTime)}
                         </span>
                       </span>
                     </button>
                   </li>
-                );
-              })}
-            </ul>
+                ))}
+              </ul>
+            )}
           </div>
         </aside>
       </div>
 
       <NewBookingModal
         open={bookingModalOpen}
-        onClose={() => setBookingModalOpen(false)}
+        onClose={closeBookingModal}
         defaultDate={modalDefaultDate}
+        booking={editingBooking}
         shootTypes={shootTypesMeta}
-        onSave={handleSaveBooking}
+        onSave={editingBooking ? handleUpdateBooking : handleSaveBooking}
       />
     </div>
   );

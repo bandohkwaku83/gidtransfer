@@ -3,11 +3,11 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowLeft, ChevronDown, Clock, FileImage, FolderOpen, Loader2, RotateCcw, Trash2 } from "lucide-react";
+import { ArrowLeft, ChevronDown, Clock, FileImage, FolderOpen, Loader2, RotateCcw } from "lucide-react";
+import { FolderCoverVisual } from "@/components/photographer/folder-cover-visual";
 import {
   FoldersApiError,
   formatRestoreBeforeLabel,
-  folderCoverObjectPositionStyle,
   getFolderClientName,
   getFolderCoverUrl,
   isRestoreDeadlinePassed,
@@ -21,10 +21,9 @@ import {
   type TrashMediaRow,
 } from "@/lib/folders-api";
 import { listClients } from "@/lib/clients-api";
+import { getSettings, getSettingsDefaultCoverUrl } from "@/lib/settings-api";
 import { useToast } from "@/components/toast-provider";
 import { cn } from "@/lib/utils";
-
-const FALLBACK_COVER = "https://picsum.photos/seed/gido-trash/1200/800";
 
 function trashMediaKey(row: TrashMediaRow): string {
   return `${row.folderId}:${row.mediaId}`;
@@ -47,6 +46,7 @@ export default function GalleriesTrashPage() {
   const [selectedFolderIds, setSelectedFolderIds] = useState<string[]>([]);
   /** Keys `folderId:mediaId` for file-level trash selected for purge. */
   const [selectedMediaKeys, setSelectedMediaKeys] = useState<string[]>([]);
+  const [studioDefaultCoverUrl, setStudioDefaultCoverUrl] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -92,6 +92,16 @@ export default function GalleriesTrashPage() {
         setClientNameById(map);
       })
       .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void getSettings().then((settings) => {
+      if (!cancelled) setStudioDefaultCoverUrl(getSettingsDefaultCoverUrl(settings));
+    });
     return () => {
       cancelled = true;
     };
@@ -363,81 +373,78 @@ export default function GalleriesTrashPage() {
   const fullyEmpty = data && !hasFolderTrash && !hasMediaTrash;
 
   return (
-    <div className="mx-auto max-w-6xl space-y-8">
-      <div className="flex flex-wrap items-center gap-4">
-        <Link
-          href="/dashboard/galleries"
-          className="inline-flex items-center gap-2 text-sm font-medium text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
-        >
-          <ArrowLeft className="h-4 w-4" aria-hidden />
-          Back to galleries
-        </Link>
-      </div>
+    <div className="dashboard-page space-y-6">
+      <Link
+        href="/dashboard/galleries"
+        className="inline-flex items-center gap-2 text-sm font-medium text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+      >
+        <ArrowLeft className="h-4 w-4" aria-hidden />
+        Back to galleries
+      </Link>
 
-      <section className="relative overflow-hidden rounded-2xl border border-zinc-200/80 bg-white p-6 shadow-[0_1px_3px_rgba(0,0,0,0.04)] dark:border-zinc-800 dark:bg-zinc-950 sm:p-8">
-        <div className="flex items-start gap-4">
-          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-amber-500/15 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300">
-            <Trash2 className="h-6 w-6" aria-hidden />
-          </div>
+      <section className="relative overflow-hidden rounded-2xl border border-slate-800/50 bg-gradient-to-br from-slate-950 via-indigo-950/85 to-slate-900 shadow-lg shadow-slate-900/20">
+        <div
+          className="pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full bg-brand/15 blur-3xl"
+          aria-hidden
+        />
+        <div className="relative flex flex-col gap-4 p-5 sm:flex-row sm:items-start sm:justify-between sm:p-6">
           <div className="min-w-0">
-            <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
+            <h1 className="text-2xl font-semibold tracking-tight text-white sm:text-[1.65rem]">
               Trash
             </h1>
-            <p className="mt-1.5 max-w-2xl text-sm leading-relaxed text-zinc-500 dark:text-zinc-400">
-              Trashed galleries and files can be restored until each row’s deadline.
+            <p className="mt-2 max-w-xl text-sm leading-relaxed text-slate-400">
+              Trashed galleries and files can be restored until each row&apos;s deadline.
               {data != null && data.retentionDays > 0 ? (
-                <span className="mt-1 block text-xs text-zinc-400 dark:text-zinc-500">
-                  Default window: {data.retentionDays} days — each row shows the exact cutoff.
+                <span className="mt-2 block text-xs text-slate-500">
+                  Default window: {data.retentionDays} days.
                 </span>
               ) : null}
             </p>
           </div>
+          {data && !fullyEmpty ? (
+            <div className="flex shrink-0 flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={purging || restoringId !== null || restoringMediaKey !== null}
+                onClick={() => void onPurgeAllTrash()}
+                className={cn(
+                  "inline-flex min-h-9 items-center justify-center rounded-xl border border-red-400/40 bg-red-500/20 px-3 py-2 text-xs font-semibold text-red-100 transition",
+                  "hover:bg-red-500/30 disabled:cursor-not-allowed disabled:opacity-45",
+                )}
+              >
+                {purging ? "Purging…" : "Empty trash"}
+              </button>
+              {selectedCount > 0 ? (
+                <button
+                  type="button"
+                  disabled={purging || restoringId !== null || restoringMediaKey !== null}
+                  onClick={() => void onPurgeSelectedTrash()}
+                  className={cn(
+                    "inline-flex min-h-9 items-center justify-center rounded-xl border border-white/15 bg-white/10 px-3 py-2 text-xs font-semibold text-white transition",
+                    "hover:bg-white/15 disabled:cursor-not-allowed disabled:opacity-45",
+                  )}
+                >
+                  Purge selected ({selectedCount})
+                </button>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       </section>
 
-      {data && !fullyEmpty ? (
+      {data && !fullyEmpty && selectedCount > 0 ? (
         <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-zinc-200/85 bg-white px-4 py-3 dark:border-zinc-800 dark:bg-zinc-950">
           <button
             type="button"
-            disabled={purging || restoringId !== null || restoringMediaKey !== null}
-            onClick={() => void onPurgeAllTrash()}
-            className={cn(
-              "inline-flex min-h-9 items-center justify-center rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-800 transition",
-              "hover:bg-red-100 dark:border-red-900/55 dark:bg-red-950/45 dark:text-red-100 dark:hover:bg-red-950/70",
-              "disabled:cursor-not-allowed disabled:opacity-45",
-            )}
+            disabled={purging}
+            onClick={clearPurgeSelection}
+            className="inline-flex min-h-9 items-center justify-center rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-200 dark:hover:bg-zinc-900 disabled:opacity-45"
           >
-            {purging ? "Purging…" : "Empty trash"}
+            Clear selection
           </button>
-          {selectedCount > 0 ? (
-            <button
-              type="button"
-              disabled={purging || restoringId !== null || restoringMediaKey !== null}
-              onClick={() => void onPurgeSelectedTrash()}
-              className={cn(
-                "inline-flex min-h-9 items-center justify-center rounded-lg border border-red-300/90 bg-white px-3 py-2 text-xs font-semibold text-red-800 transition",
-                "hover:bg-red-50 dark:border-red-800/60 dark:bg-zinc-900 dark:text-red-200 dark:hover:bg-red-950/35",
-                "disabled:cursor-not-allowed disabled:opacity-45",
-              )}
-            >
-              Purge selected ({selectedCount})
-            </button>
-          ) : null}
-          {selectedCount > 0 ? (
-            <button
-              type="button"
-              disabled={purging}
-              onClick={clearPurgeSelection}
-              className="inline-flex min-h-9 items-center justify-center rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-200 dark:hover:bg-zinc-900 disabled:opacity-45"
-            >
-              Clear selection
-            </button>
-          ) : null}
-          {selectedCount > 0 ? (
-            <span className="text-[11px] text-zinc-500 dark:text-zinc-400">
-              Selected items will be permanently deleted, not moved to another folder.
-            </span>
-          ) : null}
+          <span className="text-[11px] text-zinc-500 dark:text-zinc-400">
+            Selected items will be permanently deleted, not moved to another folder.
+          </span>
         </div>
       ) : null}
 
@@ -480,11 +487,10 @@ export default function GalleriesTrashPage() {
               {allFoldersSelected ? "Deselect all" : "Select all"}
             </button>
           </div>
-          <ul className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          <ul className="gallery-card-grid">
             {data.folders.map((row) => {
               const folder = row.folder;
               const clientName = getFolderClientName(folder, clientNameById);
-              const cover = getFolderCoverUrl(folder) ?? FALLBACK_COVER;
               const title = folder.eventName?.trim() || clientName;
               const expired = isRestoreDeadlinePassed(row.restoreBefore);
               const deadlineLabel = formatRestoreBeforeLabel(row.restoreBefore);
@@ -507,12 +513,10 @@ export default function GalleriesTrashPage() {
                         aria-label={`Select gallery for permanent deletion: ${title}`}
                       />
                     </label>
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={cover}
-                      alt=""
-                      className="h-full w-full object-cover"
-                      style={folderCoverObjectPositionStyle(folder)}
+                    <FolderCoverVisual
+                      folder={folder}
+                      studioDefaultCoverUrl={studioDefaultCoverUrl}
+                      imgClassName="h-full w-full object-cover"
                     />
                     {expired ? (
                       <span className="absolute left-2 top-2 rounded-md bg-black/75 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-white">
@@ -576,7 +580,7 @@ export default function GalleriesTrashPage() {
                   Files in trash
                 </h2>
                 <p className="max-w-xl text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
-                  Restore until each deadline — files go back to their gallery.
+                  Restore until each deadline. Files go back to their gallery.
                 </p>
               </div>
               <div className="flex shrink-0 flex-col items-end gap-2 sm:items-end">
@@ -609,7 +613,7 @@ export default function GalleriesTrashPage() {
           </div>
 
           <div className="bg-zinc-50/80 px-3 py-4 dark:bg-zinc-900/50 sm:px-5 sm:py-5">
-            <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5">
               {allTrashedMedia.map((row) => {
                 const folder = row.folder;
                 const clientName = folder ? getFolderClientName(folder, clientNameById) : "";

@@ -2,15 +2,23 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { getAuth } from "@/lib/auth-demo";
+import { getAuth, getAuthToken, refreshAuthFromPersisted } from "@/lib/auth-demo";
 
 export function AuthGate({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    if (!getAuth()) {
+    const auth = getAuth();
+    const token = getAuthToken();
+    if (!auth?.user || !token) {
       router.replace("/login");
+      return;
+    }
+    refreshAuthFromPersisted();
+    const next = getAuth()?.user;
+    if (!next?.onboardingComplete) {
+      router.replace("/onboarding");
       return;
     }
     queueMicrotask(() => setReady(true));

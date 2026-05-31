@@ -1,4 +1,6 @@
 import type { ApiClient } from "@/lib/clients-api";
+import type { GalleryCoverFrame } from "@/lib/gallery-cover-frame";
+import type { ApiGallerySet } from "@/lib/gallery-sets-api";
 import { HttpError } from "@/lib/http";
 
 export type { DuplicateUploadAction } from "@/lib/upload-preferences";
@@ -13,6 +15,8 @@ export type ApiFolderShare = {
   linkExpiryPreset?: string | null;
   selectionSubmittedAt?: string | null;
   selectionLocked?: boolean;
+  /** Max client heart-picks; omit or 0 = unlimited. */
+  selectionLimit?: number | null;
   /** When true, client share treats finals as payment-locked until unlock (some backends nest here). */
   finalsLocked?: boolean;
 };
@@ -35,9 +39,15 @@ export type ApiFolderMedia = {
   url?: string;
   /** When present, preferred URL for UI (e.g. watermarked preview when watermarking is enabled). */
   displayUrl?: string;
+  mimeType?: string;
+  contentType?: string;
+  content_type?: string;
+  isVideo?: boolean;
   thumbUrl?: string;
   thumbnailUrl?: string;
   previewUrl?: string;
+  lockedPreviewUrl?: string;
+  locked_preview_url?: string;
   image?: string;
   selected?: boolean;
   selection?: string;
@@ -45,10 +55,20 @@ export type ApiFolderMedia = {
   editStatus?: string;
   clientComment?: string;
   comment?: string;
+  photographerReply?: string;
+  photographerRepliedAt?: string | null;
+  flaggedByClient?: boolean;
+  flaggedAt?: string | null;
+  /** ISO timestamp when the client selected/hearted this media item. */
+  selectedAt?: string | null;
   /** On selection rows: nested raw file (GET folder detail). */
   raw?: ApiFolderMedia;
   rawMediaId?: string;
+  /** Gallery set (subsection) this media belongs to, if any. */
+  setId?: string | null;
 };
+
+export type { ApiGallerySet };
 
 export type ApiFolder = {
   _id: string;
@@ -70,7 +90,17 @@ export type ApiFolder = {
   /** Focal point for `object-position` on cover (0–100). Omitted = centered. */
   coverFocalX?: number;
   coverFocalY?: number;
+  /** Client gallery cover presentation selected by the photographer. */
+  coverFrame?: GalleryCoverFrame;
+  /** Backdrop color for cover styles that use a solid hero surface (hex, e.g. `#18181b`). */
+  coverColor?: string;
   usingDefaultCover?: boolean;
+  /** Client hero frozen when the share link was activated (admin working cover may differ). */
+  shareCoverImageUrl?: string;
+  shareUseDefaultCover?: boolean;
+  shareCoverFocalX?: number;
+  shareCoverFocalY?: number;
+  shareCoverFrame?: GalleryCoverFrame;
   share?: ApiFolderShare;
   /** Fully-qualified shareable URL (e.g. https://example.com/share/<code>). */
   shareUrl?: string;
@@ -79,12 +109,18 @@ export type ApiFolder = {
   status?: string;
   /** Some responses nest this under `share` only; see {@link ApiFolderShare.selectionLocked}. */
   selectionLocked?: boolean;
+  /** Max client heart-picks; omit or 0 = unlimited. */
+  selectionLimit?: number | null;
   /** Raw uploads (detail GET). */
   uploads?: ApiFolderMedia[];
   /** Client selection rows (detail GET). */
   selection?: ApiFolderMedia[];
   /** Delivered finals (detail GET). */
   finals?: ApiFolderMedia[];
+  /** Final images the client flagged for revisions, with comments. */
+  flaggedFinals?: ApiFolderMedia[];
+  /** Named subsections within this gallery (e.g. ceremony, reception). */
+  sets?: ApiGallerySet[];
   rawMedia?: ApiFolderMedia[];
   selectionMedia?: ApiFolderMedia[];
   finalMedia?: ApiFolderMedia[];
@@ -136,6 +172,8 @@ export type UpdateFolderInput = {
   useDefaultCover?: boolean;
   coverFocalX?: number;
   coverFocalY?: number;
+  coverFrame?: GalleryCoverFrame;
+  coverColor?: string;
   backgroundMusicEnabled?: boolean;
 };
 

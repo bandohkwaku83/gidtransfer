@@ -1,100 +1,78 @@
-import { NextRequest, NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
+import { getBackendApiUrl } from "@/lib/backend-proxy";
 
-function backendBase(): string {
-  return (
-    process.env.BACKEND_API_URL ??
-    process.env.NEXT_PUBLIC_API_URL ??
-    "https://api.gidophotography.com"
-  ).replace(/\/$/, "");
-}
-
-/** Long cache for fingerprinted static media (override per file via upstream headers). */
-const DEFAULT_CACHE_CONTROL = "public, max-age=31536000, immutable";
-
-/** Headers worth forwarding from upstream so caching, conditional GETs, and range scrubbing work. */
-const FORWARD_RESPONSE_HEADERS = [
-  "content-type",
-  "content-length",
-  "content-range",
-  "accept-ranges",
-  "etag",
-  "last-modified",
-] as const;
-
-/** Headers worth forwarding from the inbound browser request (conditional GETs, range scrubbing). */
-const FORWARD_REQUEST_HEADERS = [
-  "range",
-  "if-none-match",
-  "if-modified-since",
-  "accept",
-  "accept-encoding",
-] as const;
-
-function pickRequestHeaders(req: NextRequest): HeadersInit {
-  const out = new Headers();
-  for (const h of FORWARD_REQUEST_HEADERS) {
-    const v = req.headers.get(h);
-    if (v) out.set(h, v);
-  }
-  return out;
-}
+export const dynamic = "force-dynamic";
 
 /**
- * Same-origin proxy for `/uploads/*` static files. Streams the upstream body so a 50 MB raw
- * does not get buffered in serverless memory, and adds a long `Cache-Control` so the CDN /
- * browser can hold onto fingerprinted media.
+ * Streams `/uploads/*` from the Node API (`BACKEND_API_URL`) after `sameOriginUploadsUrl()`
+ * maps API-hosted media to same-origin paths (see `lib/api.ts`). Required when
+ * `NEXT_PUBLIC_API_URL` is unset so the browser avoids CORS.
  */
-async function forward(
+async function proxyUpload(
   request: NextRequest,
-  segments: string[],
-  method: "GET" | "HEAD",
+  pathSegments: string[],
 ): Promise<NextResponse> {
-  if (segments.length === 0) {
-    return NextResponse.json({ message: "Missing uploads path." }, { status: 404 });
+  const backend = getBackendApiUrl();
+  const suffix = pathSegments.map(encodeURIComponent).join("/");
+  const target = `${backend}/uploads/${suffix}${request.nextUrl.search}`;
+
+  const headers = new Headers();
+  request.headers.forEach((value, key) => {
+    const lower = key.toLowerCase();
+    if (lower === "host" || lower === "connection") return;
+    headers.set(key, value);
+  });
+
+  const method = request.method.toUpperCase();
+  let body: ArrayBuffer | undefined;
+  if (method !== "GET" && method !== "HEAD") {
+    body = await request.arrayBuffer();
   }
 
-  const joined = segments.map((s) => encodeURIComponent(s)).join("/");
-  const target = `${backendBase()}/uploads/${joined}${request.nextUrl.search}`;
-
-  let res: Response;
+  let upstream: Response;
   try {
-    res = await fetch(target, {
-      method,
-      headers: pickRequestHeaders(request),
-    });
-  } catch {
+    upstream = await fetch(target, { method, headers, body });
+  } catch (err) {
+    const hint =
+      backend.includes("127.0.0.1") || backend.includes("localhost")
+        ? " Is photo_global_backend running on port 7100?"
+        : "";
+    const message =
+      err instanceof Error ? err.message : "Could not reach the API server.";
     return NextResponse.json(
-      { message: "Could not reach the storage service. Is the API running?" },
+      { message: `${message}${hint}` },
       { status: 502 },
     );
   }
 
   const outHeaders = new Headers();
-  for (const h of FORWARD_RESPONSE_HEADERS) {
-    const v = res.headers.get(h);
-    if (v) outHeaders.set(h, v);
-  }
-  const upstreamCacheControl = res.headers.get("cache-control");
-  outHeaders.set("cache-control", upstreamCacheControl ?? DEFAULT_CACHE_CONTROL);
+  upstream.headers.forEach((value, key) => {
+    if (key.toLowerCase() === "transfer-encoding") return;
+    outHeaders.set(key, value);
+  });
 
-  return new NextResponse(res.body, {
-    status: res.status,
+  return new NextResponse(upstream.body, {
+    status: upstream.status,
+    statusText: upstream.statusText,
     headers: outHeaders,
   });
 }
 
-export async function GET(
-  request: NextRequest,
-  context: { params: Promise<{ path: string[] }> },
-) {
-  const { path } = await context.params;
-  return forward(request, path ?? [], "GET");
+type RouteContext = { params: Promise<{ path?: string[] }> };
+
+export async function GET(request: NextRequest, context: RouteContext) {
+  const { path = [] } = await context.params;
+  if (path.length === 0) {
+    return NextResponse.json({ message: "Missing upload path." }, { status: 400 });
+  }
+  return proxyUpload(request, path);
 }
 
-export async function HEAD(
-  request: NextRequest,
-  context: { params: Promise<{ path: string[] }> },
-) {
-  const { path } = await context.params;
-  return forward(request, path ?? [], "HEAD");
+export async function HEAD(request: NextRequest, context: RouteContext) {
+  const { path = [] } = await context.params;
+  if (path.length === 0) {
+    return new NextResponse(null, { status: 400 });
+  }
+  return proxyUpload(request, path);
 }

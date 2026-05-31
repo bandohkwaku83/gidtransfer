@@ -3,6 +3,18 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CoverFocalPreview } from "@/components/photographer/cover-focal-preview";
 import { CreateClientModal } from "@/components/photographer/create-client-modal";
+import { ClientSearchSelect } from "@/components/ui/client-search-select";
+import { FormSelect } from "@/components/ui/form-select";
+import {
+  FormField,
+  FormModal,
+  FormModalBody,
+  FormModalFooter,
+  FormModalHeader,
+  FormModalSection,
+  formModalSecondaryButtonClass,
+} from "@/components/ui/form-modal";
+import { FormInput, FormTextArea } from "@/components/ui/form-input";
 import {
   AlignLeft,
   CalendarDays,
@@ -18,6 +30,7 @@ import { listClients, type ApiClient } from "@/lib/clients-api";
 import {
   createFolder,
   FALLBACK_SHARE_EXPIRY_PRESETS,
+  generateGalleryDescription,
   getFolderClientId,
   getFolderCoverUrl,
   getShareLinkExpiryPresets,
@@ -55,6 +68,7 @@ export function CreateFolderModal({ open, onClose, folder, onSaved }: Props) {
     FALLBACK_SHARE_EXPIRY_PRESETS,
   );
   const [busy, setBusy] = useState(false);
+  const [generatingDescription, setGeneratingDescription] = useState(false);
   const [addClientOpen, setAddClientOpen] = useState(false);
   const [coverFocalX, setCoverFocalX] = useState(50);
   const [coverFocalY, setCoverFocalY] = useState(50);
@@ -190,6 +204,21 @@ export function CreateFolderModal({ open, onClose, folder, onSaved }: Props) {
     setCoverFocalY(50);
   }
 
+  async function handleGenerateDescription() {
+    const name = eventName.trim();
+    if (!name || generatingDescription || busy) return;
+    setGeneratingDescription(true);
+    try {
+      const text = await generateGalleryDescription(name);
+      if (text) setDescription(text);
+      else showToast("No description was returned.", "error");
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Could not generate description.", "error");
+    } finally {
+      setGeneratingDescription(false);
+    }
+  }
+
   async function submit() {
     if (busy) return;
 
@@ -251,149 +280,109 @@ export function CreateFolderModal({ open, onClose, folder, onSaved }: Props) {
     }
   }
 
-  const inputClass =
-    "mt-2 w-full rounded-xl border border-zinc-200 bg-white px-3.5 py-2.5 text-sm text-zinc-900 shadow-sm outline-none transition placeholder:text-zinc-400 focus:border-brand focus:ring-2 focus:ring-brand/20 disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100 dark:placeholder:text-zinc-500";
-
-  const labelClass =
-    "text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400";
-
   return (
     <>
-      <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto overscroll-y-contain p-4 py-6 sm:py-8">
-      <button
-        type="button"
-        className="absolute inset-0 bg-black/55 backdrop-blur-[2px]"
-        aria-label="Close"
-        onClick={handleClose}
-      />
-      <div
-        role="dialog"
-        aria-modal="true"
-        className="relative z-10 flex max-h-[min(90dvh,calc(100dvh-2rem))] w-full max-w-lg flex-col overflow-hidden rounded-3xl border border-zinc-200/80 bg-white shadow-2xl shadow-zinc-900/10 ring-1 ring-zinc-900/5 dark:border-zinc-800 dark:bg-zinc-950 dark:ring-white/5"
-      >
-        <div className="shrink-0 border-b border-zinc-100 bg-gradient-to-br from-brand-soft/90 to-white px-6 py-5 dark:border-zinc-800 dark:from-brand/25 dark:to-zinc-950">
-          <div className="flex items-start gap-3">
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-brand text-white shadow-md shadow-brand/25">
-              <FolderPlus className="h-5 w-5" aria-hidden />
-            </div>
-            <div>
-              <h2 className="text-lg font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
-                {isEdit ? "Edit folder" : "New folder"}
-              </h2>
-              <p className="mt-0.5 text-sm leading-snug text-zinc-600 dark:text-zinc-400">
-                {isEdit
-                  ? "Update details or swap the cover image."
-                  : "Choose a client, event info, and share defaults."}
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <div className="min-h-0 flex-1 space-y-6 overflow-y-auto overscroll-contain px-6 py-6">
-          <div className="space-y-4 rounded-2xl bg-zinc-50/90 p-4 dark:bg-zinc-900/50">
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
-              Details
-            </p>
+      <FormModal open={open} onClose={handleClose} busy={busy}>
+        <FormModalHeader
+          icon={FolderPlus}
+          title={isEdit ? "Edit gallery" : "New gallery"}
+          description={
+            isEdit
+              ? "Update details or swap the cover image."
+              : "Choose a client, event info, and share defaults."
+          }
+        />
+        <FormModalBody>
+          <FormModalSection title="Details">
             {!isEdit ? (
-              <label className="block">
-                <span className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                  <span className={`inline-flex items-center gap-1.5 ${labelClass}`}>
-                    <UserRound className="h-3.5 w-3.5 text-zinc-400" aria-hidden />
-                    Client
-                  </span>
+              <FormField
+                label="Client"
+                icon={UserRound}
+                action={
                   <button
                     type="button"
                     onClick={() => setAddClientOpen(true)}
                     disabled={busy || clientsLoading}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-zinc-800 shadow-sm transition hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
+                    className={formModalSecondaryButtonClass}
                   >
                     <UserPlus className="h-3.5 w-3.5 shrink-0 text-brand dark:text-brand-on-dark" aria-hidden />
                     Add client
                   </button>
-                </span>
-                <select className={inputClass} value={clientId} onChange={(e) => setClientId(e.target.value)} disabled={busy || clientsLoading}>
-                  <option value="" disabled>
-                    {clientsLoading ? "Loading clients…" : "Select a client"}
-                  </option>
-                  {sortedClients.map((c) => (
-                    <option key={c._id} value={c._id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
+                }
+              >
+                <ClientSearchSelect
+                  clients={sortedClients}
+                  value={clientId}
+                  onChange={setClientId}
+                  loading={clientsLoading}
+                  disabled={busy}
+                />
+              </FormField>
             ) : null}
 
-            <label className="block">
-              <span className={labelClass}>Event name</span>
-              <input
-                type="text"
-                className={inputClass}
+            <FormField label="Event name" required>
+              <FormInput
                 value={eventName}
                 onChange={(e) => setEventName(e.target.value)}
-                placeholder="e.g. Sarah & James — wedding day"
+                placeholder="e.g. Sarah & James, wedding day"
                 disabled={busy}
               />
-            </label>
+            </FormField>
 
-            <label className="block">
-              <span className={`inline-flex items-center gap-1.5 ${labelClass}`}>
-                <CalendarDays className="h-3.5 w-3.5 text-zinc-400" aria-hidden />
-                Event date
-              </span>
-              <input type="date" className={inputClass} value={eventDate} onChange={(e) => setEventDate(e.target.value)} disabled={busy} />
-            </label>
+            <FormField label="Event date" icon={CalendarDays} required>
+              <FormInput
+                type="date"
+                value={eventDate}
+                onChange={(e) => setEventDate(e.target.value)}
+                disabled={busy}
+              />
+            </FormField>
 
-            <label className="block">
-              <span className={`inline-flex items-center gap-1.5 ${labelClass}`}>
-                <AlignLeft className="h-3.5 w-3.5 text-zinc-400" aria-hidden />
-                Description
-                <span className="font-normal normal-case text-zinc-400">(optional)</span>
-              </span>
-              <textarea
-                className={`${inputClass} min-h-[92px] resize-y`}
+            <FormField
+              label="Description"
+              icon={AlignLeft}
+              optional
+              action={
+                !isEdit ? (
+                  <button
+                    type="button"
+                    onClick={() => void handleGenerateDescription()}
+                    disabled={busy || generatingDescription || !eventName.trim()}
+                    className={formModalSecondaryButtonClass}
+                  >
+                    {generatingDescription ? "Generating…" : "Generate with AI"}
+                  </button>
+                ) : undefined
+              }
+            >
+              <FormTextArea
+                className="min-h-[92px]"
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder="Notes for this gallery…"
                 disabled={busy}
               />
-            </label>
-          </div>
+            </FormField>
+          </FormModalSection>
 
           {!isEdit ? (
-            <div className="space-y-3 rounded-2xl border border-dashed border-zinc-200 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-950/80">
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
-                Sharing
-              </p>
-              <label className="block">
-                <span className={`inline-flex items-center gap-1.5 ${labelClass}`}>
-                  <Clock className="h-3.5 w-3.5 text-zinc-400" aria-hidden />
-                  Share link expiry
-                </span>
-                <select
-                  className={inputClass}
+            <FormModalSection title="Sharing" variant="dashed">
+              <FormField label="Share link expiry" icon={Clock}>
+                <FormSelect
                   value={
                     expiryPresets.some((p) => p.id === linkExpiry)
                       ? linkExpiry
                       : (expiryPresets[0]?.id ?? "30d")
                   }
-                  onChange={(e) => setLinkExpiry(e.target.value)}
+                  onChange={setLinkExpiry}
                   disabled={busy}
-                >
-                  {expiryPresets.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
+                  options={expiryPresets.map((p) => ({ value: p.id, label: p.label }))}
+                />
+              </FormField>
+            </FormModalSection>
           ) : null}
 
-          <div className="space-y-3">
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
-              Cover
-            </p>
+          <FormModalSection title="Cover" variant="plain">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
               {showCoverFocalPicker && coverPreview ? (
                 <CoverFocalPreview
@@ -475,32 +464,19 @@ export function CreateFolderModal({ open, onClose, folder, onSaved }: Props) {
                 <input ref={fileInputRef} type="file" accept="image/*" className="sr-only" onChange={onFileChange} />
               </div>
             </div>
-          </div>
-        </div>
-
-        <div className="flex shrink-0 items-center justify-end gap-3 border-t border-zinc-100 bg-zinc-50/80 px-6 py-4 dark:border-zinc-800 dark:bg-zinc-900/40">
-          <button
-            type="button"
-            onClick={handleClose}
-            className="rounded-xl px-4 py-2.5 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-200/80 dark:text-zinc-200 dark:hover:bg-zinc-800"
-            disabled={busy}
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={submit}
-            aria-busy={busy}
-            className="rounded-xl bg-brand px-5 py-2.5 text-sm font-semibold text-white shadow-md shadow-brand/25 transition hover:bg-brand-hover disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-brand focus:ring-offset-2 dark:focus:ring-offset-zinc-950"
-          >
-            {busy ? (isEdit ? "Saving…" : "Creating…") : isEdit ? "Save changes" : "Create folder"}
-          </button>
-        </div>
-      </div>
-    </div>
+          </FormModalSection>
+        </FormModalBody>
+        <FormModalFooter
+          onCancel={handleClose}
+          onSubmit={() => void submit()}
+          submitLabel={isEdit ? "Save changes" : "Create gallery"}
+          busyLabel={isEdit ? "Saving…" : "Creating…"}
+          busy={busy}
+        />
+      </FormModal>
       <CreateClientModal
         open={addClientOpen}
+        elevated
         onClose={() => setAddClientOpen(false)}
         onSaved={handleNewClientSaved}
       />

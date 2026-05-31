@@ -1,5 +1,6 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { loadEnvConfig } from "@next/env";
 import type { NextConfig } from "next";
 import type { RemotePattern } from "next/dist/shared/lib/image-config";
 
@@ -9,6 +10,8 @@ import type { RemotePattern } from "next/dist/shared/lib/image-config";
  * mis-detect the workspace root and serve 404s or mis-resolve routes in dev.
  */
 const PROJECT_ROOT = path.dirname(fileURLToPath(import.meta.url));
+
+loadEnvConfig(PROJECT_ROOT);
 
 const BACKEND_API_URL = (
   process.env.BACKEND_API_URL ?? "https://api.gidophotography.com"
@@ -69,6 +72,11 @@ function buildImageRemotePatterns(): RemotePattern[] {
     pathname: "/**",
   });
 
+  /* Placeholder photography for demo data and marketing pages. */
+  add({ protocol: "https", hostname: "picsum.photos", pathname: "/**" });
+  add({ protocol: "https", hostname: "fastly.picsum.photos", pathname: "/**" });
+  add({ protocol: "https", hostname: "images.unsplash.com", pathname: "/**" });
+
   const imageHosts = process.env.NEXT_PUBLIC_IMAGE_REMOTE_HOSTS;
   if (imageHosts) {
     for (const part of imageHosts.split(",")) {
@@ -84,6 +92,10 @@ function buildImageRemotePatterns(): RemotePattern[] {
 
 const nextConfig: NextConfig = {
   outputFileTracingRoot: PROJECT_ROOT,
+  /** `/api/*` rewrites proxy multipart uploads; default 10MB truncates large batches. */
+  experimental: {
+    proxyClientMaxBodySize: "100mb",
+  },
   turbopack: {
     root: PROJECT_ROOT,
   },
@@ -130,7 +142,6 @@ const nextConfig: NextConfig = {
         source: "/api/:path*",
         destination: `${BACKEND_API_URL}/api/:path*`,
       },
-      // `/uploads/*` is proxied by `app/uploads/[...path]/route.ts` (prefers filesystem over this rewrite).
     ];
   },
 };

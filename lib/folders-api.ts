@@ -1,20 +1,76 @@
-import { apiUrl, sameOriginUploadsUrl } from "@/lib/api";
-import { clearAuth, getAuthToken } from "@/lib/auth-demo";
-import { authedFetch, extractMessage, parseJson } from "@/lib/http";
-
 import {
-  resolveCoverUrl,
+  bulkDeleteGalleryFinals,
+  bulkDeleteGalleryUploads,
+  deleteGalleryFinal,
+  deleteGalleryUpload,
+  fetchGalleryMedia,
+  listGalleryFinals,
+  listGalleryUploads,
+  patchGalleryFinalReply,
+  patchGalleryFinalsLock,
+  patchGallerySelectionReply,
+  uploadGalleryFinals,
+  uploadGalleryPhotos,
+} from "@/lib/gallery-media-api";
+import {
+  activateGalleryShareLink,
+  completeGallery,
+  createGallery,
+  deleteGallery,
+  deleteGalleryBackgroundMusic,
+  getGalleryDetail,
+  listGalleries,
+  mapGalleryToApiFolder,
+  restoreGallery,
+  revokeGalleryShareLink,
+  shareLinkExpiryPresetToDays,
+  toggleGalleryBackgroundMusic,
+  trashRestoreBefore,
+  uiStatusToGalleryStatus,
+  updateGallery,
+  updateGalleryCoverFocalPoint,
+  updateGallerySelectionSettings,
+  uploadGalleryBackgroundMusic,
+} from "@/lib/galleries-api";
+import {
+  getDemoFolderApiModel,
+} from "@/lib/demo-api-bridge";
+import {
+  createDemoGallerySet,
+  deleteDemoGallerySet,
+  getFolderOverride,
+  listDemoGallerySets,
+  loadProjectById,
+  patchFolderOverride,
+  purgeFolderFromTrashDemo,
+  saveProjectSnapshot,
+  updateDemoGallerySet,
+} from "@/lib/demo-data";
+import {
+  createGallerySet,
+  deleteGallerySet,
+  listGallerySets,
+  updateGallerySet,
+} from "@/lib/gallery-sets-api";
+import { normalizeGalleryCoverColor } from "@/lib/gallery-cover-color";
+import { normalizeGalleryCoverFrame } from "@/lib/gallery-cover-frame";
+import {
+  incomingFilenamesConflictingWithFolder,
+  isLocalDemoFolderId,
   type FolderMediaDuplicatePreviewKind,
 } from "@/lib/folders/helpers";
 import {
+  assertCanCreateGallery,
+  assertStorageAllowsDemoFinalAdds,
+  assertStorageAllowsDemoRawAdds,
+} from "@/lib/subscription-plan";
+import {
   type ApiFolder,
-  type ApiFolderMedia,
   type BulkMediaSoftDeleteResult,
   type CreateFolderInput,
   type DuplicateUploadAction,
   FoldersApiError,
   type FolderMoveToTrashResult,
-  type ListFoldersResponse,
   type ListFoldersTrashResponse,
   type ListFoldersMediaTrashParams,
   type ListFoldersMediaTrashResponse,
@@ -23,742 +79,43 @@ import {
   type TrashFolderRow,
   type TrashMediaRow,
   type TrashPurgeResult,
-  type TrashPurgeSkippedItem,
   type UpdateFolderInput,
 } from "@/lib/folders/types";
 
-// Re-export the public surface so existing `from "@/lib/folders-api"` imports keep working.
 export * from "@/lib/folders/types";
 export * from "@/lib/folders/helpers";
+export { generateGalleryDescription, type GalleryListCounts } from "@/lib/galleries-api";
 
-/** FormData POST with upload progress (fetch does not expose upload progress). */
-function authedFormDataPostWithProgress(
-  path: string,
-  formData: FormData,
-  onProgress?: (loaded: number, total: number, lengthComputable: boolean) => void,
-): Promise<unknown> {
-  const url = apiUrl(path);
-  const token = getAuthToken();
-
-  return new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    xhr.open("POST", url);
-    if (token) {
-      xhr.setRequestHeader("Authorization", `Bearer ${token}`);
-    }
-
-    xhr.upload.onprogress = (ev) => {
-      onProgress?.(ev.loaded, ev.total, ev.lengthComputable);
-    };
-
-    xhr.onload = () => {
-      let parsed: unknown = null;
-      try {
-        const t = xhr.responseText;
-        if (t) parsed = JSON.parse(t) as unknown;
-      } catch {
-        parsed = null;
-      }
-
-      if (xhr.status === 401) {
-        clearAuth();
-        if (typeof window !== "undefined") {
-          window.location.href = "/login";
-        }
-        reject(new FoldersApiError("Your session has expired. Please log in again.", 401, parsed));
-        return;
-      }
-
-      if (xhr.status < 200 || xhr.status >= 300) {
-        reject(
-          new FoldersApiError(
-            extractMessage(parsed, `Request failed (${xhr.status})`),
-            xhr.status,
-            parsed,
-          ),
-        );
-        return;
-      }
-
-      resolve(parsed);
-    };
-
-    xhr.onerror = () => {
-      reject(new FoldersApiError("Network error while uploading.", 0, null));
-    };
-
-    xhr.onabort = () => {
-      reject(new FoldersApiError("Upload was cancelled.", 0, null));
-    };
-
-    xhr.send(formData);
-  });
+async function delay(ms = 35) {
+  await new Promise((r) => setTimeout(r, ms));
 }
 
-function readIsoField(o: Record<string, unknown>, ...keys: string[]): string {
-  for (const k of keys) {
-    const v = o[k];
-    if (typeof v === "string" && v.trim()) return v.trim();
-  }
-  return "";
+function softDeleteMeta(): { deletedAt: string; restoreBefore: string } {
+  const deletedAt = new Date().toISOString();
+  const restoreBefore = new Date(Date.now() + 30 * 86400000).toISOString();
+  return { deletedAt, restoreBefore };
 }
 
-function readRetentionDays(o: Record<string, unknown>): number {
-  const raw = o.retentionDays ?? o.retention_days;
-  if (typeof raw === "number" && Number.isFinite(raw)) return Math.max(0, Math.floor(raw));
-  if (typeof raw === "string" && raw.trim()) {
-    const n = Number(raw);
-    if (Number.isFinite(n)) return Math.max(0, Math.floor(n));
-  }
-  return 30;
-}
-
-function parseMediaSoftDelete(body: unknown, fallbackKind: string): MediaSoftDeleteResult {
-  const o = body && typeof body === "object" ? (body as Record<string, unknown>) : {};
-  let id = "";
-  let kind = fallbackKind;
-  const del = o.deleted;
-  if (del && typeof del === "object") {
-    const d = del as Record<string, unknown>;
-    id = String(d._id ?? d.id ?? "");
-    if (typeof d.kind === "string" && d.kind) kind = d.kind;
-  }
+function emptyTrashMediaResult(restoreBefore: string): BulkMediaSoftDeleteResult {
   return {
-    message: extractMessage(body, "Moved to trash."),
-    deleted: { _id: id, kind },
-    restoreBefore: readIsoField(o, "restoreBefore", "restore_before"),
+    message: "Items moved to trash.",
+    deletedCount: 0,
+    restoreBefore,
   };
 }
 
-function parseBulkMediaSoftDelete(body: unknown): BulkMediaSoftDeleteResult {
-  const o = body && typeof body === "object" ? (body as Record<string, unknown>) : {};
-  const dc = o.deletedCount ?? o.deleted_count;
-  const deletedCount =
-    typeof dc === "number" && Number.isFinite(dc) ? Math.max(0, Math.floor(dc)) : 0;
+function applyFolderPresentationOverride(folder: ApiFolder): ApiFolder {
+  const override = getFolderOverride(folder._id);
+  if (!override?.coverFrame && !override?.coverColor) return folder;
   return {
-    message: extractMessage(body, "Items moved to trash."),
-    deletedCount,
-    restoreBefore: readIsoField(o, "restoreBefore", "restore_before"),
+    ...folder,
+    ...(override?.coverFrame
+      ? { coverFrame: normalizeGalleryCoverFrame(override.coverFrame) }
+      : {}),
+    ...(override?.coverColor
+      ? { coverColor: normalizeGalleryCoverColor(override.coverColor) }
+      : {}),
   };
-}
-
-function buildFormData(
-  fields: Record<string, string | boolean | undefined>,
-  file?: File | null,
-): FormData {
-  const fd = new FormData();
-  for (const [key, value] of Object.entries(fields)) {
-    if (value === undefined || value === null) continue;
-    fd.append(key, typeof value === "boolean" ? String(value) : value);
-  }
-  if (file) {
-    fd.append("coverImage", file);
-  }
-  return fd;
-}
-
-/** First non-empty string from object for any of the given keys (in order). */
-function firstStringFrom(obj: Record<string, unknown> | null | undefined, keys: string[]): string {
-  if (!obj) return "";
-  for (const k of keys) {
-    const v = obj[k];
-    if (typeof v === "string" && v.trim()) return v.trim();
-  }
-  return "";
-}
-
-/**
- * Pick a raw image URL string for trashed media (aligned with folder grid / ApiFolderMedia).
- */
-function pickTrashMediaImageRaw(
-  media: Record<string, unknown> | null,
-  root: Record<string, unknown>,
-): string {
-  const file =
-    root.file && typeof root.file === "object" ? (root.file as Record<string, unknown>) : null;
-  const objects = [media, file, root];
-  const keyGroups = [
-    ["thumbUrl", "thumb_url", "thumbnailUrl", "thumbnail_url", "thumbnail"],
-    ["displayUrl", "display_url"],
-    ["previewUrl", "preview_url"],
-    ["url", "src", "image", "imageUrl", "image_url", "path", "filePath", "file_path", "publicUrl", "public_url"],
-  ];
-  for (const keys of keyGroups) {
-    for (const obj of objects) {
-      const s = firstStringFrom(obj, keys);
-      if (s) return s;
-    }
-  }
-  return "";
-}
-
-function resolveTrashMediaSrc(raw: string): string {
-  const trimmed = raw.trim();
-  if (!trimmed) return "";
-  return resolveCoverUrl(trimmed) || sameOriginUploadsUrl(trimmed);
-}
-
-function parseTrashMediaRow(entry: unknown): TrashMediaRow | null {
-  if (!entry || typeof entry !== "object") return null;
-  const r = entry as Record<string, unknown>;
-  const media = r.media && typeof r.media === "object" ? (r.media as Record<string, unknown>) : null;
-  const folderRaw = r.folder;
-  const folder = folderRaw && typeof folderRaw === "object" ? (folderRaw as ApiFolder) : undefined;
-
-  const folderId =
-    typeof r.folderId === "string" && r.folderId
-      ? r.folderId
-      : typeof r.folder_id === "string" && r.folder_id
-        ? r.folder_id
-        : typeof folder?._id === "string" && folder._id
-          ? folder._id
-          : "";
-
-  const mediaId =
-    typeof r.mediaId === "string" && r.mediaId
-      ? r.mediaId
-      : typeof r.media_id === "string" && r.media_id
-        ? r.media_id
-        : media && typeof media._id === "string" && media._id
-          ? media._id
-          : typeof r._id === "string" && r._id
-            ? r._id
-            : "";
-
-  if (!folderId || !mediaId) return null;
-
-  const kind =
-    typeof r.kind === "string" && r.kind
-      ? r.kind
-      : media && typeof media.kind === "string" && media.kind
-        ? media.kind
-        : "raw";
-
-  const resolvedSrc = resolveTrashMediaSrc(pickTrashMediaImageRaw(media, r));
-  const url = resolvedSrc || undefined;
-  const thumbUrl = resolvedSrc || undefined;
-
-  let originalFilename: string | undefined;
-  if (media) {
-    if (typeof media.originalFilename === "string" && media.originalFilename) {
-      originalFilename = media.originalFilename;
-    } else if (typeof media.original_filename === "string" && media.original_filename) {
-      originalFilename = media.original_filename;
-    } else if (typeof media.originalName === "string" && media.originalName) {
-      originalFilename = media.originalName;
-    } else if (typeof media.filename === "string" && media.filename) {
-      originalFilename = media.filename;
-    } else if (typeof media.name === "string" && media.name) {
-      originalFilename = media.name;
-    }
-  }
-  if (!originalFilename && typeof r.originalFilename === "string" && r.originalFilename) {
-    originalFilename = r.originalFilename;
-  }
-
-  return {
-    folderId,
-    folder,
-    mediaId,
-    kind,
-    deletedAt: readIsoField(r, "deletedAt", "deleted_at"),
-    restoreBefore: readIsoField(r, "restoreBefore", "restore_before"),
-    url,
-    thumbUrl,
-    originalFilename,
-  };
-}
-
-function parseTrashMediaRowList(raw: unknown): TrashMediaRow[] {
-  if (!Array.isArray(raw)) return [];
-  const out: TrashMediaRow[] = [];
-  for (const row of raw) {
-    const parsed = parseTrashMediaRow(row);
-    if (parsed) out.push(parsed);
-  }
-  return out;
-}
-
-export async function listFoldersTrash(
-  options: { mediaLimit?: number } = {},
-): Promise<ListFoldersTrashResponse> {
-  const qs = new URLSearchParams();
-  if (options.mediaLimit != null) {
-    const n = Math.min(500, Math.max(1, Math.floor(options.mediaLimit)));
-    qs.set("mediaLimit", String(n));
-  }
-  const suffix = qs.toString() ? `?${qs.toString()}` : "";
-  const res = await authedFetch(`/api/folders/trash${suffix}`, { method: "GET" });
-  const body = await parseJson(res);
-  if (!res.ok) {
-    throw new FoldersApiError(
-      extractMessage(body, `Failed to load trash (${res.status})`),
-      res.status,
-      body,
-    );
-  }
-  const o = body && typeof body === "object" ? (body as Record<string, unknown>) : {};
-  const retentionDays = readRetentionDays(o);
-  const rawRows = Array.isArray(o.folders) ? o.folders : [];
-  const folders: TrashFolderRow[] = [];
-  for (const row of rawRows) {
-    if (!row || typeof row !== "object") continue;
-    const r = row as Record<string, unknown>;
-    const folderRaw = r.folder;
-    if (!folderRaw || typeof folderRaw !== "object") continue;
-    folders.push({
-      folder: folderRaw as ApiFolder,
-      deletedAt: readIsoField(r, "deletedAt", "deleted_at"),
-      restoreBefore: readIsoField(r, "restoreBefore", "restore_before"),
-    });
-  }
-  const count = typeof o.count === "number" && Number.isFinite(o.count) ? o.count : folders.length;
-
-  const dmSource = o.deletedMedia ?? o.deleted_media;
-  const deletedMedia = parseTrashMediaRowList(dmSource);
-
-  const dmt = o.deletedMediaTotal ?? o.deleted_media_total;
-  const deletedMediaTotal =
-    typeof dmt === "number" && Number.isFinite(dmt)
-      ? Math.max(0, Math.floor(dmt))
-      : deletedMedia.length;
-
-  const dmpl = o.deletedMediaPreviewLimit ?? o.deleted_media_preview_limit;
-  const deletedMediaPreviewLimit =
-    typeof dmpl === "number" && Number.isFinite(dmpl)
-      ? Math.max(0, Math.floor(dmpl))
-      : deletedMedia.length;
-
-  const dmph = o.deletedMediaPagingHint ?? o.deleted_media_paging_hint;
-  const deletedMediaPagingHint =
-    typeof dmph === "string" && dmph.trim() ? dmph.trim() : undefined;
-
-  return {
-    retentionDays,
-    count,
-    folders,
-    deletedMedia,
-    deletedMediaTotal,
-    deletedMediaPreviewLimit,
-    deletedMediaPagingHint,
-  };
-}
-
-export async function listFoldersMediaTrash(
-  params: ListFoldersMediaTrashParams = {},
-): Promise<ListFoldersMediaTrashResponse> {
-  const qs = new URLSearchParams();
-  if (params.page != null) qs.set("page", String(Math.max(1, Math.floor(params.page))));
-  if (params.limit != null) {
-    qs.set("limit", String(Math.min(500, Math.max(1, Math.floor(params.limit)))));
-  }
-  if (params.folderId?.trim()) qs.set("folderId", params.folderId.trim());
-  const suffix = qs.toString() ? `?${qs.toString()}` : "";
-  const res = await authedFetch(`/api/folders/media/trash${suffix}`, { method: "GET" });
-  const body = await parseJson(res);
-  if (!res.ok) {
-    throw new FoldersApiError(
-      extractMessage(body, `Failed to load trashed media (${res.status})`),
-      res.status,
-      body,
-    );
-  }
-  const o = body && typeof body === "object" ? (body as Record<string, unknown>) : {};
-  const rawItems = Array.isArray(o.items)
-    ? o.items
-    : Array.isArray(o.media)
-      ? o.media
-      : Array.isArray(o.deletedMedia)
-        ? o.deletedMedia
-        : Array.isArray(o.rows)
-          ? o.rows
-          : Array.isArray(o.data)
-            ? o.data
-            : [];
-  const items = parseTrashMediaRowList(rawItems);
-
-  const totalRaw = o.total ?? o.count ?? o.deletedMediaTotal ?? o.totalCount;
-  const total =
-    typeof totalRaw === "number" && Number.isFinite(totalRaw)
-      ? Math.max(0, Math.floor(totalRaw))
-      : items.length;
-
-  const pageRaw = o.page ?? o.currentPage ?? o.current_page;
-  const page =
-    typeof pageRaw === "number" && Number.isFinite(pageRaw)
-      ? Math.max(1, Math.floor(pageRaw))
-      : 1;
-
-  const limitRaw = o.limit ?? o.pageSize ?? o.page_size;
-  const limit =
-    typeof limitRaw === "number" && Number.isFinite(limitRaw)
-      ? Math.max(1, Math.floor(limitRaw))
-      : params.limit ?? 50;
-
-  return { items, total, page, limit };
-}
-
-/** Restore a gallery from trash (`POST /api/folders/:id/restore`). */
-export async function restoreFolderFromTrash(folderId: string): Promise<ApiFolder> {
-  const res = await authedFetch(`/api/folders/${encodeURIComponent(folderId)}/restore`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: "{}",
-  });
-  const body = await parseJson(res);
-  if (!res.ok) {
-    throw new FoldersApiError(
-      extractMessage(body, `Restore failed (${res.status})`),
-      res.status,
-      body,
-    );
-  }
-  if (body && typeof body === "object" && "folder" in body) {
-    return (body as { folder: ApiFolder }).folder;
-  }
-  return body as ApiFolder;
-}
-
-/** Restore a single soft-deleted media row (`POST /api/folders/:folderId/media/:mediaId/restore`). */
-export async function restoreFolderTrashedMedia(
-  folderId: string,
-  mediaId: string,
-): Promise<{ message: string; kind: string; mediaId: string }> {
-  const res = await authedFetch(
-    `/api/folders/${encodeURIComponent(folderId)}/media/${encodeURIComponent(mediaId)}/restore`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: "{}",
-    },
-  );
-  const body = await parseJson(res);
-  if (!res.ok) {
-    throw new FoldersApiError(
-      extractMessage(body, `Restore failed (${res.status})`),
-      res.status,
-      body,
-    );
-  }
-  const o = body && typeof body === "object" ? (body as Record<string, unknown>) : {};
-  return {
-    message: extractMessage(body, "Media restored"),
-    kind: typeof o.kind === "string" ? o.kind : "",
-    mediaId:
-      typeof o.mediaId === "string"
-        ? o.mediaId
-        : typeof o.media_id === "string"
-          ? o.media_id
-          : mediaId,
-  };
-}
-
-function parseTrashPurgeResult(body: unknown): TrashPurgeResult {
-  const o = body && typeof body === "object" ? (body as Record<string, unknown>) : {};
-  const skippedRaw = o.skipped;
-  const skipped: TrashPurgeSkippedItem[] = [];
-  if (Array.isArray(skippedRaw)) {
-    for (const item of skippedRaw) {
-      if (!item || typeof item !== "object") continue;
-      const s = item as Record<string, unknown>;
-      const reason = typeof s.reason === "string" ? s.reason : "";
-      skipped.push({
-        folderId:
-          typeof s.folderId === "string"
-            ? s.folderId
-            : typeof s.folder_id === "string"
-              ? s.folder_id
-              : undefined,
-        mediaId:
-          typeof s.mediaId === "string"
-            ? s.mediaId
-            : typeof s.media_id === "string"
-              ? s.media_id
-              : undefined,
-        reason,
-      });
-    }
-  }
-  const pfc = o.purgedFolderCount ?? o.purged_folder_count;
-  const pmc = o.purgedMediaCount ?? o.purged_media_count;
-  return {
-    message: extractMessage(body, "Trash purge completed."),
-    purgedFolderCount:
-      typeof pfc === "number" && Number.isFinite(pfc) ? Math.max(0, Math.floor(pfc)) : 0,
-    purgedMediaCount:
-      typeof pmc === "number" && Number.isFinite(pmc) ? Math.max(0, Math.floor(pmc)) : 0,
-    skipped: skipped.length ? skipped : undefined,
-  };
-}
-
-function buildPurgeTrashJsonBody(payload: PurgeFoldersTrashPayload): Record<string, unknown> {
-  if ("all" in payload && payload.all === true) {
-    return { all: true };
-  }
-  if ("purgeAll" in payload && payload.purgeAll === true) {
-    return { purgeAll: true };
-  }
-  const sel = payload as { folderIds?: string[]; mediaIds?: string[] };
-  const folderIds = sel.folderIds ?? [];
-  const mediaIds = sel.mediaIds ?? [];
-  const body: Record<string, unknown> = {};
-  const f = folderIds.filter((id) => typeof id === "string" && id.trim());
-  const m = mediaIds.filter((id) => typeof id === "string" && id.trim());
-  if (f.length) body.folderIds = f;
-  if (m.length) body.mediaIds = m;
-  return body;
-}
-
-/**
- * Permanently purge soft-deleted folders and/or media (`POST /api/folders/trash/purge`).
- * Use `{ all: true }` to empty all trash, or pass `folderIds` / `mediaIds` for a partial purge.
- */
-export async function purgeFoldersTrash(payload: PurgeFoldersTrashPayload): Promise<TrashPurgeResult> {
-  const jsonBody = buildPurgeTrashJsonBody(payload);
-  const res = await authedFetch("/api/folders/trash/purge", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(jsonBody),
-  });
-  const body = await parseJson(res);
-  if (!res.ok) {
-    throw new FoldersApiError(
-      extractMessage(body, `Trash purge failed (${res.status})`),
-      res.status,
-      body,
-    );
-  }
-  return parseTrashPurgeResult(body);
-}
-
-export async function listFolders(params: {
-  clientId?: string;
-  search?: string;
-} = {}): Promise<ApiFolder[]> {
-  const qs = new URLSearchParams();
-  if (params.clientId) qs.set("clientId", params.clientId);
-  if (params.search) qs.set("search", params.search);
-  const suffix = qs.toString() ? `?${qs.toString()}` : "";
-  const res = await authedFetch(`/api/folders${suffix}`, { method: "GET" });
-  const body = await parseJson(res);
-  if (!res.ok) {
-    throw new FoldersApiError(
-      extractMessage(body, `Failed to load folders (${res.status})`),
-      res.status,
-      body,
-    );
-  }
-  if (Array.isArray(body)) return body as ApiFolder[];
-  const data = body as ListFoldersResponse | null;
-  return Array.isArray(data?.folders) ? data!.folders : [];
-}
-
-export async function getFolder(id: string): Promise<ApiFolder> {
-  const res = await authedFetch(`/api/folders/${encodeURIComponent(id)}`, { method: "GET" });
-  const body = await parseJson(res);
-  if (!res.ok) {
-    throw new FoldersApiError(
-      extractMessage(body, `Failed to load folder (${res.status})`),
-      res.status,
-      body,
-    );
-  }
-  if (body && typeof body === "object" && "folder" in body) {
-    return (body as { folder: ApiFolder }).folder;
-  }
-  return body as ApiFolder;
-}
-
-export async function createFolder(input: CreateFolderInput): Promise<ApiFolder> {
-  const useDefault = input.useDefaultCover === true || !input.coverImage;
-
-  let res: Response;
-  if (input.coverImage) {
-    const fx = input.coverFocalX ?? 50;
-    const fy = input.coverFocalY ?? 50;
-    const fd = buildFormData(
-      {
-        client: input.clientId,
-        eventName: input.eventName,
-        eventDate: input.eventDate,
-        description: input.description,
-        linkExpiry: input.linkExpiry,
-        useDefaultCover: useDefault ? "true" : undefined,
-        coverFocalX: String(fx),
-        coverFocalY: String(fy),
-      },
-      input.coverImage,
-    );
-    res = await authedFetch("/api/folders", { method: "POST", body: fd });
-  } else {
-    res = await authedFetch("/api/folders", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        client: input.clientId,
-        eventName: input.eventName,
-        eventDate: input.eventDate,
-        description: input.description,
-        useDefaultCover: true,
-        linkExpiry: input.linkExpiry,
-      }),
-    });
-  }
-
-  const body = await parseJson(res);
-  if (!res.ok) {
-    throw new FoldersApiError(
-      extractMessage(body, `Failed to create folder (${res.status})`),
-      res.status,
-      body,
-    );
-  }
-  if (body && typeof body === "object" && "folder" in body) {
-    return (body as { folder: ApiFolder }).folder;
-  }
-  return body as ApiFolder;
-}
-
-export async function updateFolder(
-  id: string,
-  input: UpdateFolderInput,
-): Promise<ApiFolder> {
-  const focalFields: Record<string, string> = {};
-  if (input.coverFocalX !== undefined) {
-    focalFields.coverFocalX = String(input.coverFocalX);
-    focalFields.coverFocalY = String(input.coverFocalY ?? 50);
-  }
-  const fd = buildFormData(
-    {
-      eventName: input.eventName,
-      eventDate: input.eventDate,
-      description: input.description,
-      useDefaultCover:
-        input.useDefaultCover === undefined ? undefined : input.useDefaultCover ? "true" : "false",
-      ...focalFields,
-      backgroundMusicEnabled: input.backgroundMusicEnabled,
-    },
-    input.coverImage,
-  );
-
-  const res = await authedFetch(`/api/folders/${encodeURIComponent(id)}`, {
-    method: "PUT",
-    body: fd,
-  });
-
-  const body = await parseJson(res);
-  if (!res.ok) {
-    throw new FoldersApiError(
-      extractMessage(body, `Failed to update folder (${res.status})`),
-      res.status,
-      body,
-    );
-  }
-  if (body && typeof body === "object" && "folder" in body) {
-    return (body as { folder: ApiFolder }).folder;
-  }
-  return body as ApiFolder;
-}
-
-export async function deleteFolder(id: string): Promise<FolderMoveToTrashResult> {
-  const res = await authedFetch(`/api/folders/${encodeURIComponent(id)}`, {
-    method: "DELETE",
-  });
-  const body = await parseJson(res);
-  if (!res.ok) {
-    throw new FoldersApiError(
-      extractMessage(body, `Failed to move gallery to trash (${res.status})`),
-      res.status,
-      body,
-    );
-  }
-  const o = body && typeof body === "object" ? (body as Record<string, unknown>) : {};
-  const folderRaw = o.folder;
-  if (!folderRaw || typeof folderRaw !== "object") {
-    throw new FoldersApiError("Invalid response from server.", res.status, body);
-  }
-  return {
-    message: extractMessage(
-      body,
-      "Gallery moved to trash; restore within the retention window or it will be permanently deleted.",
-    ),
-    deletedAt: readIsoField(o, "deletedAt", "deleted_at"),
-    restoreBefore: readIsoField(o, "restoreBefore", "restore_before"),
-    retentionDays: readRetentionDays(o),
-    folder: folderRaw as ApiFolder,
-  };
-}
-
-/** Multipart PUT: field `backgroundMusic` (one file). Replaces any previous track. */
-export async function uploadFolderBackgroundMusic(
-  folderId: string,
-  file: File,
-): Promise<ApiFolder> {
-  const fd = new FormData();
-  fd.append("backgroundMusic", file);
-  const res = await authedFetch(
-    `/api/folders/${encodeURIComponent(folderId)}/background-music`,
-    {
-      method: "PUT",
-      body: fd,
-    },
-  );
-  const body = await parseJson(res);
-  if (!res.ok) {
-    throw new FoldersApiError(
-      extractMessage(body, `Could not upload background music (${res.status})`),
-      res.status,
-      body,
-    );
-  }
-  if (body && typeof body === "object" && "folder" in body) {
-    return (body as { folder: ApiFolder }).folder;
-  }
-  return body as ApiFolder;
-}
-
-export async function deleteFolderBackgroundMusic(folderId: string): Promise<ApiFolder> {
-  const res = await authedFetch(
-    `/api/folders/${encodeURIComponent(folderId)}/background-music`,
-    { method: "DELETE" },
-  );
-  const body = await parseJson(res);
-  if (!res.ok) {
-    throw new FoldersApiError(
-      extractMessage(body, `Could not remove background music (${res.status})`),
-      res.status,
-      body,
-    );
-  }
-  if (body && typeof body === "object" && "folder" in body) {
-    return (body as { folder: ApiFolder }).folder;
-  }
-  return body as ApiFolder;
-}
-
-/* ------------------------------------------------------------------ */
-/* folder detail / share / media                                       */
-/* ------------------------------------------------------------------ */
-
-function unwrapFolder(body: unknown): ApiFolder {
-  if (!body || typeof body !== "object") {
-    return body as ApiFolder;
-  }
-  const root = body as Record<string, unknown>;
-  if (root.folder && typeof root.folder === "object") {
-    return root.folder as ApiFolder;
-  }
-  const data = root.data;
-  if (data && typeof data === "object") {
-    const d = data as Record<string, unknown>;
-    if (d.folder && typeof d.folder === "object") {
-      return d.folder as ApiFolder;
-    }
-    if (typeof d._id === "string" || typeof d.id === "string") {
-      return data as ApiFolder;
-    }
-  }
-  return body as ApiFolder;
 }
 
 export type ShareLinkExpiryPreset = {
@@ -778,263 +135,417 @@ export const FALLBACK_SHARE_EXPIRY_PRESETS: ShareLinkExpiryPreset[] = [
   { id: "365d", label: "1 year", days: 365 },
 ];
 
-function normalizeExpiryPresetEntry(x: unknown): ShareLinkExpiryPreset | null {
-  if (typeof x === "string") {
-    return { id: x, label: x };
+export async function listFoldersTrash(options: {
+  mediaLimit?: number;
+} = {}): Promise<ListFoldersTrashResponse> {
+  void options;
+  const res = await listGalleries({ trash: true });
+  const retentionDays = 30;
+  return {
+    retentionDays,
+    count: res.galleries.length,
+    folders: res.galleries.map((g) => {
+      const folder = mapGalleryToApiFolder(g);
+      const deletedAt = g.deletedAt ?? new Date().toISOString();
+      return {
+        folder,
+        deletedAt,
+        restoreBefore: trashRestoreBefore(deletedAt, retentionDays),
+      };
+    }),
+    deletedMedia: [] as TrashMediaRow[],
+    deletedMediaTotal: 0,
+    deletedMediaPreviewLimit: 0,
+  };
+}
+
+export async function listFoldersMediaTrash(
+  _params: ListFoldersMediaTrashParams = {},
+): Promise<ListFoldersMediaTrashResponse> {
+  await delay();
+  return { items: [], total: 0, page: 1, limit: _params.limit ?? 50 };
+}
+
+export async function restoreFolderFromTrash(folderId: string): Promise<ApiFolder> {
+  const { gallery } = await restoreGallery(folderId);
+  return mapGalleryToApiFolder(gallery);
+}
+
+export async function restoreFolderTrashedMedia(
+  _folderId: string,
+  _mediaId: string,
+): Promise<{ message: string; kind: string; mediaId: string }> {
+  await delay();
+  return { message: "Media restored", kind: "raw", mediaId: _mediaId };
+}
+
+export async function purgeFoldersTrash(payload: PurgeFoldersTrashPayload): Promise<TrashPurgeResult> {
+  await delay();
+  if ("all" in payload && payload.all) {
+    const res = await listGalleries({ trash: true });
+    for (const g of res.galleries) {
+      purgeFolderFromTrashDemo(g.id);
+    }
+    return { message: "Trash emptied.", purgedFolderCount: res.galleries.length, purgedMediaCount: 0 };
   }
-  if (!x || typeof x !== "object") return null;
-  const o = x as Record<string, unknown>;
-  const idRaw =
-    typeof o.id === "string"
-      ? o.id
-      : typeof o.value === "string"
-        ? o.value
-        : null;
-  if (!idRaw) return null;
-  const label = typeof o.label === "string" ? o.label : idRaw;
-  const days =
-    typeof o.days === "number"
-      ? o.days
-      : o.days === null
-        ? null
-        : undefined;
-  return { id: idRaw, label, days };
+  if ("purgeAll" in payload && payload.purgeAll) {
+    const res = await listGalleries({ trash: true });
+    for (const g of res.galleries) {
+      purgeFolderFromTrashDemo(g.id);
+    }
+    return { message: "Trash emptied.", purgedFolderCount: res.galleries.length, purgedMediaCount: 0 };
+  }
+  const sel = payload as { folderIds?: string[]; mediaIds?: string[] };
+  let fc = 0;
+  for (const id of sel.folderIds ?? []) {
+    purgeFolderFromTrashDemo(id);
+    fc += 1;
+  }
+  void sel.mediaIds;
+  return {
+    message: "Trash purge completed.",
+    purgedFolderCount: fc,
+    purgedMediaCount: 0,
+  };
+}
+
+export async function listFolders(params: {
+  clientId?: string;
+  search?: string;
+  status?: string;
+} = {}): Promise<ApiFolder[]> {
+  const res = await listGalleries({ status: params.status ?? "all" });
+  let folders = res.galleries.map((g) => applyFolderPresentationOverride(mapGalleryToApiFolder(g)));
+  if (params.clientId?.trim()) {
+    const id = params.clientId.trim();
+    folders = folders.filter((f) => {
+      const c = f.client;
+      return (typeof c === "string" ? c : c._id) === id;
+    });
+  }
+  if (params.search?.trim()) {
+    const q = params.search.trim().toLowerCase();
+    folders = folders.filter((f) => {
+      const title = (f.eventName ?? "").toLowerCase();
+      const desc = (f.description ?? "").toLowerCase();
+      const clientName = typeof f.client === "object" ? (f.client.name ?? "").toLowerCase() : "";
+      return title.includes(q) || desc.includes(q) || clientName.includes(q);
+    });
+  }
+  return folders;
+}
+
+export type ListFoldersWithCountsResult = {
+  folders: ApiFolder[];
+  counts: import("@/lib/galleries-api").GalleryListCounts;
+};
+
+export async function listFoldersWithCounts(params: {
+  clientId?: string;
+  search?: string;
+  status?: string;
+} = {}): Promise<ListFoldersWithCountsResult> {
+  const res = await listGalleries({ status: params.status ?? "all" });
+  let folders = res.galleries.map((g) => mapGalleryToApiFolder(g));
+  if (params.clientId?.trim()) {
+    const id = params.clientId.trim();
+    folders = folders.filter((f) => {
+      const c = f.client;
+      return (typeof c === "string" ? c : c._id) === id;
+    });
+  }
+  if (params.search?.trim()) {
+    const q = params.search.trim().toLowerCase();
+    folders = folders.filter((f) => {
+      const title = (f.eventName ?? "").toLowerCase();
+      const desc = (f.description ?? "").toLowerCase();
+      const clientName = typeof f.client === "object" ? (f.client.name ?? "").toLowerCase() : "";
+      return title.includes(q) || desc.includes(q) || clientName.includes(q);
+    });
+  }
+  return { folders, counts: res.counts };
+}
+
+export async function getFolder(id: string): Promise<ApiFolder> {
+  try {
+    const [gallery, media, sets] = await Promise.all([
+      getGalleryDetail(id),
+      fetchGalleryMedia(id),
+      listGallerySets(id).catch(() => []),
+    ]);
+    return applyFolderPresentationOverride({
+      ...mapGalleryToApiFolder(gallery),
+      uploads: media.uploads,
+      selection: media.selection,
+      finals: media.finals,
+      flaggedFinals: media.flaggedFinals,
+      sets,
+    });
+  } catch (e) {
+    if (e instanceof FoldersApiError && e.status === 404) {
+      const demo = getDemoFolderApiModel(id);
+      if (demo) return demo;
+    }
+    throw e;
+  }
+}
+
+export async function listFolderGallerySets(folderId: string) {
+  if (isLocalDemoFolderId(folderId)) {
+    return listDemoGallerySets(folderId);
+  }
+  return listGallerySets(folderId);
+}
+
+export async function createFolderGallerySet(folderId: string, name: string) {
+  if (isLocalDemoFolderId(folderId)) {
+    return createDemoGallerySet(folderId, name);
+  }
+  return createGallerySet(folderId, name);
+}
+
+export async function updateFolderGallerySet(
+  folderId: string,
+  setId: string,
+  patch: { name?: string; sortOrder?: number },
+) {
+  if (isLocalDemoFolderId(folderId)) {
+    return updateDemoGallerySet(folderId, setId, patch);
+  }
+  return updateGallerySet(folderId, setId, patch);
+}
+
+export async function deleteFolderGallerySet(folderId: string, setId: string) {
+  if (isLocalDemoFolderId(folderId)) {
+    deleteDemoGallerySet(folderId, setId);
+    return;
+  }
+  await deleteGallerySet(folderId, setId);
+}
+
+export async function createFolder(input: CreateFolderInput): Promise<ApiFolder> {
+  assertCanCreateGallery();
+
+  const coverFile = input.coverImage instanceof File ? input.coverImage : null;
+  const { gallery } = await createGallery(
+    {
+      clientId: input.clientId,
+      name: input.eventName.trim(),
+      eventDate: input.eventDate,
+      description: input.description.trim(),
+      shareLinkExpiryDays: shareLinkExpiryPresetToDays(input.linkExpiry),
+      useDefaultCover: coverFile ? false : (input.useDefaultCover ?? true),
+      generateDescriptionAi: false,
+    },
+    { coverFile },
+  );
+
+  let result = gallery;
+  const focalX = input.coverFocalX;
+  const focalY = input.coverFocalY;
+  if (
+    focalX != null &&
+    focalY != null &&
+    (focalX !== 50 || focalY !== 50)
+  ) {
+    const { gallery: withFocal } = await updateGalleryCoverFocalPoint(gallery.id, {
+      coverFocalX: focalX,
+      coverFocalY: focalY,
+    });
+    result = withFocal;
+  }
+
+  return mapGalleryToApiFolder(result);
+}
+
+export async function updateFolder(id: string, input: UpdateFolderInput): Promise<ApiFolder> {
+  const body: import("@/lib/galleries-api").UpdateGalleryBody = {};
+  if (input.eventName !== undefined) body.name = input.eventName.trim();
+  if (input.eventDate !== undefined) body.eventDate = input.eventDate.slice(0, 10);
+  if (input.description !== undefined) body.description = input.description.trim();
+  if (input.coverFrame !== undefined) body.coverFrame = normalizeGalleryCoverFrame(input.coverFrame);
+  if (input.coverColor !== undefined) {
+    body.coverColor = input.coverColor;
+  }
+
+  const coverFile = input.coverImage instanceof File ? input.coverImage : null;
+  if (coverFile) {
+    body.useDefaultCover = false;
+  } else if (input.useDefaultCover !== undefined) {
+    body.useDefaultCover = input.useDefaultCover;
+  }
+
+  const hasPutFields = Object.keys(body).length > 0 || Boolean(coverFile);
+  const hasFocal =
+    input.coverFocalX !== undefined && input.coverFocalY !== undefined;
+  const hasMusicToggle = input.backgroundMusicEnabled !== undefined;
+
+  if (!hasPutFields && !hasFocal && !hasMusicToggle) {
+    return getFolder(id);
+  }
+
+  let gallery: import("@/lib/galleries-api").ApiGallery | undefined;
+
+  if (hasPutFields) {
+    ({ gallery } = await updateGallery(id, body, { coverFile }));
+  }
+
+  if (hasFocal) {
+    ({ gallery } = await updateGalleryCoverFocalPoint(id, {
+      coverFocalX: input.coverFocalX!,
+      coverFocalY: input.coverFocalY!,
+    }));
+  }
+
+  if (hasMusicToggle) {
+    ({ gallery } = await toggleGalleryBackgroundMusic(id, input.backgroundMusicEnabled!));
+  }
+
+  if (!gallery) {
+    return getFolder(id);
+  }
+
+  if (input.coverFrame !== undefined || input.coverColor !== undefined) {
+    patchFolderOverride(id, {
+      ...(input.coverFrame !== undefined
+        ? { coverFrame: normalizeGalleryCoverFrame(input.coverFrame) }
+        : {}),
+      ...(input.coverColor !== undefined ? { coverColor: input.coverColor } : {}),
+    });
+  }
+
+  return {
+    ...mapGalleryToApiFolder(gallery),
+    ...(input.coverFrame !== undefined
+      ? { coverFrame: normalizeGalleryCoverFrame(input.coverFrame) }
+      : {}),
+    ...(input.coverColor !== undefined ? { coverColor: input.coverColor } : {}),
+  };
+}
+
+export async function deleteFolder(id: string): Promise<FolderMoveToTrashResult> {
+  const { message, gallery } = await deleteGallery(id);
+  const folder = mapGalleryToApiFolder(gallery);
+  const deletedAt = gallery.deletedAt ?? new Date().toISOString();
+  const retentionDays = 30;
+  return {
+    message: message ?? "Gallery moved to trash.",
+    deletedAt,
+    restoreBefore: trashRestoreBefore(deletedAt, retentionDays),
+    retentionDays,
+    folder,
+  };
+}
+
+export async function uploadFolderBackgroundMusic(folderId: string, file: File): Promise<ApiFolder> {
+  const { gallery } = await uploadGalleryBackgroundMusic(folderId, file);
+  return mapGalleryToApiFolder(gallery);
+}
+
+export async function deleteFolderBackgroundMusic(folderId: string): Promise<ApiFolder> {
+  const { gallery } = await deleteGalleryBackgroundMusic(folderId);
+  return mapGalleryToApiFolder(gallery);
 }
 
 export async function getShareLinkExpiryPresets(): Promise<ShareLinkExpiryPreset[]> {
-  const res = await authedFetch("/api/folders/share-link-expiry-presets", { method: "GET" });
-  const body = await parseJson(res);
-  if (!res.ok) {
-    throw new FoldersApiError(
-      extractMessage(body, `Failed to load expiry presets (${res.status})`),
-      res.status,
-      body,
-    );
-  }
-  const out: ShareLinkExpiryPreset[] = [];
-  const pushFromArray = (arr: unknown[]) => {
-    for (const x of arr) {
-      const p = normalizeExpiryPresetEntry(x);
-      if (p) out.push(p);
-    }
-  };
-  if (Array.isArray(body)) {
-    pushFromArray(body);
-    return out.length > 0 ? out : [...FALLBACK_SHARE_EXPIRY_PRESETS];
-  }
-  if (body && typeof body === "object") {
-    const o = body as Record<string, unknown>;
-    for (const k of ["presets", "expiryPresets", "data", "options"]) {
-      const arr = o[k];
-      if (Array.isArray(arr)) {
-        pushFromArray(arr);
-        break;
-      }
-    }
-  }
-  return out.length > 0 ? out : [...FALLBACK_SHARE_EXPIRY_PRESETS];
+  await delay();
+  return [...FALLBACK_SHARE_EXPIRY_PRESETS];
 }
 
 export async function patchFolderShare(
   folderId: string,
-  input: { selectionLocked?: boolean; clearSelectionSubmit?: boolean },
+  input: {
+    selectionLocked?: boolean;
+    selectionLimit?: number | null;
+    clearSelectionSubmit?: boolean;
+  },
 ): Promise<ApiFolder> {
-  const res = await authedFetch(`/api/folders/${encodeURIComponent(folderId)}/share`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(input),
-  });
-  const body = await parseJson(res);
-  if (!res.ok) {
-    throw new FoldersApiError(
-      extractMessage(body, `Failed to update share (${res.status})`),
-      res.status,
-      body,
-    );
+  if (input.selectionLimit !== undefined) {
+    const n = input.selectionLimit;
+    const maxSelections = n == null || n === 0 ? null : Math.max(1, Math.floor(n));
+    const { gallery } = await updateGallerySelectionSettings(folderId, { maxSelections });
+    return mapGalleryToApiFolder(gallery);
   }
-  return unwrapFolder(body);
-}
 
-/** Optional FormData fields for folder raw/final uploads (`duplicateAction`, `uploadComplete`). */
-export type UploadFolderMediaFormOptions = {
-  duplicateAction?: DuplicateUploadAction;
-  /**
-   * When true, each HTTP upload sends explicit `uploadComplete`: `false` on all but the last
-   * file in this run, `true` on the last—so upload SMS (raw/final) schedules once per gallery batch.
-   * When false/omitted, the field is not sent (legacy; server may debounce or require explicit complete via env).
-   */
-  markUploadComplete?: boolean;
-};
-
-/** Multipart fields for final delivery payment / lock (sent with each final file in the batch). */
-export type FinalDeliveryUploadFields = {
-  /** When true, omit balance and lock fields. When false, send amount and lock preference. */
-  clientHasPaidForFinals: boolean;
-  /** Amount still owed in GHS — required when clientHasPaidForFinals is false (API field name). */
-  amountRemainingGHS?: string;
-  /** When unpaid: lock previews until payment (backend + SMS flow). */
-  lockImagesBeforeUpload?: boolean;
-};
-
-export type UploadFolderFinalMediaFormOptions = UploadFolderMediaFormOptions &
-  Partial<FinalDeliveryUploadFields> & {
-    /** Required when uploading exactly one final linked to a selection row (existing backend behavior). */
-    selectionMediaId?: string;
-  };
-
-export type UploadFolderMediaResult = {
-  lastBody: unknown;
-  /** Sum of `ignoredDuplicatesCount` / `ignored_duplicates_count` from each response in the sequence. */
-  ignoredDuplicatesCount: number;
-};
-
-/** 1-based index of the file currently uploading, with total count in this batch (sequential uploads). */
-export type FolderMediaBatchProgress = {
-  fileIndex: number;
-  fileCount: number;
-};
-
-/** Extract duplicate-skip count from a single upload JSON response. */
-import { readIgnoredDuplicatesCount } from "@/lib/folders/helpers";
-
-function readHasConflicts(body: unknown): boolean {
-  if (!body || typeof body !== "object") return false;
-  const o = body as Record<string, unknown>;
-  const nested =
-    o.data && typeof o.data === "object" ? (o.data as Record<string, unknown>) : null;
-  const pick = (x: Record<string, unknown>) => x.hasConflicts ?? x.has_conflicts;
-  const raw = pick(o) ?? (nested ? pick(nested) : undefined);
-  return raw === true || raw === "true";
-}
-
-function readConflictingFilenamesFromDuplicatePreview(body: unknown): string[] | undefined {
-  const normalize = (raw: unknown): string[] | undefined => {
-    if (!Array.isArray(raw)) return undefined;
-    const names = raw
-      .map((v) => (typeof v === "string" ? v.trim() : ""))
-      .filter(Boolean);
-    const uniq: string[] = [];
-    const seen = new Set<string>();
-    for (const n of names) {
-      if (seen.has(n)) continue;
-      seen.add(n);
-      uniq.push(n);
+  // Selection lock / clear-submit not yet on gallery API — keep demo fallback.
+  await delay();
+  if (input.selectionLocked !== undefined) {
+    patchFolderOverride(folderId, { selectionLocked: input.selectionLocked });
+  }
+  if (input.clearSelectionSubmit) {
+    const p = loadProjectById(folderId);
+    if (p) {
+      saveProjectSnapshot({ ...p, selectionSubmitted: false });
     }
-    return uniq.length > 0 ? uniq : undefined;
-  };
-
-  const tryRecord = (r: Record<string, unknown> | null): string[] | undefined => {
-    if (!r) return undefined;
-    return (
-      normalize(r.conflictingFilenames) ??
-      normalize(r.conflicting_filenames) ??
-      normalize(r.duplicateFilenames) ??
-      normalize(r.duplicate_filenames) ??
-      normalize(r.conflicts)
-    );
-  };
-
-  if (!body || typeof body !== "object") return undefined;
-  const o = body as Record<string, unknown>;
-  const nested =
-    o.data && typeof o.data === "object" ? (o.data as Record<string, unknown>) : null;
-  return tryRecord(o) ?? tryRecord(nested);
+  }
+  const f = getDemoFolderApiModel(folderId);
+  if (!f) throw new FoldersApiError("Gallery not found.", 404, null);
+  return f;
 }
 
-/**
- * Check whether any of the given filenames already exist for this folder before uploading bytes.
- * POST body: `{ kind, filenames }` (names only).
- */
 export async function postFolderMediaDuplicatePreview(
   folderId: string,
   input: { kind: FolderMediaDuplicatePreviewKind; filenames: string[] },
 ): Promise<{ hasConflicts: boolean; conflictingFilenames?: string[] }> {
-  const res = await authedFetch(
-    `/api/folders/${encodeURIComponent(folderId)}/media/duplicate-preview`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        kind: input.kind,
-        filenames: input.filenames,
-      }),
-    },
-  );
-  const body = await parseJson(res);
-  if (!res.ok) {
-    throw new FoldersApiError(
-      extractMessage(body, `Duplicate preview failed (${res.status})`),
-      res.status,
-      body,
-    );
-  }
-  const apiNames = readConflictingFilenamesFromDuplicatePreview(body);
-  return {
-    hasConflicts: readHasConflicts(body),
-    ...(apiNames?.length ? { conflictingFilenames: apiNames } : {}),
+  const rows =
+    input.kind === "raw"
+      ? await listGalleryUploads(folderId)
+      : await listGalleryFinals(folderId);
+  const folder: ApiFolder = {
+    _id: folderId,
+    client: "unknown",
+    eventDate: "",
+    description: "",
+    uploads: input.kind === "raw" ? rows : [],
+    finals: input.kind === "final" ? rows : [],
   };
+  const names = incomingFilenamesConflictingWithFolder(input.kind, input.filenames, folder);
+  return names.length ? { hasConflicts: true, conflictingFilenames: names } : { hasConflicts: false };
 }
 
 export async function regenerateFolderShare(
   folderId: string,
   input: { clearSlug?: boolean; linkExpiry?: string },
 ): Promise<ApiFolder> {
-  const res = await authedFetch(
-    `/api/folders/${encodeURIComponent(folderId)}/share/regenerate`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(input),
-    },
-  );
-  const body = await parseJson(res);
-  if (!res.ok) {
-    throw new FoldersApiError(
-      extractMessage(body, `Failed to regenerate share link (${res.status})`),
-      res.status,
-      body,
-    );
-  }
-  return unwrapFolder(body);
+  void input.clearSlug;
+  void input.linkExpiry;
+  const { gallery } = await activateGalleryShareLink(folderId);
+  return mapGalleryToApiFolder(gallery);
 }
 
-function appendFolderUploadFormFields(
-  fd: FormData,
-  opts: UploadFolderMediaFormOptions | undefined,
-  fileIndex: number,
-  fileCount: number,
-): void {
-  if (opts?.duplicateAction) {
-    fd.append("duplicateAction", opts.duplicateAction);
-  }
-  if (!opts?.markUploadComplete || fileCount <= 0) return;
-  if (fileIndex === fileCount - 1) {
-    fd.append("uploadComplete", "true");
-  } else {
-    fd.append("uploadComplete", "false");
-  }
+export async function revokeFolderShare(folderId: string): Promise<ApiFolder> {
+  const { gallery } = await revokeGalleryShareLink(folderId);
+  return mapGalleryToApiFolder(gallery);
 }
 
-/** Final-delivery payment fields (same on every file in the batch). */
-function appendFinalDeliveryMultipartFields(
-  fd: FormData,
-  opts: UploadFolderFinalMediaFormOptions | undefined,
-): void {
-  if (!opts || opts.clientHasPaidForFinals === undefined) return;
-  fd.append("clientHasPaidForFinals", opts.clientHasPaidForFinals ? "true" : "false");
-  if (opts.clientHasPaidForFinals === false) {
-    if (opts.amountRemainingGHS != null && String(opts.amountRemainingGHS).trim() !== "") {
-      fd.append("amountRemainingGHS", String(opts.amountRemainingGHS).trim());
-    }
-    fd.append("lockImagesBeforeUpload", opts.lockImagesBeforeUpload === true ? "true" : "false");
-  }
-}
+export type UploadFolderMediaFormOptions = {
+  duplicateAction?: DuplicateUploadAction;
+  markUploadComplete?: boolean;
+  /** Target gallery set id; omit to leave set unchanged on replace. */
+  setId?: string | null;
+};
 
-/**
- * Upload one file per request. A single huge multipart POST often fails when the browser
- * talks to Next.js (`/api` rewrite) instead of the API host directly—Postman hits :8000 and
- * avoids that hop. Sequential uploads do not cap how many images the user can add in one drop.
- */
+export type FinalDeliveryUploadFields = {
+  clientHasPaidForFinals: boolean;
+  amountRemainingGHS?: string;
+  lockImagesBeforeUpload?: boolean;
+};
+
+export type UploadFolderFinalMediaFormOptions = UploadFolderMediaFormOptions &
+  Partial<FinalDeliveryUploadFields> & {
+    selectionMediaId?: string;
+  };
+
+export type UploadFolderMediaResult = {
+  lastBody: unknown;
+  ignoredDuplicatesCount: number;
+};
+
+export type FolderMediaBatchProgress = {
+  fileIndex: number;
+  fileCount: number;
+};
+
 export async function uploadFolderRawMedia(
   folderId: string,
   files: File[],
@@ -1046,30 +557,23 @@ export async function uploadFolderRawMedia(
   ) => void,
   formOptions?: UploadFolderMediaFormOptions,
 ): Promise<UploadFolderMediaResult | null> {
-  if (files.length === 0) {
-    return null;
+  if (files.length === 0) return null;
+  if (isLocalDemoFolderId(folderId)) {
+    assertStorageAllowsDemoRawAdds(files.length);
   }
-  const path = `/api/folders/${encodeURIComponent(folderId)}/media/raw`;
-  const totalBytes = Math.max(1, files.reduce((sum, f) => sum + f.size, 0));
-  let bytesDone = 0;
-  let lastBody: unknown;
-  let ignoredDuplicatesCount = 0;
-  const n = files.length;
-  for (let i = 0; i < n; i++) {
-    const file = files[i];
-    const batch: FolderMediaBatchProgress = { fileIndex: i + 1, fileCount: n };
-    onProgress?.(bytesDone, totalBytes, true, batch);
-    const fd = new FormData();
-    fd.append("files", file);
-    appendFolderUploadFormFields(fd, formOptions, i, n);
-    lastBody = await authedFormDataPostWithProgress(path, fd, (loaded) => {
-      onProgress?.(bytesDone + loaded, totalBytes, true, batch);
-    });
-    ignoredDuplicatesCount += readIgnoredDuplicatesCount(lastBody);
-    bytesDone += file.size;
-    onProgress?.(bytesDone, totalBytes, true, batch);
-  }
-  return { lastBody, ignoredDuplicatesCount };
+
+  const result = await uploadGalleryPhotos(folderId, files, {
+    onConflict: formOptions?.duplicateAction,
+    setId: formOptions?.setId,
+    onProgress: (loaded, total, lengthComputable, batch) => {
+      onProgress?.(loaded, total, lengthComputable, batch);
+    },
+  });
+
+  return {
+    lastBody: result,
+    ignoredDuplicatesCount: result.ignoredDuplicatesCount,
+  };
 }
 
 export async function uploadFolderFinalMedia(
@@ -1083,173 +587,140 @@ export async function uploadFolderFinalMedia(
   ) => void,
   formOptions?: UploadFolderFinalMediaFormOptions,
 ): Promise<UploadFolderMediaResult | null> {
-  if (files.length === 0) {
-    return null;
+  if (files.length === 0) return null;
+  if (isLocalDemoFolderId(folderId)) {
+    assertStorageAllowsDemoFinalAdds(files.length);
   }
-  const path = `/api/folders/${encodeURIComponent(folderId)}/media/final`;
-  const totalBytes = Math.max(1, files.reduce((sum, f) => sum + f.size, 0));
-  let bytesDone = 0;
-  let lastBody: unknown;
-  let ignoredDuplicatesCount = 0;
-  const n = files.length;
-  const selectionMediaId = formOptions?.selectionMediaId;
-  for (let i = 0; i < n; i++) {
-    const file = files[i];
-    const batch: FolderMediaBatchProgress = { fileIndex: i + 1, fileCount: n };
-    onProgress?.(bytesDone, totalBytes, true, batch);
-    const fd = new FormData();
-    fd.append("files", file);
-    if (selectionMediaId !== undefined && selectionMediaId !== "") {
-      fd.append("selectionMediaId", selectionMediaId);
-    }
-    appendFinalDeliveryMultipartFields(fd, formOptions);
-    appendFolderUploadFormFields(fd, formOptions, i, n);
-    lastBody = await authedFormDataPostWithProgress(path, fd, (loaded) => {
-      onProgress?.(bytesDone + loaded, totalBytes, true, batch);
-    });
-    ignoredDuplicatesCount += readIgnoredDuplicatesCount(lastBody);
-    bytesDone += file.size;
-    onProgress?.(bytesDone, totalBytes, true, batch);
-  }
-  return { lastBody, ignoredDuplicatesCount };
+
+  const clientPaid = formOptions?.clientHasPaidForFinals !== false;
+  const result = await uploadGalleryFinals(folderId, files, {
+    clientPaid,
+    outstandingBalanceGhs: formOptions?.amountRemainingGHS,
+    lockPreviews: formOptions?.lockImagesBeforeUpload,
+    setId: formOptions?.setId,
+    onProgress: (loaded, total, lengthComputable, batch) => {
+      onProgress?.(loaded, total, lengthComputable, batch);
+    },
+  });
+
+  return {
+    lastBody: result,
+    ignoredDuplicatesCount: result.ignoredDuplicatesCount,
+  };
 }
 
-/** Admin: lock client final delivery / previews until payment (`PATCH …/final-delivery/lock`). */
 export async function lockFolderFinalDelivery(
   folderId: string,
   input: { outstandingAmountGHS: number },
 ): Promise<ApiFolder> {
-  const amount = input.outstandingAmountGHS;
-  if (!Number.isFinite(amount) || amount < 0) {
-    throw new FoldersApiError("Outstanding amount must be a non-negative number.", 400, null);
-  }
-  const res = await authedFetch(
-    `/api/folders/${encodeURIComponent(folderId)}/final-delivery/lock`,
-    {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ outstandingAmountGHS: amount }),
-    },
-  );
-  const body = await parseJson(res);
-  if (!res.ok) {
-    throw new FoldersApiError(
-      extractMessage(body, `Could not lock final delivery (${res.status})`),
-      res.status,
-      body,
-    );
-  }
-  return unwrapFolder(body);
+  await patchGalleryFinalsLock(folderId, {
+    isLocked: true,
+    clientPaid: false,
+    outstandingBalanceGhs: input.outstandingAmountGHS,
+  });
+  return getFolder(folderId);
 }
 
-/** Admin: unlock client final delivery after payment confirmed (`PATCH …/final-delivery/unlock`). */
 export async function unlockFolderFinalDelivery(folderId: string): Promise<ApiFolder> {
-  const res = await authedFetch(
-    `/api/folders/${encodeURIComponent(folderId)}/final-delivery/unlock`,
-    {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: "{}",
-    },
-  );
-  const body = await parseJson(res);
-  if (!res.ok) {
-    throw new FoldersApiError(
-      extractMessage(body, `Could not unlock final delivery (${res.status})`),
-      res.status,
-      body,
-    );
-  }
-  return unwrapFolder(body);
+  await patchGalleryFinalsLock(folderId, {
+    isLocked: false,
+    clientPaid: true,
+    outstandingBalanceGhs: 0,
+  });
+  return getFolder(folderId);
 }
 
 export async function deleteFolderRawMedia(
   folderId: string,
   mediaId: string,
 ): Promise<MediaSoftDeleteResult> {
-  const res = await authedFetch(
-    `/api/folders/${encodeURIComponent(folderId)}/media/raw/${encodeURIComponent(mediaId)}`,
-    { method: "DELETE" },
-  );
-  const body = await parseJson(res);
-  if (!res.ok) {
-    throw new FoldersApiError(
-      extractMessage(body, `Failed to delete photo (${res.status})`),
-      res.status,
-      body,
-    );
-  }
-  return parseMediaSoftDelete(body, "raw");
+  const result = await deleteGalleryUpload(folderId, mediaId);
+  return {
+    message: result.message,
+    deleted: { _id: mediaId, kind: "raw" },
+    restoreBefore: result.restoreBefore,
+  };
 }
 
 export async function deleteFolderFinalMedia(
   folderId: string,
   mediaId: string,
 ): Promise<MediaSoftDeleteResult> {
-  const res = await authedFetch(
-    `/api/folders/${encodeURIComponent(folderId)}/media/final/${encodeURIComponent(mediaId)}`,
-    { method: "DELETE" },
-  );
-  const body = await parseJson(res);
-  if (!res.ok) {
-    throw new FoldersApiError(
-      extractMessage(body, `Failed to delete final (${res.status})`),
-      res.status,
-      body,
-    );
-  }
-  return parseMediaSoftDelete(body, "final");
+  const result = await deleteGalleryFinal(folderId, mediaId);
+  return {
+    message: result.message,
+    deleted: { _id: mediaId, kind: "final" },
+    restoreBefore: result.restoreBefore,
+  };
 }
 
-/** Deletes every raw upload in the folder (`DELETE …/media/raw`). */
 export async function deleteAllFolderRawMedia(folderId: string): Promise<BulkMediaSoftDeleteResult> {
-  const res = await authedFetch(
-    `/api/folders/${encodeURIComponent(folderId)}/media/raw`,
-    { method: "DELETE" },
-  );
-  const body = await parseJson(res);
-  if (!res.ok) {
-    throw new FoldersApiError(
-      extractMessage(body, `Failed to delete all raw photos (${res.status})`),
-      res.status,
-      body,
-    );
+  const uploads = await listGalleryUploads(folderId);
+  if (uploads.length === 0) {
+    return emptyTrashMediaResult(new Date(Date.now() + 30 * 86400000).toISOString());
   }
-  return parseBulkMediaSoftDelete(body);
+  const photoIds = uploads
+    .map((m) => m._id || m.id)
+    .filter((id): id is string => Boolean(id));
+  const result = await bulkDeleteGalleryUploads(folderId, { photoIds });
+  return {
+    message: result.message,
+    deletedCount: result.deletedCount,
+    restoreBefore: result.restoreBefore,
+  };
 }
 
-/** Deletes every final in the folder (`DELETE …/media/final`). */
-export async function deleteAllFolderFinalMedia(
-  folderId: string,
-): Promise<BulkMediaSoftDeleteResult> {
-  const res = await authedFetch(
-    `/api/folders/${encodeURIComponent(folderId)}/media/final`,
-    { method: "DELETE" },
-  );
-  const body = await parseJson(res);
-  if (!res.ok) {
-    throw new FoldersApiError(
-      extractMessage(body, `Failed to delete all finals (${res.status})`),
-      res.status,
-      body,
-    );
-  }
-  return parseBulkMediaSoftDelete(body);
+export async function deleteAllFolderFinalMedia(folderId: string): Promise<BulkMediaSoftDeleteResult> {
+  const result = await bulkDeleteGalleryFinals(folderId, { all: true });
+  return {
+    message: result.message,
+    deletedCount: result.deletedCount,
+    restoreBefore: result.restoreBefore,
+  };
 }
 
 export async function patchFolderStatus(folderId: string, status: string): Promise<ApiFolder> {
-  const res = await authedFetch(`/api/folders/${encodeURIComponent(folderId)}/status`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ status }),
-  });
-  const body = await parseJson(res);
-  if (!res.ok) {
-    throw new FoldersApiError(
-      extractMessage(body, `Failed to update status (${res.status})`),
-      res.status,
-      body,
-    );
+  const normalized = uiStatusToGalleryStatus(status);
+  if (normalized === "done") {
+    const { gallery } = await completeGallery(folderId);
+    return mapGalleryToApiFolder(gallery);
   }
-  return unwrapFolder(body);
+  const { gallery } = await updateGallery(folderId, { status: normalized });
+  return mapGalleryToApiFolder(gallery);
+}
+
+export async function patchFolderSelectionFeedbackReply(
+  folderId: string,
+  photoId: string,
+  reply: string,
+): Promise<void> {
+  if (isLocalDemoFolderId(folderId)) {
+    const project = loadProjectById(folderId);
+    if (!project) {
+      throw new FoldersApiError("Gallery not found", 404, null);
+    }
+    const assets = project.assets.map((asset) =>
+      asset.id === photoId ? { ...asset, photographerReply: reply } : asset,
+    );
+    saveProjectSnapshot({ ...project, assets });
+    return;
+  }
+  await patchGallerySelectionReply(folderId, photoId, reply);
+}
+
+export async function patchFolderFinalFeedbackReply(
+  folderId: string,
+  finalId: string,
+  reply: string,
+): Promise<void> {
+  if (isLocalDemoFolderId(folderId)) {
+    patchFolderOverride(folderId, {
+      feedbackReplies: {
+        ...(getFolderOverride(folderId)?.feedbackReplies ?? {}),
+        [`fin:${finalId}`]: reply,
+      },
+    });
+    return;
+  }
+  await patchGalleryFinalReply(folderId, finalId, reply);
 }

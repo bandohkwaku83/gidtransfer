@@ -1,6 +1,10 @@
+import { getAuth } from "@/lib/auth-demo";
+import { listDemoFoldersApiModels } from "@/lib/demo-api-bridge";
+import { loadAllClients } from "@/lib/demo-data";
+import { HttpError } from "@/lib/http";
+
 import type { ApiClient } from "@/lib/clients-api";
 import type { ApiFolder } from "@/lib/folders-api";
-import { authedFetch, extractMessage, HttpError, parseJson } from "@/lib/http";
 
 export type DashboardUser = {
   _id: string;
@@ -43,7 +47,6 @@ export type DashboardResponse = {
 
 export class DashboardApiError extends HttpError {}
 
-/** Map dashboard recent gallery row to {@link ApiFolder} for shared card UI. */
 export function dashboardRecentGalleryToApiFolder(g: DashboardRecentGallery): ApiFolder {
   const title = g.title?.trim() || "";
   const clientObj: ApiClient = {
@@ -68,26 +71,67 @@ export function dashboardRecentGalleryToApiFolder(g: DashboardRecentGallery): Ap
 
 export function activityItemToLabel(a: DashboardActivityItem): string {
   const target = a.targetName?.trim() || a.targetType;
-  return `${a.action} · ${target}`;
+  return `${a.action}, ${target}`;
 }
 
-/** Dashboard home shows this many recent galleries and activity rows (newest first). */
 export const DASHBOARD_HOME_LIST_LIMIT = 6;
 
-/**
- * GET /api/dashboard — aggregated stats, recent galleries, activity.
- * Requires a stored Bearer token. Uses same-origin `/api/dashboard` (Next rewrite → backend).
- * Prefer returning at least {@link DASHBOARD_HOME_LIST_LIMIT} items each for `recentGalleries` and `activity` so the home grid is filled.
- */
+async function delay(ms = 20) {
+  await new Promise((r) => setTimeout(r, ms));
+}
+
 export async function fetchDashboard(): Promise<DashboardResponse> {
-  const res = await authedFetch("/api/dashboard", { method: "GET", cache: "no-store" });
-  const body = await parseJson(res);
-  if (!res.ok) {
-    throw new DashboardApiError(
-      extractMessage(body, `Dashboard request failed (${res.status})`),
-      res.status,
-      body,
-    );
-  }
-  return body as DashboardResponse;
+  await delay();
+  const auth = typeof window !== "undefined" ? getAuth() : null;
+  const user: DashboardUser = auth?.user
+    ? { _id: auth.user._id, name: auth.user.name, email: auth.user.email }
+    : {
+        _id: "demo-local",
+        name: "Demo photographer",
+        email: auth?.email?.trim() || "demo@local.test",
+      };
+
+  const clients = loadAllClients();
+  const folders = listDemoFoldersApiModels();
+  const completed = folders.filter((f) =>
+    ["completed", "complete", "delivered"].includes((f.status ?? "").toLowerCase()),
+  );
+  const inProgress = folders.length - completed.length;
+
+  const sorted = [...folders].sort((a, b) => {
+    const ta = new Date(a.updatedAt ?? a.createdAt ?? 0).getTime();
+    const tb = new Date(b.updatedAt ?? b.createdAt ?? 0).getTime();
+    return tb - ta;
+  });
+
+  const recentGalleries: DashboardRecentGallery[] = sorted.slice(0, DASHBOARD_HOME_LIST_LIMIT).map((f) => ({
+    id: f._id,
+    title: f.eventName,
+    clientName: typeof f.client === "object" ? f.client.name : "Client",
+    coverImageUrl: f.coverImageUrl,
+    status: f.status,
+    updatedAt: f.updatedAt,
+    createdAt: f.createdAt,
+  }));
+
+  const activity: DashboardActivityItem[] = recentGalleries.slice(0, DASHBOARD_HOME_LIST_LIMIT).map((g, i) => ({
+    action: i % 2 === 0 ? "Updated gallery" : "Viewed gallery",
+    targetType: "gallery",
+    targetName: g.title ?? g.clientName,
+    galleryId: g.id,
+    at: g.updatedAt ?? g.createdAt ?? new Date().toISOString(),
+  }));
+
+  return {
+    user,
+    serverDate: new Date().toISOString(),
+    stats: {
+      totalClients: clients.length,
+      totalGalleries: folders.length,
+      inProgressGalleries: Math.max(0, inProgress),
+      completedGalleries: completed.length,
+    },
+    recentGalleries,
+    activity,
+  };
 }

@@ -4,16 +4,32 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import {
   ArrowRight,
-  Calendar,
   CheckCircle2,
   Clock3,
   FolderOpen,
-  MessageSquare,
   Plus,
   Sparkles,
-  UserPlus,
   Users,
 } from "lucide-react";
+import { DashboardWelcomePanel } from "@/components/dashboard/dashboard-welcome-panel";
+import { useDashboardUiTheme } from "@/components/dashboard-ui-theme";
+import {
+  ChartCard,
+  ChartCardSkeleton,
+  DonutChart,
+  WeeklyActivityChart,
+} from "@/components/dashboard/dashboard-charts";
+import {
+  DashboardStatStrip,
+  type DashboardStatItem,
+} from "@/components/dashboard/dashboard-stat-strip";
+import {
+  computePipelineSlices,
+  computeWeeklyActivity,
+  formatBytesShort,
+  storageSlicesFromUsage,
+} from "@/lib/dashboard-chart-data";
+import { fetchUsageSummary } from "@/lib/usage-api";
 import {
   activityItemToLabel,
   DASHBOARD_HOME_LIST_LIMIT,
@@ -33,11 +49,10 @@ import {
   type ApiFolder,
 } from "@/lib/folders-api";
 import { listClients } from "@/lib/clients-api";
-import { cn } from "@/lib/utils";
+import { getSettings, getSettingsDefaultCoverUrl } from "@/lib/settings-api";
 import {
   ActivityFeedSkeleton,
   GalleryCardSkeleton,
-  StatValueSkeleton,
 } from "@/components/ui/skeletons";
 
 function firstWordFromName(name: string): string {
@@ -63,47 +78,14 @@ function firstNameFromAuth(): string {
   return "there";
 }
 
-type QuickItem = {
-  href: string;
-  label: string;
-  sub: string;
-  icon: typeof FolderOpen;
-};
-
 type ActivityRow = {
   title: string;
   when: string;
   galleryId?: string;
 };
 
-const QUICK_LINKS: QuickItem[] = [
-  {
-    href: "/dashboard/galleries",
-    label: "Galleries",
-    sub: "Browse & manage",
-    icon: FolderOpen,
-  },
-  {
-    href: "/dashboard/clients",
-    label: "Clients",
-    sub: "Directory",
-    icon: Users,
-  },
-  {
-    href: "/dashboard/schedules",
-    label: "Schedules",
-    sub: "Booked shoots",
-    icon: Calendar,
-  },
-  {
-    href: "/dashboard/sms",
-    label: "SMS",
-    sub: "Texts to clients & contacts",
-    icon: MessageSquare,
-  },
-];
-
 export default function DashboardPage() {
+  const { darkUi } = useDashboardUiTheme();
   const [createOpen, setCreateOpen] = useState(false);
   const [addClientOpen, setAddClientOpen] = useState(false);
   const [folders, setFolders] = useState<ApiFolder[]>([]);
@@ -116,9 +98,26 @@ export default function DashboardPage() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [serverDateIso, setServerDateIso] = useState<string | null>(null);
   const [dashboardActivity, setDashboardActivity] = useState<ActivityRow[]>([]);
+  const [storageBytes, setStorageBytes] = useState<{
+    total: number;
+    raws: number;
+    selections: number;
+    finals: number;
+  } | null>(null);
+  const [studioDefaultCoverUrl, setStudioDefaultCoverUrl] = useState<string | null>(null);
 
   useEffect(() => {
     setGreeting(firstNameFromAuth());
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void getSettings().then((settings) => {
+      if (!cancelled) setStudioDefaultCoverUrl(getSettingsDefaultCoverUrl(settings));
+    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   async function refresh() {
@@ -142,6 +141,15 @@ export default function DashboardPage() {
               galleryId: a.galleryId,
             })),
           );
+          const usage = await fetchUsageSummary().catch(() => null);
+          if (usage) {
+            setStorageBytes({
+              total: usage.total_storage_bytes,
+              raws: usage.raws_size_bytes,
+              selections: usage.selections_size_bytes,
+              finals: usage.finals_size_bytes,
+            });
+          }
           return;
         } catch (e) {
           if (e instanceof DashboardApiError && e.status === 401) return;
@@ -152,12 +160,23 @@ export default function DashboardPage() {
       setStats(null);
       setServerDateIso(null);
       setDashboardActivity([]);
-      const [foldersList, clientsRes] = await Promise.all([
+      const [foldersList, clientsRes, usage] = await Promise.all([
         listFolders().catch(() => [] as ApiFolder[]),
         listClients().catch(() => ({ count: 0, clients: [] as { _id: string; name: string }[] })),
+        fetchUsageSummary().catch(() => null),
       ]);
       setFolders(foldersList);
       setClientCount(clientsRes.count ?? clientsRes.clients.length);
+      if (usage) {
+        setStorageBytes({
+          total: usage.total_storage_bytes,
+          raws: usage.raws_size_bytes,
+          selections: usage.selections_size_bytes,
+          finals: usage.finals_size_bytes,
+        });
+      } else {
+        setStorageBytes(null);
+      }
       const map = new Map<string, string>();
       for (const c of clientsRes.clients) map.set(c._id, c.name);
       setClientNameById(map);
@@ -219,7 +238,7 @@ export default function DashboardPage() {
           created &&
           (!updated || updated === created || new Date(updated).getTime() - new Date(created).getTime() < 120000);
         return {
-          title: isLikelyNew ? `New gallery · ${displayName}` : `Updated · ${displayName}`,
+          title: isLikelyNew ? `New gallery, ${displayName}` : `Updated, ${displayName}`,
           when,
           galleryId: f._id,
         };
@@ -261,47 +280,74 @@ export default function DashboardPage() {
     });
   }, [serverDateIso]);
 
-  const statCards = [
+  const pipelineSlices = useMemo(
+    () => computePipelineSlices(folders, darkUi),
+    [folders, darkUi],
+  );
+
+  const weeklyActivity = useMemo(() => {
+    const stamps = [
+      ...folders.map((f) => f.updatedAt ?? f.createdAt ?? ""),
+      ...recentActivity.map((a) => a.when),
+    ].filter(Boolean);
+    return computeWeeklyActivity(stamps, serverDateIso);
+  }, [folders, recentActivity, serverDateIso]);
+
+  const storageSlices = useMemo(() => {
+    if (!storageBytes) return [];
+    return storageSlicesFromUsage(
+      storageBytes.raws,
+      storageBytes.selections,
+      storageBytes.finals,
+      darkUi,
+    );
+  }, [storageBytes, darkUi]);
+
+  const statItems: DashboardStatItem[] = [
     {
       label: "Clients",
       value: compact(displayStats.totalClients),
-      hint: "In your directory",
+      hint: "Your CRM directory",
+      href: "/dashboard/clients",
       icon: Users,
-      glow: "from-slate-500/15 to-slate-600/5",
-      iconClass: "text-slate-700 dark:text-slate-300",
-      iconBg: "bg-slate-100 dark:bg-slate-800/50",
+      accent: "bg-slate-400",
+      iconWrap: "bg-slate-100 dark:bg-slate-800/80",
+      iconColor: "text-slate-600 dark:text-slate-300",
     },
     {
       label: "Galleries",
       value: compact(displayStats.totalGalleries),
-      hint: "Total projects",
+      hint: "Client delivery projects",
+      href: "/dashboard/galleries",
       icon: FolderOpen,
-      glow: "from-brand/20 to-brand/5",
-      iconClass: "text-brand dark:text-brand-on-dark",
-      iconBg: "bg-brand/10 dark:bg-brand/20",
+      accent: "bg-brand",
+      iconWrap: "bg-brand/10 dark:bg-brand/20",
+      iconColor: "text-brand dark:text-brand-on-dark",
     },
     {
       label: "In progress",
       value: compact(displayStats.inProgressGalleries),
-      hint: "Draft or selecting",
+      hint: "Draft, proofing, or selection",
+      href: "/dashboard/galleries",
       icon: Clock3,
-      glow: "from-amber-500/20 to-amber-600/5",
-      iconClass: "text-amber-600 dark:text-amber-300",
-      iconBg: "bg-amber-100 dark:bg-amber-950/50",
+      accent: "bg-amber-500",
+      iconWrap: "bg-amber-50 dark:bg-amber-950/40",
+      iconColor: "text-amber-600 dark:text-amber-300",
     },
     {
       label: "Completed",
       value: compact(displayStats.completedGalleries),
-      hint: "Delivered",
+      hint: "Delivered to clients",
+      href: "/dashboard/galleries",
       icon: CheckCircle2,
-      glow: "from-emerald-500/20 to-emerald-600/5",
-      iconClass: "text-emerald-600 dark:text-emerald-300",
-      iconBg: "bg-emerald-100 dark:bg-emerald-950/50",
+      accent: "bg-emerald-500",
+      iconWrap: "bg-emerald-50 dark:bg-emerald-950/40",
+      iconColor: "text-emerald-600 dark:text-emerald-300",
     },
-  ] as const;
+  ];
 
   function formatRelativeTime(iso: string) {
-    if (!iso) return "—";
+    if (!iso) return "N/A";
     const t = new Date(iso).getTime();
     const diffMs = Date.now() - t;
     if (!Number.isFinite(diffMs)) return new Date(iso).toLocaleDateString();
@@ -329,101 +375,65 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="relative mx-auto max-w-6xl space-y-8">
-      <section className="relative overflow-hidden rounded-2xl border border-white/10 bg-[#2F3E46] px-4 py-4 shadow-md shadow-black/20 sm:px-5 sm:py-5 dark:border-white/10">
-        <div className="relative text-center lg:text-left">
-          <div className="min-w-0">
-            <div className="inline-flex items-center gap-1.5 rounded-full border border-white/25 bg-white/15 px-2.5 py-1 text-[11px] font-medium text-white/95 shadow-sm backdrop-blur-sm sm:text-xs">
-              <Calendar className="h-3 w-3 shrink-0 text-white/80 sm:h-3.5 sm:w-3.5" aria-hidden />
-              <span className="tracking-wide">{todayLabel}</span>
-            </div>
-            <h1 className="mt-2.5 text-balance text-2xl font-semibold tracking-tight sm:text-3xl sm:leading-snug">
-              <span className="text-white/90">Hi, </span>
-              <span className="text-white">{greeting}</span>
-            </h1>
-            <div className="mt-4 flex flex-wrap justify-center gap-2 lg:justify-start">
-              <button
-                type="button"
-                onClick={() => setCreateOpen(true)}
-                className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-white px-3.5 py-2 text-sm font-semibold text-brand shadow-md shadow-black/10 transition hover:bg-white/90 focus:outline-none focus:ring-2 focus:ring-white/50 focus:ring-offset-2 focus:ring-offset-[#2F3E46]"
-              >
-                <Plus className="h-3.5 w-3.5 sm:h-4 sm:w-4" aria-hidden="true" />
-                New gallery
-              </button>
-              <button
-                type="button"
-                onClick={() => setAddClientOpen(true)}
-                className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-white/40 bg-transparent px-3.5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-white/10"
-              >
-                <UserPlus className="h-3.5 w-3.5 sm:h-4 sm:w-4" aria-hidden="true" />
-                Add client
-              </button>
-            </div>
-          </div>
-        </div>
+    <div className="dashboard-page relative space-y-8 pb-4">
+      <DashboardWelcomePanel
+        greeting={greeting}
+        todayLabel={todayLabel}
+        onNewGallery={() => setCreateOpen(true)}
+        onAddClient={() => setAddClientOpen(true)}
+      />
+
+      <DashboardStatStrip items={statItems} loading={loading} />
+
+      <section className="grid gap-4 lg:grid-cols-3 2xl:gap-5">
+        {loading && folders.length === 0 ? (
+          <>
+            <ChartCardSkeleton />
+            <ChartCardSkeleton />
+            <ChartCardSkeleton />
+          </>
+        ) : (
+          <>
+            <ChartCard
+              title="Gallery pipeline"
+              subtitle="Draft, selection & completed"
+              href="/dashboard/galleries"
+              hrefLabel="Galleries"
+            >
+              <DonutChart
+                slices={pipelineSlices}
+                totalLabel="galleries"
+                totalValue={String(displayStats.totalGalleries)}
+                emptyLabel="Create a gallery to see pipeline"
+              />
+            </ChartCard>
+            <ChartCard title="Weekly activity" subtitle="Updates across your workspace">
+              <WeeklyActivityChart bars={weeklyActivity} />
+            </ChartCard>
+            <ChartCard
+              title="Storage breakdown"
+              subtitle="RAWs, selections & finals"
+              href="/dashboard/storage"
+              hrefLabel="Storage"
+            >
+              <DonutChart
+                slices={storageSlices}
+                totalLabel="used"
+                totalValue={formatBytesShort(storageBytes?.total ?? 0)}
+                valueKey="bytes"
+                emptyLabel="No storage data yet"
+              />
+            </ChartCard>
+          </>
+        )}
       </section>
 
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        {statCards.map((c) => (
-          <div
-            key={c.label}
-            className="relative overflow-hidden rounded-2xl border border-zinc-200/80 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-950"
-          >
-            <div
-              className={cn(
-                "pointer-events-none absolute -right-4 -top-4 h-24 w-24 rounded-full bg-gradient-to-br opacity-70 blur-2xl",
-                c.glow,
-              )}
-              aria-hidden
-            />
-            <div className="relative">
-              <div
-                className={cn(
-                  "inline-flex h-10 w-10 items-center justify-center rounded-xl",
-                  c.iconBg,
-                )}
-              >
-                <c.icon className={cn("h-5 w-5", c.iconClass)} aria-hidden="true" />
-              </div>
-              {loading ? (
-                <StatValueSkeleton />
-              ) : (
-                <p className="mt-4 text-3xl font-semibold tabular-nums leading-none text-zinc-900 dark:text-zinc-50">
-                  {c.value}
-                </p>
-              )}
-              <p className="mt-1 text-sm font-medium text-zinc-900 dark:text-zinc-100">{c.label}</p>
-              <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-500">{c.hint}</p>
-            </div>
-          </div>
-        ))}
-      </section>
-
-      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {QUICK_LINKS.map((q) => (
-          <Link
-            key={q.href}
-            href={q.href}
-            className="group flex items-center gap-3 rounded-2xl border border-zinc-200/80 bg-white p-4 shadow-sm transition hover:border-brand/25 hover:shadow-md dark:border-zinc-800 dark:bg-zinc-950 dark:hover:border-brand/40"
-          >
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-zinc-100 text-zinc-600 transition group-hover:bg-brand/10 group-hover:text-brand dark:bg-zinc-800/80 dark:text-zinc-300 dark:group-hover:bg-brand/20 dark:group-hover:text-brand-on-dark">
-              <q.icon className="h-5 w-5" aria-hidden="true" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">{q.label}</p>
-              <p className="text-xs text-zinc-500 dark:text-zinc-500">{q.sub}</p>
-            </div>
-            <ArrowRight className="h-4 w-4 shrink-0 text-zinc-300 transition group-hover:translate-x-0.5 group-hover:text-brand dark:text-zinc-600 dark:group-hover:text-brand-on-dark" />
-          </Link>
-        ))}
-      </section>
-
-      <section className="grid gap-6 lg:grid-cols-3">
-        <div className="lg:col-span-2">
+      <section className="grid gap-6 lg:grid-cols-3 2xl:grid-cols-[minmax(0,2.2fr)_minmax(0,1fr)] 2xl:gap-8">
+        <div className="lg:col-span-2 2xl:col-span-1">
           <div className="flex flex-wrap items-end justify-between gap-3">
             <div>
               <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">Recent galleries</h2>
-              <p className="mt-0.5 text-xs text-zinc-500">Last updated, newest first</p>
+              <p className="mt-0.5 text-xs text-zinc-500">What clients see, newest activity first</p>
             </div>
             <Link
               href="/dashboard/galleries"
@@ -434,7 +444,7 @@ export default function DashboardPage() {
             </Link>
           </div>
           {loading && recentGalleries.length === 0 ? (
-            <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="gallery-card-grid mt-4">
               {Array.from({ length: DASHBOARD_HOME_LIST_LIMIT }).map((_, i) => (
                 <GalleryCardSkeleton key={i} />
               ))}
@@ -443,7 +453,9 @@ export default function DashboardPage() {
             <div className="mt-4 flex flex-col items-center rounded-2xl border border-dashed border-zinc-200 bg-zinc-50/50 py-12 text-center dark:border-zinc-800 dark:bg-zinc-900/20">
               <Sparkles className="h-8 w-8 text-zinc-300 dark:text-zinc-600" aria-hidden="true" />
               <p className="mt-3 text-sm font-medium text-zinc-700 dark:text-zinc-200">No galleries yet</p>
-              <p className="mt-1 max-w-sm text-xs text-zinc-500">Create a gallery to start uploading and sharing with clients.</p>
+              <p className="mt-1 max-w-sm text-xs text-zinc-500">
+                Create a client gallery for delivery, proofing, and sharing.
+              </p>
               <button
                 type="button"
                 onClick={() => setCreateOpen(true)}
@@ -454,12 +466,13 @@ export default function DashboardPage() {
               </button>
             </div>
           ) : (
-            <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="gallery-card-grid mt-4">
               {recentGalleries.map((g) => (
                 <GalleryPreviewCard
                   key={g._id}
                   folder={g}
                   clientNameById={clientNameById}
+                  studioDefaultCoverUrl={studioDefaultCoverUrl}
                 />
               ))}
             </div>
@@ -468,7 +481,7 @@ export default function DashboardPage() {
 
         <div className="flex flex-col rounded-2xl border border-zinc-200/80 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-950 sm:p-6">
           <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">Activity</h2>
-          <p className="mt-0.5 text-xs text-zinc-500">Latest changes to your galleries</p>
+          <p className="mt-0.5 text-xs text-zinc-500">Proofing, uploads & delivery touchpoints</p>
           {loading && recentActivity.length === 0 ? (
             <ActivityFeedSkeleton rows={DASHBOARD_HOME_LIST_LIMIT} />
           ) : recentActivity.length === 0 ? (

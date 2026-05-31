@@ -1,7 +1,7 @@
 import type { BookedShoot, ShootKind } from "@/components/schedules/booking-types";
 import { KIND_META } from "@/components/schedules/booking-types";
 import { ApiError } from "@/lib/clients-api";
-import { authedFetch, extractMessage, parseJson } from "@/lib/http";
+import { authedJson } from "@/lib/http";
 
 export type BookingShootTypeMeta = {
   id: string;
@@ -19,6 +19,12 @@ export type BookingsWeekSummary = {
   bookedCount: number;
   weekStartsAt: string;
   weekEndsAt: string;
+};
+
+export type BookingsStats = {
+  thisWeekCount: number;
+  thisMonthCount: number;
+  todayCount: number;
 };
 
 export type ApiBookingClient = {
@@ -59,11 +65,13 @@ export type CreateBookingBody = {
   description: string;
 };
 
-/** Map API `shootType` string (e.g. `Wedding`, `Other`) to app shoot kind. */
+export type UpdateBookingBody = Partial<CreateBookingBody>;
+
 export function apiShootTypeToKind(shootType: string): ShootKind {
   const k = shootType.trim().toLowerCase();
   const map: Record<string, ShootKind> = {
     wedding: "wedding",
+    christening: "christening",
     portraits: "portraits",
     portrait: "portraits",
     outdoor: "outdoor",
@@ -75,11 +83,11 @@ export function apiShootTypeToKind(shootType: string): ShootKind {
   return map[k] ?? "other";
 }
 
-/** Tailwind dot class for API `color` keys (calendar / legend). */
 export function apiColorToDotClass(color?: string): string | null {
   if (!color) return null;
   const c: Record<string, string> = {
     red: "bg-rose-500",
+    teal: "bg-teal-500",
     purple: "bg-violet-500",
     green: "bg-emerald-500",
     pink: "bg-fuchsia-500",
@@ -90,7 +98,6 @@ export function apiColorToDotClass(color?: string): string | null {
   return c[color.trim().toLowerCase()] ?? null;
 }
 
-/** `HH:mm` (24h) → locale 12h string (e.g. `9:00 AM`) for POST /api/bookings. */
 export function formatHmToApi12h(hm: string): string {
   const s = hm.trim();
   if (/am|pm/i.test(s)) return s;
@@ -107,7 +114,6 @@ function pad2(n: number) {
   return String(n).padStart(2, "0");
 }
 
-/** Convert API booking → in-app row for schedules UI. */
 export function mapApiBookingToBookedShoot(b: ApiBooking): BookedShoot {
   const client = b.client;
   const clientId = client?._id ?? "";
@@ -145,109 +151,121 @@ export function kindToApiShootType(kind: ShootKind): string {
   return KIND_META[kind].label;
 }
 
+function filterByShootType(bookings: ApiBooking[], type?: string): ApiBooking[] {
+  const t = type?.trim();
+  if (!t) return bookings;
+  const needle = t.toLowerCase();
+  return bookings.filter((b) => b.shootType.trim().toLowerCase() === needle);
+}
+
 export async function getBookingsMeta(): Promise<BookingsMetaResponse> {
-  const res = await authedFetch("/api/bookings/meta", { method: "GET" });
-  const body = await parseJson(res);
-  if (!res.ok) {
-    throw new ApiError(extractMessage(body, `Failed to load bookings meta (${res.status})`), res.status, body);
-  }
-  const root = body as Record<string, unknown>;
-  const shootTypes = Array.isArray(root.shootTypes) ? (root.shootTypes as BookingShootTypeMeta[]) : [];
-  const legend = Array.isArray(root.legend) ? (root.legend as BookingShootTypeMeta[]) : shootTypes;
-  const clientsListPath = typeof root.clientsListPath === "string" ? root.clientsListPath : undefined;
-  return { shootTypes, legend, clientsListPath };
+  return authedJson<BookingsMetaResponse>(
+    "/api/bookings/meta",
+    { method: "GET" },
+    "Failed to load booking types",
+    ApiError,
+  );
 }
 
 export async function getBookingsWeekSummary(): Promise<BookingsWeekSummary> {
-  const res = await authedFetch("/api/bookings/summary/week", { method: "GET" });
-  const body = await parseJson(res);
-  if (!res.ok) {
-    throw new ApiError(extractMessage(body, `Failed to load week summary (${res.status})`), res.status, body);
-  }
-  const o = body as Record<string, unknown>;
-  return {
-    bookedCount: typeof o.bookedCount === "number" ? o.bookedCount : 0,
-    weekStartsAt: typeof o.weekStartsAt === "string" ? o.weekStartsAt : "",
-    weekEndsAt: typeof o.weekEndsAt === "string" ? o.weekEndsAt : "",
-  };
+  return authedJson<BookingsWeekSummary>(
+    "/api/bookings/week-summary",
+    { method: "GET" },
+    "Failed to load week summary",
+    ApiError,
+  );
+}
+
+export async function getBookingsStats(): Promise<BookingsStats> {
+  return authedJson<BookingsStats>(
+    "/api/bookings/stats",
+    { method: "GET" },
+    "Failed to load booking stats",
+    ApiError,
+  );
 }
 
 export async function listBookings(params: {
   year: number;
-  /** 1–12 (calendar month). */
   month: number;
   type?: string;
   from?: string;
   to?: string;
 }): Promise<ListBookingsResponse> {
-  const qs = new URLSearchParams();
-  qs.set("year", String(params.year));
-  qs.set("month", String(params.month));
-  qs.set("type", params.type ?? "");
-  qs.set("from", params.from ?? "");
-  qs.set("to", params.to ?? "");
-  const res = await authedFetch(`/api/bookings?${qs.toString()}`, { method: "GET" });
-  const body = await parseJson(res);
-  if (!res.ok) {
-    throw new ApiError(extractMessage(body, `Failed to load bookings (${res.status})`), res.status, body);
-  }
-  const data = body as ListBookingsResponse;
+  const q = new URLSearchParams({
+    year: String(params.year),
+    month: String(params.month),
+  });
+  if (params.from?.trim()) q.set("from", params.from.trim());
+  if (params.to?.trim()) q.set("to", params.to.trim());
+
+  const res = await authedJson<ListBookingsResponse>(
+    `/api/bookings?${q.toString()}`,
+    { method: "GET" },
+    "Failed to load bookings",
+    ApiError,
+  );
+  const bookings = filterByShootType(res.bookings ?? [], params.type);
   return {
-    count: data?.count ?? data?.bookings?.length ?? 0,
-    bookings: Array.isArray(data?.bookings) ? data.bookings : [],
+    count: params.type ? bookings.length : (res.count ?? bookings.length),
+    bookings,
   };
 }
 
 export async function getBooking(id: string): Promise<ApiBooking> {
-  const res = await authedFetch(`/api/bookings/${encodeURIComponent(id)}`, { method: "GET" });
-  const body = await parseJson(res);
-  if (!res.ok) {
-    throw new ApiError(extractMessage(body, `Failed to load booking (${res.status})`), res.status, body);
-  }
-  const o = body as { booking?: ApiBooking };
-  if (o.booking && typeof o.booking === "object") return o.booking;
-  return body as ApiBooking;
+  const res = await authedJson<{ booking: ApiBooking }>(
+    `/api/bookings/${encodeURIComponent(id)}`,
+    { method: "GET" },
+    "Failed to load booking",
+    ApiError,
+  );
+  return res.booking;
 }
 
-export async function createBooking(input: CreateBookingBody): Promise<{ message?: string; booking: ApiBooking }> {
-  const res = await authedFetch("/api/bookings", {
-    method: "POST",
-    body: JSON.stringify(input),
-  });
-  const body = await parseJson(res);
-  if (!res.ok) {
-    throw new ApiError(extractMessage(body, `Could not save booking (${res.status})`), res.status, body);
-  }
-  const o = body as { message?: string; booking?: ApiBooking };
-  if (o.booking && typeof o.booking === "object") {
-    return { message: o.message, booking: o.booking };
-  }
-  return { message: o.message, booking: body as ApiBooking };
+export async function getUpcomingBooking(): Promise<ApiBooking | null> {
+  const res = await authedJson<{ booking?: ApiBooking | null }>(
+    "/api/bookings/upcoming",
+    { method: "GET" },
+    "Failed to load upcoming booking",
+    ApiError,
+  );
+  return res.booking ?? null;
+}
+
+export async function createBooking(
+  input: CreateBookingBody,
+): Promise<{ message?: string; booking: ApiBooking }> {
+  return authedJson<{ message?: string; booking: ApiBooking }>(
+    "/api/bookings",
+    {
+      method: "POST",
+      body: JSON.stringify(input),
+    },
+    "Failed to create booking",
+    ApiError,
+  );
 }
 
 export async function updateBooking(
   id: string,
-  input: Partial<Pick<CreateBookingBody, "title" | "location" | "description">>,
+  input: UpdateBookingBody,
 ): Promise<{ message?: string; booking: ApiBooking }> {
-  const res = await authedFetch(`/api/bookings/${encodeURIComponent(id)}`, {
-    method: "PUT",
-    body: JSON.stringify(input),
-  });
-  const body = await parseJson(res);
-  if (!res.ok) {
-    throw new ApiError(extractMessage(body, `Could not update booking (${res.status})`), res.status, body);
-  }
-  const o = body as { message?: string; booking?: ApiBooking };
-  if (o.booking && typeof o.booking === "object") {
-    return { message: o.message, booking: o.booking };
-  }
-  return { message: o.message, booking: body as ApiBooking };
+  return authedJson<{ message?: string; booking: ApiBooking }>(
+    `/api/bookings/${encodeURIComponent(id)}`,
+    {
+      method: "PUT",
+      body: JSON.stringify(input),
+    },
+    "Failed to update booking",
+    ApiError,
+  );
 }
 
 export async function deleteBooking(id: string): Promise<void> {
-  const res = await authedFetch(`/api/bookings/${encodeURIComponent(id)}`, { method: "DELETE" });
-  const body = await parseJson(res);
-  if (!res.ok) {
-    throw new ApiError(extractMessage(body, `Could not delete booking (${res.status})`), res.status, body);
-  }
+  await authedJson<{ booking?: ApiBooking; message?: string }>(
+    `/api/bookings/${encodeURIComponent(id)}`,
+    { method: "DELETE" },
+    "Failed to delete booking",
+    ApiError,
+  );
 }

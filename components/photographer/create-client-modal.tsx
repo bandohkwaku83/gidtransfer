@@ -1,7 +1,18 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
+import { UserPlus } from "lucide-react";
 import { useToast } from "@/components/toast-provider";
+import {
+  FormField,
+  FormModal,
+  FormModalBody,
+  FormModalFooter,
+  FormModalForm,
+  FormModalHeader,
+  FormModalSection,
+} from "@/components/ui/form-modal";
+import { FormInput } from "@/components/ui/form-input";
 import {
   createClient,
   updateClient,
@@ -15,10 +26,13 @@ type Props = {
   client?: ApiClient | null;
   /** Called after a successful create or update. */
   onSaved?: (client: ApiClient) => void;
+  /** Stack above another modal (e.g. from gallery or booking). */
+  elevated?: boolean;
 };
 
-export function CreateClientModal({ open, onClose, client, onSaved }: Props) {
+export function CreateClientModal({ open, onClose, client, onSaved, elevated }: Props) {
   const { showToast } = useToast();
+  const formId = useId();
 
   const isEdit = Boolean(client?._id);
 
@@ -37,14 +51,13 @@ export function CreateClientModal({ open, onClose, client, onSaved }: Props) {
     setBusy(false);
   }, [open, client]);
 
-  if (!open) return null;
-
   function handleClose() {
     if (busy) return;
     onClose();
   }
 
-  async function submit() {
+  async function submit(e?: React.FormEvent) {
+    e?.preventDefault();
     if (busy) return;
 
     const trimmedName = name.trim();
@@ -74,6 +87,7 @@ export function CreateClientModal({ open, onClose, client, onSaved }: Props) {
       const saved = isEdit
         ? await updateClient(client!._id, {
             name: trimmedName,
+            email: trimmedEmail,
             contact: trimmedContact,
             location: trimmedLocation,
           })
@@ -101,110 +115,66 @@ export function CreateClientModal({ open, onClose, client, onSaved }: Props) {
   }
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-      <button
-        type="button"
-        className="absolute inset-0 bg-black/50 backdrop-blur-sm"
-        aria-label="Close"
-        onClick={handleClose}
-      />
-      <div className="relative z-10 w-full max-w-md rounded-2xl border border-zinc-200 bg-white p-6 shadow-2xl dark:border-zinc-800 dark:bg-zinc-950">
-        <h2 className="text-lg font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
-          {isEdit ? "Edit client" : "Add new client"}
-        </h2>
-        <p className="mt-1 text-sm text-zinc-500">
-          {isEdit
+    <FormModal open={open} onClose={handleClose} busy={busy} elevated={elevated} maxWidth="md">
+      <FormModalHeader
+        icon={UserPlus}
+        title={isEdit ? "Edit client" : "Add new client"}
+        description={
+          isEdit
             ? "Update this client's details."
-            : "Register client details. Galleries are created later."}
-        </p>
+            : "Register client details. Galleries are created later."
+        }
+      />
+      <FormModalForm id={formId} onSubmit={(e) => void submit(e)}>
+        <FormModalBody className="space-y-4">
+          <FormModalSection variant="plain">
+            <FormField label="Client name" required>
+              <FormInput
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="e.g. Acme Studios"
+                disabled={busy}
+                autoFocus
+              />
+            </FormField>
 
-        <div className="mt-6 space-y-4">
-          <label className="block text-sm">
-            <span className="font-medium text-zinc-700 dark:text-zinc-200">
-              Client name
-            </span>
-            <input
-              className="mt-1.5 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2.5 text-sm outline-none ring-zinc-400 focus:ring-2 dark:border-zinc-700 dark:bg-black"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Acme Studios"
-              disabled={busy}
-              autoFocus
-            />
-          </label>
+            <FormField label="Email">
+              <FormInput
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="contact@acme.com"
+                disabled={busy}
+              />
+            </FormField>
 
-          <label className="block text-sm">
-            <span className="font-medium text-zinc-700 dark:text-zinc-200">
-              Email
-            </span>
-            <input
-              type="email"
-              className="mt-1.5 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2.5 text-sm outline-none ring-zinc-400 focus:ring-2 disabled:opacity-60 dark:border-zinc-700 dark:bg-black"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="contact@acme.com"
-              disabled={busy || isEdit}
-            />
-            {isEdit ? (
-              <span className="mt-1 block text-xs text-zinc-500">
-                Email cannot be changed.
-              </span>
-            ) : null}
-          </label>
+            <FormField label="Contact number" required>
+              <FormInput
+                value={contact}
+                onChange={(e) => setContact(e.target.value)}
+                placeholder="+233200000000"
+                disabled={busy}
+              />
+            </FormField>
 
-          <label className="block text-sm">
-            <span className="font-medium text-zinc-700 dark:text-zinc-200">
-              Contact number
-            </span>
-            <input
-              className="mt-1.5 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2.5 text-sm outline-none ring-zinc-400 focus:ring-2 dark:border-zinc-700 dark:bg-black"
-              value={contact}
-              onChange={(e) => setContact(e.target.value)}
-              placeholder="+233200000000"
-              disabled={busy}
-            />
-          </label>
-
-          <label className="block text-sm">
-            <span className="font-medium text-zinc-700 dark:text-zinc-200">
-              Location
-            </span>
-            <input
-              className="mt-1.5 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2.5 text-sm outline-none ring-zinc-400 focus:ring-2 dark:border-zinc-700 dark:bg-black"
-              value={location}
-              onChange={(e) => setLocation(e.target.value)}
-              placeholder="e.g. Accra, Ghana"
-              disabled={busy}
-            />
-          </label>
-        </div>
-
-        <div className="mt-6 flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={handleClose}
-            className="rounded-xl border border-zinc-200 px-4 py-2 text-sm font-medium dark:border-zinc-700"
-            disabled={busy}
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={submit}
-            aria-busy={busy}
-            className="rounded-xl bg-[#2563EB] px-4 py-2 text-sm font-medium text-white disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-[#2563EB]/40"
-          >
-            {busy
-              ? isEdit
-                ? "Saving…"
-                : "Creating…"
-              : isEdit
-                ? "Save changes"
-                : "Create client"}
-          </button>
-        </div>
-      </div>
-    </div>
+            <FormField label="Location" required>
+              <FormInput
+                value={location}
+                onChange={(e) => setLocation(e.target.value)}
+                placeholder="e.g. Accra, Ghana"
+                disabled={busy}
+              />
+            </FormField>
+          </FormModalSection>
+        </FormModalBody>
+      </FormModalForm>
+      <FormModalFooter
+        onCancel={handleClose}
+        formId={formId}
+        submitLabel={isEdit ? "Save changes" : "Create client"}
+        busyLabel={isEdit ? "Saving…" : "Creating…"}
+        busy={busy}
+      />
+    </FormModal>
   );
 }

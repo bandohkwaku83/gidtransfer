@@ -1,14 +1,20 @@
 "use client";
 
+/**
+ * Public client gallery (`/g/...`, `/[companySlug]/[gallerySlug]`).
+ * Self-contained marketing-style UI: cover, layout modes, selection hearts, zoom lightbox.
+ * Do not conflate with photographer `folder-detail-view` dashboard grids.
+ */
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import {
   CalendarDays,
-  Check,
+  ChevronDown,
   Copy,
   Download,
+  Flag,
   Heart,
-  LayoutGrid,
   Loader2,
   Lock,
   Send,
@@ -24,8 +30,12 @@ import {
   GRID_LAYOUTS,
   GRID_STORAGE_PREFIX,
   galleryListClass,
-  isGridLayout,
+  galleryTileHoverActionsClass,
+  galleryTileHoverIconClass,
+  isClientAssetVideo,
+  isCollageGridLayout,
   isShareFinalVideo,
+  normalizeGalleryImageLayout,
   SELECTED_STRIP_IMAGE_SIZES,
   SHARE_GRID_IMAGE_QUALITY,
   SHARE_LIGHTBOX_IMAGE_QUALITY,
@@ -37,6 +47,7 @@ import {
   type GridLayout,
 } from "@/components/client/share-gallery-bits";
 import { useToast } from "@/components/toast-provider";
+import { FormTextArea } from "@/components/ui/form-input";
 import { ClientGalleryPageSkeleton, InlineStatusSkeleton } from "@/components/ui/skeletons";
 import type { DemoAsset, SelectionState } from "@/lib/demo-data";
 import { folderCoverObjectPositionStyle, type ApiFolder } from "@/lib/folders-api";
@@ -44,21 +55,33 @@ import {
   fetchShareFinalDownloadBlob,
   tryNavigatorShareFinalPhoto,
   getShareFinalDownloadUrl,
-  getShareFinalLockedPreviewUrl,
   getShareGallery,
   downloadShareFinalsZip,
+  patchShareGalleryFinalComment,
+  postShareGalleryFinalFlag,
   type NormalizedShareGallery,
   ShareGalleryError,
   submitShareGallerySelectionsToPhotographer,
   syncShareGallerySelections,
-  type ShareGalleryAsset,
+  type PublicGalleryKey,
   type ShareGalleryFinal,
+  publicGallerySessionId,
 } from "@/lib/share-gallery-api";
 import { usePreferInlineFinalSave } from "@/lib/use-prefer-inline-final-save";
 import { useShareSaveHints } from "@/lib/use-share-save-hints";
 import { cn } from "@/lib/utils";
+import { GalleryAccessGate } from "@/components/client/gallery-access-gate";
+import { GalleryCoverHero } from "@/components/client/gallery-cover-hero";
+import { MediaLightbox, lightboxMediaClass } from "@/components/ui/media-lightbox";
+import {
+  clearGalleryAccessUnlock,
+  isGalleryAccessUnlocked,
+  markGalleryAccessUnlocked,
+} from "@/lib/gallery-access-client-config";
+import { mergeGalleryAccessSettings } from "@/lib/gallery-access-merge";
 
-export function ClientGalleryApp({ token }: { token: string }) {
+export function ClientGalleryApp({ publicKey }: { publicKey: PublicGalleryKey }) {
+  const sessionId = publicGallerySessionId(publicKey);
   const { showToast } = useToast();
   const [gallery, setGallery] = useState<NormalizedShareGallery | null>(null);
   const [assets, setAssets] = useState<DemoAsset[]>([]);
@@ -71,14 +94,23 @@ export function ClientGalleryApp({ token }: { token: string }) {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [photoTab, setPhotoTab] = useState<"all" | "selected" | "edited">("all");
   const [zoom, setZoom] = useState(1);
-  const [gridLayout, setGridLayout] = useState<GridLayout>("spotlight");
+  const [gridLayout, setGridLayout] = useState<GridLayout>("masonry");
   const [downloadAllFinalsBusy, setDownloadAllFinalsBusy] = useState(false);
   const [finalSaveBusyId, setFinalSaveBusyId] = useState<string | null>(null);
+  const [finalFeedback, setFinalFeedback] = useState<{
+    finalId: string;
+    finalName: string;
+    comment: string;
+    flaggedByClient: boolean;
+    photographerReply?: string;
+  } | null>(null);
+  const [finalFeedbackBusy, setFinalFeedbackBusy] = useState(false);
   const [photoSaveAssist, setPhotoSaveAssist] = useState<{
     objectUrl: string;
     label: string;
     suggestOpenExternally: boolean;
   } | null>(null);
+  const [accessUnlocked, setAccessUnlocked] = useState(false);
 
   const preferInlineFinalSave = usePreferInlineFinalSave();
   const shareHints = useShareSaveHints();
@@ -94,39 +126,66 @@ export function ClientGalleryApp({ token }: { token: string }) {
 
   useEffect(() => {
     initialPhotoTabAppliedRef.current = false;
-  }, [token]);
+    setAccessUnlocked(false);
+    clearGalleryAccessUnlock(sessionId);
+  }, [sessionId]);
+
+  useEffect(() => {
+    if (loadState === "ok") {
+      setAccessUnlocked(isGalleryAccessUnlocked(sessionId));
+    }
+  }, [loadState, sessionId]);
 
   useEffect(() => {
     try {
-      const raw = sessionStorage.getItem(`${GRID_STORAGE_PREFIX}${token}`);
-      if (raw && isGridLayout(raw)) setGridLayout(raw);
+      const v3Key = `${GRID_STORAGE_PREFIX}${sessionId}`;
+      let raw = sessionStorage.getItem(v3Key);
+      if (!raw) {
+        raw = sessionStorage.getItem(`gidostorage-share-grid:v2:${sessionId}`);
+      }
+      if (raw) setGridLayout(normalizeGalleryImageLayout(raw));
     } catch {
       /* ignore */
     }
-  }, [token]);
+  }, [sessionId]);
 
   useEffect(() => {
     try {
-      sessionStorage.setItem(`${GRID_STORAGE_PREFIX}${token}`, gridLayout);
+      sessionStorage.setItem(`${GRID_STORAGE_PREFIX}${sessionId}`, gridLayout);
     } catch {
       /* ignore */
     }
-  }, [token, gridLayout]);
+  }, [sessionId, gridLayout]);
 
   const galleryMusicUrl = gallery?.backgroundMusicUrl?.trim() ?? "";
   const musicAllowed =
     galleryMusicUrl.length > 0 && gallery != null && gallery.backgroundMusicEnabled !== false;
 
+  const playGalleryMusic = useCallback(
+    (options?: { ignoreMuted?: boolean; showError?: boolean }) => {
+      if (!musicAllowed || (!options?.ignoreMuted && galleryMusicMuted)) return;
+      const audio = audioRef.current;
+      if (!audio) return;
+      void audio.play().then(() => {
+        setGalleryMusicStarted(true);
+      }).catch(() => {
+        if (options?.showError) {
+          showToast("Could not start gallery music. Try again.", "error");
+        }
+      });
+    },
+    [galleryMusicMuted, musicAllowed, showToast],
+  );
+
   useEffect(() => {
     setGalleryMusicStarted(false);
+    setGalleryMusicMuted(false);
     try {
-      setGalleryMusicMuted(
-        sessionStorage.getItem(`${GALLERY_MUSIC_MUTE_PREFIX}${token}`) === "1",
-      );
+      sessionStorage.removeItem(`${GALLERY_MUSIC_MUTE_PREFIX}${sessionId}`);
     } catch {
       setGalleryMusicMuted(false);
     }
-  }, [token]);
+  }, [galleryMusicUrl, sessionId]);
 
   useEffect(() => {
     if (!musicAllowed) setGalleryMusicStarted(false);
@@ -135,10 +194,10 @@ export function ClientGalleryApp({ token }: { token: string }) {
   /** Try autoplay with sound; browsers often block until a gesture (handled below). */
   useEffect(() => {
     if (!musicAllowed || galleryMusicMuted) return;
-    const a = audioRef.current;
-    if (!a) return;
     let cancelled = false;
-    void a.play().then(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    void audio.play().then(() => {
       if (!cancelled) setGalleryMusicStarted(true);
     }).catch(() => {
       /* Autoplay blocked — first pointer gesture effect will retry. */
@@ -146,17 +205,13 @@ export function ClientGalleryApp({ token }: { token: string }) {
     return () => {
       cancelled = true;
     };
-  }, [musicAllowed, galleryMusicMuted, galleryMusicUrl]);
+  }, [galleryMusicMuted, galleryMusicUrl, musicAllowed]);
 
   /** First tap, key, wheel, touch, or scroll starts music when autoplay was blocked. */
   useEffect(() => {
     if (!musicAllowed || galleryMusicMuted || galleryMusicStarted) return;
-    const a = audioRef.current;
-    if (!a) return;
     const tryStart = () => {
-      void a.play().then(() => {
-        setGalleryMusicStarted(true);
-      }).catch(() => {});
+      playGalleryMusic();
     };
     const opts = { capture: true, passive: true } as const;
     window.addEventListener("pointerdown", tryStart, opts);
@@ -171,7 +226,7 @@ export function ClientGalleryApp({ token }: { token: string }) {
       window.removeEventListener("touchstart", tryStart, opts);
       window.removeEventListener("scroll", tryStart, opts);
     };
-  }, [musicAllowed, galleryMusicMuted, galleryMusicStarted, galleryMusicUrl]);
+  }, [galleryMusicMuted, galleryMusicStarted, galleryMusicUrl, musicAllowed, playGalleryMusic]);
 
   useEffect(() => {
     const a = audioRef.current;
@@ -185,10 +240,59 @@ export function ClientGalleryApp({ token }: { token: string }) {
   }, [musicAllowed, galleryMusicStarted, galleryMusicMuted]);
 
   useEffect(() => {
+    const audio = audioRef.current;
     return () => {
-      audioRef.current?.pause();
+      audio?.pause();
     };
-  }, []);
+  }, [musicAllowed, galleryMusicUrl]);
+
+  useEffect(() => {
+    if (!musicAllowed) return;
+    const cleanupAudio = audioRef.current;
+    const stopMusic = () => {
+      const audio = audioRef.current;
+      if (!audio) return;
+      audio.pause();
+      audio.currentTime = 0;
+      setGalleryMusicStarted(false);
+    };
+    const stopWhenHidden = () => {
+      if (document.hidden) stopMusic();
+    };
+    window.addEventListener("pagehide", stopMusic);
+    window.addEventListener("beforeunload", stopMusic);
+    document.addEventListener("visibilitychange", stopWhenHidden);
+    return () => {
+      window.removeEventListener("pagehide", stopMusic);
+      window.removeEventListener("beforeunload", stopMusic);
+      document.removeEventListener("visibilitychange", stopWhenHidden);
+      if (cleanupAudio) {
+        cleanupAudio.pause();
+        cleanupAudio.currentTime = 0;
+      }
+    };
+  }, [galleryMusicUrl, musicAllowed]);
+
+  const toggleGalleryMusic = useCallback(() => {
+    if (!musicAllowed) return;
+    const audio = audioRef.current;
+    const shouldMute = galleryMusicStarted && !galleryMusicMuted;
+
+    try {
+      if (shouldMute) {
+        setGalleryMusicMuted(true);
+        audio?.pause();
+        sessionStorage.setItem(`${GALLERY_MUSIC_MUTE_PREFIX}${sessionId}`, "1");
+        return;
+      }
+
+      setGalleryMusicMuted(false);
+      sessionStorage.removeItem(`${GALLERY_MUSIC_MUTE_PREFIX}${sessionId}`);
+      playGalleryMusic({ ignoreMuted: true, showError: true });
+    } catch {
+      showToast("Could not update gallery music.", "error");
+    }
+  }, [galleryMusicMuted, galleryMusicStarted, musicAllowed, playGalleryMusic, sessionId, showToast]);
 
   useEffect(() => {
     if (gallery?.finalDelivery === false && photoTab === "edited") {
@@ -259,11 +363,12 @@ export function ClientGalleryApp({ token }: { token: string }) {
     setGallery(null);
     setAssets([]);
 
-    getShareGallery(token)
+    getShareGallery(publicKey)
       .then((g) => {
         if (cancelled) return;
-        setGallery(g);
-        setAssets(toDemoAssets(g.assets));
+        const merged = mergeGalleryAccessSettings(g, sessionId);
+        setGallery(merged);
+        setAssets(toDemoAssets(merged.assets));
         setLoadState("ok");
       })
       .catch((err) => {
@@ -281,7 +386,7 @@ export function ClientGalleryApp({ token }: { token: string }) {
     return () => {
       cancelled = true;
     };
-  }, [token]);
+  }, [publicKey]);
 
   const editingLocked = useMemo(() => {
     if (!gallery) return true;
@@ -291,6 +396,8 @@ export function ClientGalleryApp({ token }: { token: string }) {
   const showFinalsTab = gallery ? gallery.finalDelivery !== false : true;
 
   const selectedCount = assets.filter((a) => a.selection === "SELECTED").length;
+  const selectionLimit = gallery?.selectionLimit ?? null;
+  const selectedCountLabel = selectionLimit ? `${selectedCount}/${selectionLimit}` : `${selectedCount}`;
   const editedCount = gallery?.finals.length ?? 0;
   const uploadsCount = gallery?.counts?.uploads ?? assets.length;
 
@@ -326,10 +433,7 @@ export function ClientGalleryApp({ token }: { token: string }) {
         body: "Browsers opened from chat apps usually block downloads. Use Open in Safari (or Browser / Chrome) in the ⋯ or share menu above, open this gallery there, then tap Save / Share. You can copy the link below anytime.",
       };
     } else if (shareHints.likelyWebShareImage) {
-      explainer = {
-        variant: "one_line",
-        text: "Tap Save / Share to open your phone’s Share sheet—pick Save Image, Photos, Files, Messages, AirDrop, and similar options.",
-      };
+      explainer = null;
     } else {
       explainer = {
         variant: "one_line",
@@ -409,7 +513,7 @@ export function ClientGalleryApp({ token }: { token: string }) {
       const id = f.id;
       setFinalSaveBusyId(id);
       try {
-        const blob = await fetchShareFinalDownloadBlob(token, f);
+        const blob = await fetchShareFinalDownloadBlob(publicKey, f);
         const viaShare = await tryNavigatorShareFinalPhoto(blob, f.name || `final-${f.id}`);
         if (viaShare) return;
 
@@ -434,7 +538,7 @@ export function ClientGalleryApp({ token }: { token: string }) {
         setFinalSaveBusyId((cur) => (cur === id ? null : cur));
       }
     },
-    [token, showToast, downloadAllFinalsBusy, shareHints.inAppSocialWebView],
+    [publicKey, showToast, downloadAllFinalsBusy, shareHints.inAppSocialWebView],
   );
 
   useEffect(() => {
@@ -455,7 +559,7 @@ export function ClientGalleryApp({ token }: { token: string }) {
   }, [photoSaveAssist, closePhotoSaveAssist]);
 
   async function refetchGallery() {
-    const g = await getShareGallery(token);
+    const g = await getShareGallery(publicKey);
     setGallery(g);
     setAssets(toDemoAssets(g.assets));
     return g;
@@ -466,7 +570,7 @@ export function ClientGalleryApp({ token }: { token: string }) {
     setDownloadAllFinalsBusy(true);
     try {
       await downloadShareFinalsZip(
-        token,
+        publicKey,
         downloadableFinals.map((f) => ({ id: f.id, name: f.name })),
       );
       showToast("Download started.", "success");
@@ -481,6 +585,63 @@ export function ClientGalleryApp({ token }: { token: string }) {
       );
     } finally {
       setDownloadAllFinalsBusy(false);
+    }
+  }
+
+  function openFinalFeedback(f: ShareGalleryFinal) {
+    if (f.locked) return;
+    const comment = f.clientComment?.trim() ?? "";
+    setFinalFeedback({
+      finalId: f.id,
+      finalName: f.name,
+      comment,
+      flaggedByClient: Boolean(f.flaggedByClient),
+      photographerReply: f.photographerReply?.trim() || undefined,
+    });
+  }
+
+  async function submitFinalFeedback() {
+    if (!finalFeedback || finalFeedbackBusy) return;
+    const comment = finalFeedback.comment.trim();
+    if (!comment) {
+      showToast("Add a note for your photographer before flagging this final.", "error");
+      return;
+    }
+    setFinalFeedbackBusy(true);
+    try {
+      if (finalFeedback.flaggedByClient) {
+        await patchShareGalleryFinalComment(publicKey, finalFeedback.finalId, comment);
+      } else {
+        await postShareGalleryFinalFlag(publicKey, finalFeedback.finalId, comment);
+      }
+      setGallery((current) =>
+        current
+          ? {
+              ...current,
+              finals: current.finals.map((f) =>
+                f.id === finalFeedback.finalId
+                  ? { ...f, clientComment: comment, flaggedByClient: true }
+                  : f,
+              ),
+            }
+          : current,
+      );
+      showToast(
+        finalFeedback.flaggedByClient ? "Feedback updated." : "Final flagged for review.",
+        "success",
+      );
+      setFinalFeedback(null);
+    } catch (e) {
+      showToast(
+        e instanceof ShareGalleryError
+          ? e.message
+          : e instanceof Error
+            ? e.message
+            : "Could not send feedback.",
+        "error",
+      );
+    } finally {
+      setFinalFeedbackBusy(false);
     }
   }
 
@@ -499,7 +660,7 @@ export function ClientGalleryApp({ token }: { token: string }) {
     setAssets(nextAssets);
     setSyncBusy(true);
     try {
-      await syncShareGallerySelections(token, selectedIds);
+      await syncShareGallerySelections(publicKey, selectedIds);
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Could not update selection.", "error");
       try {
@@ -516,7 +677,7 @@ export function ClientGalleryApp({ token }: { token: string }) {
     const isUpdate = Boolean(gallery?.selectionSubmitted);
     setSyncBusy(true);
     try {
-      await submitShareGallerySelectionsToPhotographer(token);
+      await submitShareGallerySelectionsToPhotographer(publicKey);
       await refetchGallery();
       setConfirmOpen(false);
       showToast(
@@ -532,6 +693,7 @@ export function ClientGalleryApp({ token }: { token: string }) {
 
   const lbAsset =
     lightboxId ? assets.find((a) => a.id === lightboxId) ?? null : null;
+  const lbAssetIsVideo = lbAsset ? isClientAssetVideo(lbAsset) : false;
   const lbNavIndex = lbAsset
     ? lightboxNavAssets.findIndex((a) => a.id === lbAsset.id)
     : -1;
@@ -636,6 +798,11 @@ export function ClientGalleryApp({ token }: { token: string }) {
 
   const displayTitle = gallery?.eventName?.trim() || "Select your favorites";
 
+  const heroBrandLabel = useMemo(() => {
+    const name = gallery?.studio?.companyName?.trim();
+    return name ? name.toUpperCase() : "";
+  }, [gallery?.studio?.companyName]);
+
   const eventDateLabel = useMemo(() => {
     if (!gallery?.eventDate) return null;
     const d = new Date(gallery.eventDate);
@@ -648,6 +815,7 @@ export function ClientGalleryApp({ token }: { token: string }) {
           year: "numeric",
         });
   }, [gallery?.eventDate]);
+  const galleryFrameClass = "mx-auto max-w-[1680px] px-1.5 sm:px-2 lg:px-3";
 
   if (loadState === "loading") {
     return (
@@ -655,6 +823,31 @@ export function ClientGalleryApp({ token }: { token: string }) {
         <span className="sr-only">Loading gallery…</span>
         <ClientGalleryPageSkeleton />
       </>
+    );
+  }
+
+  const accessPin = gallery?.shareAccessPin?.replace(/\D/g, "").padStart(4, "0").slice(-4);
+  const needsAccessGate =
+    loadState === "ok" &&
+    gallery != null &&
+    gallery.sharePasswordEnabled === true &&
+    Boolean(accessPin) &&
+    !accessUnlocked;
+
+  if (needsAccessGate && gallery) {
+    const studioLabel =
+      gallery.studio?.companyName?.trim() || gallery.clientName?.trim() || "your photographer";
+    return (
+      <GalleryAccessGate
+        studioName={studioLabel}
+        galleryTitle={gallery.eventName?.trim() || undefined}
+        onUnlock={(entered) => {
+          if (entered !== accessPin) return false;
+          markGalleryAccessUnlocked(sessionId);
+          setAccessUnlocked(true);
+          return true;
+        }}
+      />
     );
   }
 
@@ -669,10 +862,11 @@ export function ClientGalleryApp({ token }: { token: string }) {
           onClick={() => {
             setLoadState("loading");
             setLoadError(null);
-            getShareGallery(token)
+            getShareGallery(publicKey)
               .then((g) => {
-                setGallery(g);
-                setAssets(toDemoAssets(g.assets));
+                const merged = mergeGalleryAccessSettings(g, sessionId);
+                setGallery(merged);
+                setAssets(toDemoAssets(merged.assets));
                 setLoadState("ok");
               })
               .catch((err) => {
@@ -694,6 +888,16 @@ export function ClientGalleryApp({ token }: { token: string }) {
     );
   }
 
+  const coverFrame = gallery.coverFrame;
+  const coverImageObjectPosition = folderCoverObjectPositionStyle({
+    _id: gallery.folderId ?? "",
+    client: "",
+    eventDate: "",
+    description: "",
+    coverFocalX: gallery.coverFocalX,
+    coverFocalY: gallery.coverFocalY,
+  } as ApiFolder);
+
   return (
     <div
       className={cn(
@@ -704,74 +908,16 @@ export function ClientGalleryApp({ token }: { token: string }) {
     >
       <header className="relative">
         {gallery.coverImageUrl ? (
-          <section
-            className="relative isolate flex min-h-[100svh] min-h-[100dvh] w-full flex-col"
-            aria-label="Gallery cover"
-          >
-            <Image
-              src={gallery.coverImageUrl}
-              alt={displayTitle ? `Cover — ${displayTitle}` : "Gallery cover"}
-              fill
-              priority
-              fetchPriority="high"
-              sizes="100vw"
-              quality={SHARE_LIGHTBOX_IMAGE_QUALITY}
-              className="absolute inset-0 object-cover"
-              style={folderCoverObjectPositionStyle({
-                _id: gallery.folderId ?? "",
-                client: "",
-                eventDate: "",
-                description: "",
-                coverFocalX: gallery.coverFocalX,
-                coverFocalY: gallery.coverFocalY,
-              } as ApiFolder)}
-            />
-            <div
-              className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/60 via-black/30 to-black/[0.88]"
-              aria-hidden
-            />
-            <button
-              type="button"
-              onClick={() => openCoverLb()}
-              className="absolute inset-0 z-[5] cursor-zoom-in bg-transparent p-0"
-              aria-label="View cover image full screen"
-            />
-
-            <div className="relative z-10 border-b border-white/15 bg-black/30 px-4 py-3 backdrop-blur-xl sm:px-6 lg:px-8">
-              <div className="mx-auto flex max-w-6xl items-center">
-                <Image
-                  src="/images/gido_logo.png"
-                  alt="Gido logo"
-                  width={140}
-                  height={44}
-                  className="h-8 w-auto object-contain brightness-0 invert drop-shadow-[0_1px_3px_rgba(0,0,0,0.45)] sm:h-9"
-                  priority
-                />
-              </div>
-            </div>
-
-            <div className="relative z-10 mx-auto flex w-full max-w-6xl flex-1 flex-col justify-end px-4 pb-12 pt-6 sm:px-6 sm:pb-16 lg:px-8">
-              <div className="ml-auto flex w-full max-w-xl flex-col gap-3 sm:items-end sm:text-right lg:max-w-2xl">
-                <h1 className="text-balance text-2xl font-bold leading-tight tracking-tight text-white drop-shadow-md sm:text-3xl lg:text-4xl">
-                  {displayTitle}
-                </h1>
-                {gallery.description ? (
-                  <p className="text-sm leading-relaxed text-white/85">{gallery.description}</p>
-                ) : null}
-                {gallery.selectionLocked ? (
-                  <p className="rounded-lg border border-amber-400/35 bg-amber-500/15 px-3 py-2 text-left text-xs text-amber-50 sm:text-right">
-                    Selections are temporarily locked by your photographer.
-                  </p>
-                ) : null}
-                <a
-                  href="#client-gallery-body"
-                  className="inline-flex w-fit items-center justify-center rounded-full border border-white/35 bg-white/15 px-5 py-2.5 text-sm font-semibold text-white shadow-md backdrop-blur-sm transition hover:bg-white/25 sm:self-end"
-                >
-                  View gallery
-                </a>
-              </div>
-            </div>
-          </section>
+          <GalleryCoverHero
+            coverImageUrl={gallery.coverImageUrl}
+            coverFrame={coverFrame}
+            coverColor={gallery.coverColor}
+            objectPosition={coverImageObjectPosition}
+            displayTitle={displayTitle}
+            heroBrandLabel={heroBrandLabel}
+            selectionLocked={gallery.selectionLocked}
+            onCoverClick={() => openCoverLb()}
+          />
         ) : (
           <div className="relative overflow-hidden border-b border-zinc-200/90 bg-gradient-to-br from-indigo-50 via-white to-zinc-50 dark:border-zinc-800 dark:from-zinc-900 dark:via-zinc-950 dark:to-black">
             <div className="pointer-events-none absolute inset-0 opacity-[0.55] dark:opacity-40" aria-hidden>
@@ -780,7 +926,7 @@ export function ClientGalleryApp({ token }: { token: string }) {
               <div className="absolute bottom-0 left-1/3 h-40 w-96 -translate-x-1/2 rounded-full bg-fuchsia-200/30 blur-3xl dark:bg-fuchsia-900/20" />
             </div>
 
-            <div className="relative mx-auto flex max-w-6xl flex-col gap-3 px-4 pb-2 pt-3 sm:flex-row sm:items-center sm:justify-between sm:pb-2 lg:px-8">
+            <div className={cn(galleryFrameClass, "relative flex flex-col gap-3 pb-2 pt-3 sm:flex-row sm:items-center sm:justify-between sm:pb-2")}>
               <div className="flex items-center gap-3">
                 <Image
                   src="/images/gido_logo.png"
@@ -795,7 +941,7 @@ export function ClientGalleryApp({ token }: { token: string }) {
                 <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center sm:justify-end">
                   <span className="inline-flex items-center justify-center gap-2 rounded-full border border-white/60 bg-white/70 px-4 py-2 text-xs font-semibold text-zinc-800 shadow-sm backdrop-blur-sm dark:border-zinc-700 dark:bg-zinc-900/70 dark:text-zinc-100">
                     <Heart className="h-3.5 w-3.5 shrink-0 text-rose-500" aria-hidden />
-                    <span className="tabular-nums">{selectedCount}</span>
+                    <span className="tabular-nums">{selectedCountLabel}</span>
                     <span className="text-zinc-500 dark:text-zinc-400">selected</span>
                   </span>
                   <div className="flex items-center gap-2">
@@ -814,7 +960,7 @@ export function ClientGalleryApp({ token }: { token: string }) {
               ) : null}
             </div>
 
-            <div className="relative mx-auto max-w-6xl px-4 pb-2 lg:px-8">
+            <div className={cn(galleryFrameClass, "relative pb-2")}>
               <h1 className="text-balance text-2xl font-bold leading-tight tracking-tight text-zinc-900 sm:text-3xl dark:text-white">
                 {displayTitle}
               </h1>
@@ -825,7 +971,7 @@ export function ClientGalleryApp({ token }: { token: string }) {
               </p>
             </div>
 
-            <div className="relative mx-auto max-w-6xl px-4 pb-6 pt-3 lg:px-8 lg:pb-8">
+            <div className={cn(galleryFrameClass, "relative pb-6 pt-3 lg:pb-8")}>
               <div className="rounded-2xl border border-zinc-200/90 bg-white/95 p-4 shadow-lg shadow-zinc-900/[0.04] ring-1 ring-zinc-900/[0.02] dark:border-zinc-700/90 dark:bg-zinc-900/95 dark:ring-white/[0.03] sm:p-4">
                 <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-5">
                   <div className="flex min-w-0 items-center gap-2.5">
@@ -875,63 +1021,54 @@ export function ClientGalleryApp({ token }: { token: string }) {
           id="client-gallery-body"
           className="scroll-mt-4 border-b border-zinc-200 bg-white/95 backdrop-blur-md dark:border-zinc-800 dark:bg-zinc-950/95"
         >
-          <div className="mx-auto max-w-6xl space-y-4 px-4 py-4 lg:px-8">
-            <div className="-mx-1 flex gap-2 overflow-x-auto pb-1 [scrollbar-width:thin]">
-              {(
-                [
-                  ["all", "Originals"],
-                  ["selected", "Selected"],
-                  ...(showFinalsTab ? ([["edited", "Finals"]] as const) : []),
-                ] as const
-              ).map(([key, label]) => {
-                const count =
-                  key === "all"
-                    ? uploadsCount
-                    : key === "selected"
-                      ? selectedCount
-                      : editedCount;
-                const active = photoTab === key;
-                return (
-                  <button
-                    key={key}
-                    type="button"
-                    onClick={() => setPhotoTab(key)}
-                    className={`inline-flex min-h-[44px] shrink-0 snap-start items-center gap-2 rounded-full border px-4 py-2.5 text-sm font-semibold transition ${
-                      active
-                        ? "border-brand/40 bg-brand-soft text-brand shadow-sm dark:border-brand/50 dark:bg-brand/20 dark:text-brand-on-dark"
-                        : "border-transparent bg-zinc-100/90 text-zinc-600 hover:bg-zinc-200/90 hover:text-zinc-900 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
-                    }`}
-                  >
-                    <span>{label}</span>
-                    <span
-                      className={`rounded-md px-2 py-0.5 text-xs font-bold tabular-nums ${
+          <div className={cn(galleryFrameClass, "py-4")}>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="-mx-1 flex min-w-0 gap-2 overflow-x-auto pb-1 [scrollbar-width:thin] sm:mx-0 sm:flex-1 sm:pb-0">
+                {(
+                  [
+                    ["all", "Originals"],
+                    ["selected", "Selected"],
+                    ...(showFinalsTab ? ([["edited", "Finals"]] as const) : []),
+                  ] as const
+                ).map(([key, label]) => {
+                  const count =
+                    key === "all"
+                      ? uploadsCount
+                      : key === "selected"
+                        ? selectedCountLabel
+                        : editedCount;
+                  const active = photoTab === key;
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => setPhotoTab(key)}
+                      className={`inline-flex min-h-[44px] shrink-0 snap-start items-center gap-2 rounded-full border px-4 py-2.5 text-sm font-semibold transition ${
                         active
-                          ? "bg-white/90 text-brand dark:bg-zinc-950/50 dark:text-brand-on-dark"
-                          : "bg-white/60 text-zinc-500 dark:bg-zinc-950/40 dark:text-zinc-500"
+                          ? "border-brand/40 bg-brand-soft text-brand shadow-sm dark:border-brand/50 dark:bg-brand/20 dark:text-brand-on-dark"
+                          : "border-transparent bg-zinc-100/90 text-zinc-600 hover:bg-zinc-200/90 hover:text-zinc-900 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
                       }`}
                     >
-                      {count}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-zinc-400">
-                  Layout
-                </p>
-                <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
-                  Pick how the gallery below is arranged — saved for this link on your device.
-                </p>
+                      <span>{label}</span>
+                      <span
+                        className={`rounded-md px-2 py-0.5 text-xs font-bold tabular-nums ${
+                          active
+                            ? "bg-white/90 text-brand dark:bg-zinc-950/50 dark:text-brand-on-dark"
+                            : "bg-white/60 text-zinc-500 dark:bg-zinc-950/40 dark:text-zinc-500"
+                        }`}
+                      >
+                        {count}
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
               <div
-                className="-mx-1 flex max-w-[100vw] gap-1 overflow-x-auto pb-1 pl-1 [scrollbar-width:thin] sm:mx-0 sm:flex-wrap sm:justify-end sm:overflow-visible sm:pb-0 sm:pl-0"
+                className="-mx-1 flex max-w-[100vw] shrink-0 gap-1 overflow-x-auto pb-1 pl-1 [scrollbar-width:thin] sm:mx-0 sm:justify-end sm:pb-0 sm:pl-0"
                 role="toolbar"
                 aria-label="Gallery grid layout"
               >
-                <div className="flex min-w-0 gap-1 rounded-2xl border border-zinc-200/90 bg-zinc-50/90 p-1 dark:border-zinc-800 dark:bg-zinc-900/60">
+                <div className="flex min-w-0 gap-0.5 rounded-2xl border border-zinc-200/90 bg-zinc-50/90 p-1 dark:border-zinc-800 dark:bg-zinc-900/60">
                   {GRID_LAYOUTS.map(({ id, shortLabel, icon: Icon }) => {
                     const active = gridLayout === id;
                     return (
@@ -939,7 +1076,7 @@ export function ClientGalleryApp({ token }: { token: string }) {
                         key={id}
                         type="button"
                         onClick={() => setGridLayout(id)}
-                        title={GRID_LAYOUTS.find((g) => g.id === id)?.label}
+                        title={GRID_LAYOUTS.find((g) => g.id === id)?.description}
                         aria-pressed={active}
                         className={`inline-flex min-h-[40px] shrink-0 items-center gap-1.5 rounded-xl px-2.5 py-2 text-xs font-semibold transition sm:min-h-0 sm:px-3 ${
                           active
@@ -960,67 +1097,102 @@ export function ClientGalleryApp({ token }: { token: string }) {
       </header>
 
       {photoTab === "all" && selectedAssets.length > 0 ? (
-        <div className="border-b border-zinc-200 bg-zinc-100/80 dark:border-zinc-800 dark:bg-zinc-900/40">
-          <div className="mx-auto max-w-6xl px-4 py-4 lg:px-8">
-            <div className="flex flex-wrap items-end justify-between gap-2">
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-                  Your selection
-                </p>
-                <p className="mt-0.5 text-sm text-zinc-700 dark:text-zinc-200">
-                  {selectedAssets.length} photo{selectedAssets.length === 1 ? "" : "s"} in your
-                  grid — tap a tile to enlarge, or the remove control to unselect.
-                </p>
+        <div className="border-b border-zinc-200 bg-white/90 dark:border-zinc-800 dark:bg-zinc-950/80">
+          <div className={cn(galleryFrameClass, "py-4")}>
+            <div className="flex flex-col gap-4 rounded-3xl border border-zinc-200 bg-zinc-50/80 p-3 shadow-sm dark:border-zinc-800 dark:bg-zinc-900/50 lg:flex-row lg:items-center">
+              <div className="flex min-w-0 items-center gap-3 lg:w-56">
+                <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-white text-rose-500 shadow-sm ring-1 ring-zinc-200 dark:bg-zinc-950 dark:ring-zinc-800">
+                  <Heart className="h-4 w-4 fill-current" aria-hidden />
+                </span>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
+                    Selected media
+                  </p>
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                    {selectedCountLabel} selected
+                  </p>
+                </div>
               </div>
-              <button
-                type="button"
-                onClick={() => setPhotoTab("selected")}
-                className="text-xs font-semibold text-brand hover:underline dark:text-brand-on-dark"
+              <ul
+                className="-mx-1 flex min-w-0 flex-1 gap-2 overflow-x-auto px-1 pb-1 [scrollbar-width:thin]"
+                aria-label="Selected photos"
               >
-                View only selected
-              </button>
-            </div>
-            <ul
-              className="mt-3 grid grid-cols-4 gap-2 sm:grid-cols-6 md:grid-cols-8 lg:grid-cols-10"
-              aria-label="Selected photos"
-            >
-              {selectedAssets.map((a) => (
-                <li
-                  key={a.id}
-                  className="group relative aspect-square overflow-hidden rounded-xl border-2 border-brand bg-white shadow-sm ring-1 ring-brand/20 dark:bg-zinc-950 dark:ring-brand/30"
-                >
-                  <button
-                    type="button"
-                    className="relative block h-full w-full"
-                    onClick={() => openLb(a.id)}
-                  >
-                    <Image
-                      src={a.thumbUrl}
-                      alt=""
-                      fill
-                      sizes={SELECTED_STRIP_IMAGE_SIZES}
-                      quality={SHARE_GRID_IMAGE_QUALITY}
-                      className="object-cover transition group-hover:brightness-95"
-                    />
-                    <span className="sr-only">Open {a.originalName}</span>
-                  </button>
-                  {!editingLocked ? (
-                    <button
-                      type="button"
-                      disabled={syncBusy}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        void toggleSelect(a.id);
-                      }}
-                      className="absolute right-1 top-1 inline-flex h-7 w-7 items-center justify-center rounded-full bg-black/55 text-white shadow backdrop-blur-sm transition hover:bg-black/70 disabled:opacity-40"
-                      aria-label={`Remove ${a.originalName} from selection`}
+                {selectedAssets.map((a) => {
+                  const isVideo = isClientAssetVideo(a);
+                  const mediaSrc = (a.previewUrl ?? a.thumbUrl).trim();
+                  return (
+                    <li
+                      key={a.id}
+                      className="group relative h-20 w-20 shrink-0 overflow-hidden rounded-2xl border border-white bg-white shadow-sm ring-2 ring-brand/45 dark:border-zinc-900 dark:bg-zinc-950 dark:ring-brand/40 sm:h-24 sm:w-24"
                     >
-                      <span className="text-xs font-bold leading-none">×</span>
-                    </button>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
+                      <button
+                        type="button"
+                        className="relative block h-full w-full"
+                        onClick={() => openLb(a.id)}
+                      >
+                        {isVideo ? (
+                          <video
+                            src={mediaSrc}
+                            muted
+                            playsInline
+                            preload="metadata"
+                            aria-label={a.originalName}
+                            className="absolute inset-0 h-full w-full bg-black object-cover transition group-hover:scale-[1.03] group-hover:brightness-95"
+                          />
+                        ) : (
+                          <Image
+                            src={a.thumbUrl}
+                            alt=""
+                            fill
+                            sizes={SELECTED_STRIP_IMAGE_SIZES}
+                            quality={SHARE_GRID_IMAGE_QUALITY}
+                            className="object-cover transition group-hover:scale-[1.03] group-hover:brightness-95"
+                          />
+                        )}
+                        {isVideo ? (
+                          <span className="pointer-events-none absolute left-1.5 top-1.5 rounded bg-black/60 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-white">
+                            Video
+                          </span>
+                        ) : null}
+                        <span className="sr-only">Open {a.originalName}</span>
+                      </button>
+                      {!editingLocked ? (
+                        <button
+                          type="button"
+                          disabled={syncBusy}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void toggleSelect(a.id);
+                          }}
+                          className="absolute right-1.5 top-1.5 inline-flex h-6 w-6 items-center justify-center rounded-full bg-black/65 text-white shadow backdrop-blur-sm transition hover:bg-black/80 disabled:opacity-40"
+                          aria-label={`Remove ${a.originalName} from selection`}
+                        >
+                          <span className="text-xs font-bold leading-none">×</span>
+                        </button>
+                      ) : null}
+                    </li>
+                  );
+                })}
+              </ul>
+              <div className="flex shrink-0 flex-col gap-2 sm:flex-row sm:items-center lg:justify-end">
+                <button
+                  type="button"
+                  onClick={() => setPhotoTab("selected")}
+                  className="inline-flex items-center justify-center rounded-full border border-zinc-200 bg-white px-4 py-2.5 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-200 dark:hover:bg-zinc-900"
+                >
+                  Review
+                </button>
+                <button
+                  type="button"
+                  disabled={syncBusy || editingLocked}
+                  onClick={() => setConfirmOpen(true)}
+                  className="inline-flex items-center justify-center gap-2 rounded-full bg-brand px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-brand/25 transition hover:bg-brand-hover disabled:opacity-40 dark:hover:bg-brand-hover"
+                >
+                  <Send className="h-4 w-4 shrink-0" aria-hidden="true" />
+                  {gallery.selectionSubmitted ? "Submit again" : "Submit Selection"}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       ) : null}
@@ -1034,12 +1206,12 @@ export function ClientGalleryApp({ token }: { token: string }) {
         </div>
       ) : null}
 
-      <main className="mx-auto max-w-6xl px-4 py-8 pb-12 lg:px-8">
-        {gallery.coverImageUrl && !editingLocked && photoTab !== "edited" ? (
+      <main className={cn(galleryFrameClass, "py-8 pb-12")}>
+        {gallery.coverImageUrl && !editingLocked && photoTab !== "edited" && !(photoTab === "all" && selectedAssets.length > 0) ? (
           <div className="mb-6 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
             <span className="inline-flex items-center justify-center gap-2 rounded-full border border-zinc-200 bg-white px-4 py-2 text-xs font-semibold text-zinc-800 shadow-sm dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100">
               <Heart className="h-3.5 w-3.5 shrink-0 text-rose-500" aria-hidden />
-              <span className="tabular-nums">{selectedCount}</span>
+              <span className="tabular-nums">{selectedCountLabel}</span>
               <span className="text-zinc-500 dark:text-zinc-400">selected</span>
             </span>
             <div className="flex items-center gap-2 sm:justify-end">
@@ -1059,7 +1231,7 @@ export function ClientGalleryApp({ token }: { token: string }) {
         {photoTab === "edited" ? (
           gallery.finals.length === 0 ? (
             <p className="text-center text-sm text-zinc-500 dark:text-zinc-400">
-              Edited photos will appear here when your photographer delivers them.
+              Edited media will appear here when your photographer delivers them.
             </p>
           ) : (
             <>
@@ -1109,15 +1281,23 @@ export function ClientGalleryApp({ token }: { token: string }) {
               <ul className={galleryListClass(gridLayout)}>
               {gallery.finals.map((f, index) => {
                 const locked = Boolean(f.locked);
-                const imgSrc = finalDisplaySrc(f, token);
+                const imgSrc = finalDisplaySrc(f, publicKey);
                 const showUnlockedVideo = !locked && isShareFinalVideo(f);
+                const collage = isCollageGridLayout(gridLayout);
                 return (
-                  <li key={f.id} className={`flex flex-col ${editedCardClass(gridLayout, index)}`}>
+                  <li
+                    key={f.id}
+                    className={collage ? editedCardClass(gridLayout, index) : `flex flex-col ${editedCardClass(gridLayout, index)}`}
+                  >
                     <div className={uploadImageWrapClass(gridLayout, index)}>
                       <button
                         type="button"
                         onClick={() => openFinalLb(f.id)}
-                        className="absolute inset-0 block h-full w-full border-0 bg-transparent p-0 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 dark:focus-visible:ring-brand-on-dark"
+                        className={
+                          collage
+                            ? "block w-full border-0 bg-transparent p-0 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+                            : "absolute inset-0 block h-full w-full border-0 bg-transparent p-0 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 dark:focus-visible:ring-brand-on-dark"
+                        }
                       >
                         {showUnlockedVideo ? (
                           <video
@@ -1127,7 +1307,27 @@ export function ClientGalleryApp({ token }: { token: string }) {
                             playsInline
                             preload="metadata"
                             aria-label={f.name}
-                            className="absolute inset-0 h-full w-full cursor-zoom-in bg-black object-cover pointer-events-none"
+                            className={
+                              collage
+                                ? "block h-auto w-full cursor-zoom-in bg-black"
+                                : "absolute inset-0 h-full w-full cursor-zoom-in bg-black object-cover pointer-events-none"
+                            }
+                          />
+                        ) : collage ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={imgSrc}
+                            alt={f.name}
+                            loading={index < 12 ? "eager" : "lazy"}
+                            decoding="async"
+                            draggable={!locked}
+                            className={cn(
+                              "block h-auto w-full cursor-zoom-in",
+                              locked && "select-none",
+                            )}
+                            onContextMenu={(e) => {
+                              if (locked) e.preventDefault();
+                            }}
                           />
                         ) : (
                           <Image
@@ -1154,46 +1354,74 @@ export function ClientGalleryApp({ token }: { token: string }) {
                           aria-hidden
                         />
                       ) : null}
-                    </div>
-                    <div className="flex flex-1 flex-wrap items-center justify-between gap-2 border-t border-zinc-100 px-3 py-2.5 dark:border-zinc-800">
-                      <span className="min-w-0 flex-1 truncate text-xs font-medium text-zinc-700 dark:text-zinc-200">
-                        {f.name}
-                      </span>
-                      {locked ? (
-                        <span className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[11px] font-semibold text-amber-950 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-100">
-                          <Lock className="h-3.5 w-3.5 shrink-0" aria-hidden />
-                          Locked
-                        </span>
-                      ) : preferInlineFinalSave ? (
-                        <button
-                          type="button"
-                          title={touchMobileFinalSaveUx?.saveButtonTitle}
-                          aria-label={
-                            touchMobileFinalSaveUx?.saveButtonTitle ?? "Save or share photo to your device"
-                          }
-                          disabled={finalSaveBusyId !== null}
-                          aria-busy={finalSaveBusyId === f.id}
-                          onClick={() => void handleDeliverFinalPhotoMobile(f)}
-                          className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-zinc-900 px-2.5 py-1.5 text-xs font-semibold text-white enabled:hover:opacity-90 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900"
-                        >
-                          {finalSaveBusyId === f.id ? (
-                            <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden />
-                          ) : (
-                            <Share2 className="h-3.5 w-3.5 shrink-0" aria-hidden />
-                          )}
-                          Save / Share
-                        </button>
-                      ) : (
-                        <a
-                          href={getShareFinalDownloadUrl(token, f.id)}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-zinc-900 px-2.5 py-1.5 text-xs font-semibold text-white dark:bg-zinc-100 dark:text-zinc-900"
-                        >
-                          <Download className="h-3.5 w-3.5 shrink-0" aria-hidden />
-                          Download
-                        </a>
-                      )}
+                      <div className={galleryTileHoverActionsClass}>
+                        {locked ? (
+                          <span
+                            className={cn(galleryTileHoverIconClass, "pointer-events-none")}
+                            aria-hidden
+                          >
+                            <Lock className="h-4 w-4 stroke-[1.5]" />
+                          </span>
+                        ) : (
+                          <>
+                            {preferInlineFinalSave ? (
+                              <button
+                                type="button"
+                                title={touchMobileFinalSaveUx?.saveButtonTitle}
+                                aria-label={
+                                  touchMobileFinalSaveUx?.saveButtonTitle ??
+                                  "Save or share photo to your device"
+                                }
+                                disabled={finalSaveBusyId !== null}
+                                aria-busy={finalSaveBusyId === f.id}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  void handleDeliverFinalPhotoMobile(f);
+                                }}
+                                className={galleryTileHoverIconClass}
+                              >
+                                {finalSaveBusyId === f.id ? (
+                                  <Loader2 className="h-4 w-4 animate-spin stroke-[1.5]" aria-hidden />
+                                ) : (
+                                  <Download className="h-4 w-4 stroke-[1.5]" aria-hidden />
+                                )}
+                              </button>
+                            ) : (
+                              <a
+                                href={getShareFinalDownloadUrl(publicKey, f.id)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                className={galleryTileHoverIconClass}
+                                aria-label={`Download ${f.name}`}
+                              >
+                                <Download className="h-4 w-4 stroke-[1.5]" aria-hidden />
+                              </a>
+                            )}
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openFinalFeedback(f);
+                              }}
+                              className={galleryTileHoverIconClass}
+                              aria-label={
+                                f.flaggedByClient
+                                  ? `Update feedback for ${f.name}`
+                                  : `Flag ${f.name} for review`
+                              }
+                            >
+                              <Flag
+                                className={cn(
+                                  "h-4 w-4 stroke-[1.5]",
+                                  f.flaggedByClient && "fill-white",
+                                )}
+                                aria-hidden
+                              />
+                            </button>
+                          </>
+                        )}
+                      </div>
                     </div>
                   </li>
                 );
@@ -1204,300 +1432,375 @@ export function ClientGalleryApp({ token }: { token: string }) {
         ) : visibleAssets.length === 0 ? (
           <p className="text-center text-sm text-zinc-500 dark:text-zinc-400">
             {photoTab === "selected"
-              ? "You have not selected any photos yet."
-              : "No photos in this gallery yet."}
+              ? "You have not selected any media yet."
+              : "No media in this gallery yet."}
           </p>
         ) : (
           <ul className={galleryListClass(gridLayout)}>
-            {visibleAssets.map((a, index) => (
-              <li
-                key={a.id}
-                className={uploadItemClass(gridLayout, index, a.selection === "SELECTED")}
-              >
-                <div className={uploadImageWrapClass(gridLayout, index)}>
-                  <button
-                    type="button"
-                    className="absolute inset-0 block h-full w-full text-left"
-                    onClick={() => openLb(a.id)}
-                  >
-                    <Image
-                      src={a.thumbUrl}
-                      alt={a.originalName}
-                      fill
-                      sizes={shareGalleryGridSizes(gridLayout, index)}
-                      quality={SHARE_GRID_IMAGE_QUALITY}
-                      priority={index < 10}
-                      className="object-cover transition group-hover:brightness-[0.97]"
-                    />
-                  </button>
-
-                  <div className="absolute right-2 top-2 flex items-center gap-1.5">
+            {visibleAssets.map((a, index) => {
+              const isVideo = isClientAssetVideo(a);
+              const mediaSrc = (a.previewUrl ?? a.thumbUrl).trim();
+              const isSelected = a.selection === "SELECTED";
+              return (
+                <li
+                  key={a.id}
+                  className={uploadItemClass(gridLayout, index, isSelected)}
+                >
+                  <div className={uploadImageWrapClass(gridLayout, index)}>
                     <button
                       type="button"
-                      disabled={editingLocked || syncBusy}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        void toggleSelect(a.id);
-                      }}
-                      className={`inline-flex h-9 w-9 items-center justify-center rounded-full shadow-md ring-1 ring-black/10 backdrop-blur transition ${
-                        a.selection === "SELECTED"
-                          ? "bg-brand text-white hover:bg-brand-hover"
-                          : "bg-white/95 text-zinc-700 hover:bg-white"
-                      } disabled:opacity-40`}
-                      aria-label={a.selection === "SELECTED" ? "Unselect photo" : "Select photo"}
+                      className={
+                        isCollageGridLayout(gridLayout)
+                          ? "block w-full text-left"
+                          : "absolute inset-0 block h-full w-full text-left"
+                      }
+                      onClick={() => openLb(a.id)}
                     >
-                      <Check className="h-4 w-4" aria-hidden="true" />
+                      {isVideo ? (
+                        <video
+                          src={mediaSrc}
+                          muted
+                          playsInline
+                          preload="metadata"
+                          aria-label={a.originalName}
+                          className={
+                            isCollageGridLayout(gridLayout)
+                              ? "block h-auto w-full bg-black transition group-hover:brightness-[0.97]"
+                              : "absolute inset-0 h-full w-full bg-black object-cover transition group-hover:brightness-[0.97]"
+                          }
+                        />
+                      ) : isCollageGridLayout(gridLayout) ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={a.thumbUrl}
+                          alt={a.originalName}
+                          loading={index < 12 ? "eager" : "lazy"}
+                          decoding="async"
+                          draggable={!gallery.rightsProtection}
+                          className="block h-auto w-full transition group-hover:brightness-[0.97]"
+                        />
+                      ) : (
+                        <Image
+                          src={a.thumbUrl}
+                          alt={a.originalName}
+                          fill
+                          sizes={shareGalleryGridSizes(gridLayout, index)}
+                          quality={SHARE_GRID_IMAGE_QUALITY}
+                          priority={index < 10}
+                          className="object-cover transition group-hover:brightness-[0.97]"
+                        />
+                      )}
+                      {isVideo ? (
+                        <span className="pointer-events-none absolute left-2 top-2 rounded bg-black/60 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-white">
+                          Video
+                        </span>
+                      ) : null}
                     </button>
+
+                    {photoTab === "all" ? (
+                      <div className={galleryTileHoverActionsClass}>
+                        <button
+                          type="button"
+                          disabled={editingLocked || syncBusy}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void toggleSelect(a.id);
+                          }}
+                          className={galleryTileHoverIconClass}
+                          aria-label={isSelected ? "Remove from favorites" : "Add to favorites"}
+                        >
+                          <Heart
+                            className={cn(
+                              "h-4 w-4 stroke-[1.5]",
+                              isSelected && "fill-white",
+                            )}
+                            aria-hidden
+                          />
+                        </button>
+                      </div>
+                    ) : null}
                   </div>
-                </div>
-              </li>
-            ))}
+                </li>
+              );
+            })}
           </ul>
         )}
       </main>
 
       {lightboxId && lbAsset ? (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-4"
-          role="dialog"
-          aria-modal="true"
-        >
-          <button
-            type="button"
-            className="absolute inset-0 cursor-default"
-            aria-label="Close"
-            onClick={() => closeAllPreviews()}
-          />
-          <div className="relative z-10 flex max-h-[90vh] max-w-5xl flex-1 flex-col gap-4">
-            <div className="flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setZoom((z) => Math.min(2.5, z + 0.25))}
-                className="rounded-full bg-white/10 px-3 py-1 text-xs font-medium text-white hover:bg-white/20"
-              >
-                Zoom +
-              </button>
-              <button
-                type="button"
-                onClick={() => setZoom((z) => Math.max(1, z - 0.25))}
-                className="rounded-full bg-white/10 px-3 py-1 text-xs font-medium text-white hover:bg-white/20"
-              >
-                Zoom −
-              </button>
-              <button
-                type="button"
-                onClick={() => closeAllPreviews()}
-                className="rounded-full bg-white px-3 py-1 text-xs font-medium text-zinc-900"
-              >
-                Close
-              </button>
-            </div>
-            <div className="flex flex-1 items-center justify-center overflow-auto">
-              <Image
-                src={lbAsset.previewUrl ?? lbAsset.thumbUrl}
-                alt={lbAsset.originalName}
-                width={1920}
-                height={1920}
-                sizes={SHARE_LIGHTBOX_SIZES}
-                quality={SHARE_LIGHTBOX_IMAGE_QUALITY}
-                className={cn(
-                  "h-auto max-h-[75vh] w-auto max-w-full object-contain transition-transform duration-200",
-                  gallery.rightsProtection && "select-none",
-                )}
-                style={{ transform: `scale(${zoom})` }}
-                onContextMenu={(e) => {
-                  if (gallery.rightsProtection) e.preventDefault();
-                }}
-              />
-            </div>
-            <div className="flex items-center justify-between gap-4 text-white">
-              <button
-                type="button"
-                disabled={lbNavIndex <= 0}
-                onClick={() => {
-                  const prev = lightboxNavAssets[lbNavIndex - 1];
-                  if (prev) {
-                    setLightboxId(prev.id);
-                    setZoom(1);
-                  }
-                }}
-                className="rounded-full border border-white/30 px-4 py-2 text-sm disabled:opacity-30"
-              >
-                ← Previous
-              </button>
+        <MediaLightbox
+          open
+          onClose={closeAllPreviews}
+          ariaLabel={`Preview — ${lbAsset.originalName}`}
+          mediaKey={lbAsset.id}
+          title={lbAsset.originalName}
+          counter={
+            lightboxNavAssets.length > 1
+              ? { current: lbNavIndex + 1, total: lightboxNavAssets.length }
+              : undefined
+          }
+          canPrevious={lbNavIndex > 0}
+          canNext={lbNavIndex >= 0 && lbNavIndex < lightboxNavAssets.length - 1}
+          onPrevious={() => {
+            const prev = lightboxNavAssets[lbNavIndex - 1];
+            if (prev) {
+              setLightboxId(prev.id);
+              setZoom(1);
+            }
+          }}
+          onNext={() => {
+            const next = lightboxNavAssets[lbNavIndex + 1];
+            if (next) {
+              setLightboxId(next.id);
+              setZoom(1);
+            }
+          }}
+          zoomEnabled={!lbAssetIsVideo}
+          zoom={zoom}
+          onZoomChange={setZoom}
+          footer={
+            <div className="flex flex-wrap items-center justify-center gap-2 sm:justify-between">
+              <p className="hidden text-xs text-white/60 sm:block">
+                Double-click or scroll to zoom · drag when zoomed
+              </p>
               <button
                 type="button"
                 disabled={editingLocked || syncBusy}
                 onClick={() => void toggleSelect(lbAsset.id)}
-                className={`rounded-full px-4 py-2 text-sm font-semibold ${
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-semibold transition",
                   lbAsset.selection === "SELECTED"
-                    ? "bg-rose-500 text-white"
-                    : "border border-white/40 text-white"
-                }`}
+                    ? "bg-rose-500 text-white shadow-lg shadow-rose-900/30"
+                    : "border border-white/25 bg-white/10 text-white hover:bg-white/15",
+                )}
               >
-                {lbAsset.selection === "SELECTED" ? "Selected" : "Select"}
-              </button>
-              <button
-                type="button"
-                disabled={lbNavIndex < 0 || lbNavIndex >= lightboxNavAssets.length - 1}
-                onClick={() => {
-                  const next = lightboxNavAssets[lbNavIndex + 1];
-                  if (next) {
-                    setLightboxId(next.id);
-                    setZoom(1);
-                  }
-                }}
-                className="rounded-full border border-white/30 px-4 py-2 text-sm disabled:opacity-30"
-              >
-                Next →
+                <Heart
+                  className={cn(
+                    "size-4 stroke-[1.5]",
+                    lbAsset.selection === "SELECTED" && "fill-white",
+                  )}
+                  aria-hidden
+                />
+                {lbAsset.selection === "SELECTED" ? "Selected" : "Select photo"}
               </button>
             </div>
-          </div>
-        </div>
+          }
+        >
+          {lbAssetIsVideo ? (
+            <video
+              src={lbAsset.previewUrl ?? lbAsset.thumbUrl}
+              controls
+              playsInline
+              preload="metadata"
+              aria-label={lbAsset.originalName}
+              className={cn(
+                lightboxMediaClass,
+                "bg-black",
+                gallery.rightsProtection && "select-none",
+              )}
+              onContextMenu={(e) => {
+                if (gallery.rightsProtection) e.preventDefault();
+              }}
+            />
+          ) : (
+            <Image
+              src={lbAsset.previewUrl ?? lbAsset.thumbUrl}
+              alt={lbAsset.originalName}
+              width={1920}
+              height={1920}
+              sizes={SHARE_LIGHTBOX_SIZES}
+              quality={SHARE_LIGHTBOX_IMAGE_QUALITY}
+              className={cn(
+                lightboxMediaClass,
+                gallery.rightsProtection && "select-none",
+              )}
+              style={{ width: "auto", height: "auto" }}
+              draggable={false}
+              onContextMenu={(e) => {
+                if (gallery.rightsProtection) e.preventDefault();
+              }}
+            />
+          )}
+        </MediaLightbox>
       ) : null}
 
       {finalLb ? (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-label={`Preview — ${finalLb.name}`}
-        >
-          <button
-            type="button"
-            className="absolute inset-0 cursor-default"
-            aria-label="Close"
-            onClick={() => closeAllPreviews()}
-          />
-          <div className="relative z-10 flex max-h-[90vh] max-w-5xl flex-1 flex-col gap-4">
-            <div className="flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setZoom((z) => Math.min(2.5, z + 0.25))}
-                className="rounded-full bg-white/10 px-3 py-1 text-xs font-medium text-white hover:bg-white/20"
-              >
-                Zoom +
-              </button>
-              <button
-                type="button"
-                onClick={() => setZoom((z) => Math.max(1, z - 0.25))}
-                className="rounded-full bg-white/10 px-3 py-1 text-xs font-medium text-white hover:bg-white/20"
-              >
-                Zoom −
-              </button>
-              <button
-                type="button"
-                onClick={() => closeAllPreviews()}
-                className="rounded-full bg-white px-3 py-1 text-xs font-medium text-zinc-900"
-              >
-                Close
-              </button>
-            </div>
-            <div className="flex flex-1 items-center justify-center overflow-auto">
-              {!finalLb.locked && isShareFinalVideo(finalLb) ? (
-                <video
-                  src={finalLb.url}
-                  {...(finalLb.lockedPreviewUrl ? { poster: finalLb.lockedPreviewUrl } : {})}
-                  controls
-                  playsInline
-                  preload="metadata"
-                  aria-label={finalLb.name}
-                  className={cn(
-                    "max-h-[75vh] max-w-full object-contain transition-transform duration-200",
-                    gallery.rightsProtection && "select-none",
+        <MediaLightbox
+          open
+          onClose={closeAllPreviews}
+          ariaLabel={`Preview — ${finalLb.name}`}
+          mediaKey={finalLb.id}
+          title={finalLb.name}
+          subtitle={
+            finalLb.locked ? "Preview only until paid" : undefined
+          }
+          counter={
+            gallery.finals.length > 1
+              ? { current: finalLbIndex + 1, total: gallery.finals.length }
+              : undefined
+          }
+          canPrevious={finalLbIndex > 0}
+          canNext={finalLbIndex >= 0 && finalLbIndex < gallery.finals.length - 1}
+          onPrevious={() => {
+            const prev = gallery.finals[finalLbIndex - 1];
+            if (prev) {
+              setFinalLightboxId(prev.id);
+              setZoom(1);
+            }
+          }}
+          onNext={() => {
+            const next = gallery.finals[finalLbIndex + 1];
+            if (next) {
+              setFinalLightboxId(next.id);
+              setZoom(1);
+            }
+          }}
+          zoomEnabled={!isShareFinalVideo(finalLb)}
+          zoom={zoom}
+          onZoomChange={setZoom}
+          footer={
+            <div className="flex flex-col items-center gap-2 sm:flex-row sm:justify-center">
+              {finalLb.locked ? (
+                <span className="inline-flex items-center gap-1.5 text-xs text-amber-200">
+                  <Lock className="size-3.5 shrink-0" aria-hidden />
+                  Preview only until paid
+                </span>
+              ) : preferInlineFinalSave ? (
+                <button
+                  type="button"
+                  title={touchMobileFinalSaveUx?.saveButtonTitle}
+                  aria-label={
+                    touchMobileFinalSaveUx?.saveButtonTitle ?? "Save or share photo to your device"
+                  }
+                  disabled={finalSaveBusyId !== null}
+                  aria-busy={finalSaveBusyId === finalLb.id}
+                  onClick={() => void handleDeliverFinalPhotoMobile(finalLb)}
+                  className="inline-flex items-center gap-1.5 rounded-full bg-white px-4 py-2 text-sm font-semibold text-zinc-900 enabled:hover:bg-white/90 disabled:opacity-50"
+                >
+                  {finalSaveBusyId === finalLb.id ? (
+                    <Loader2 className="size-4 shrink-0 animate-spin" aria-hidden />
+                  ) : (
+                    <Share2 className="size-4 shrink-0" aria-hidden />
                   )}
-                  style={{ transform: `scale(${zoom})` }}
-                  onContextMenu={(e) => {
-                    if (gallery.rightsProtection) e.preventDefault();
-                  }}
-                />
+                  Save / Share
+                </button>
               ) : (
-                <Image
-                  src={finalDisplaySrc(finalLb, token)}
-                  alt={finalLb.name}
-                  width={1920}
-                  height={1920}
-                  sizes={SHARE_LIGHTBOX_SIZES}
-                  quality={SHARE_LIGHTBOX_IMAGE_QUALITY}
-                  className={cn(
-                    "h-auto max-h-[75vh] w-auto max-w-full object-contain transition-transform duration-200",
-                    gallery.rightsProtection && "select-none",
-                    finalLb.locked && "select-none",
-                  )}
-                  style={{ transform: `scale(${zoom})` }}
-                  draggable={!finalLb.locked}
-                  onContextMenu={(e) => {
-                    if (finalLb.locked || gallery.rightsProtection) e.preventDefault();
-                  }}
-                />
+                <a
+                  href={getShareFinalDownloadUrl(publicKey, finalLb.id)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 rounded-full bg-white px-4 py-2 text-sm font-semibold text-zinc-900 hover:bg-white/90"
+                >
+                  <Download className="size-4 shrink-0" aria-hidden />
+                  Download
+                </a>
               )}
             </div>
-            <div className="flex flex-col gap-3 text-white sm:flex-row sm:items-center sm:justify-between sm:gap-4">
-              <button
-                type="button"
-                disabled={finalLbIndex <= 0}
-                onClick={() => {
-                  const prev = gallery.finals[finalLbIndex - 1];
-                  if (prev) {
-                    setFinalLightboxId(prev.id);
-                    setZoom(1);
-                  }
-                }}
-                className="rounded-full border border-white/30 px-4 py-2 text-sm disabled:opacity-30"
-              >
-                ← Previous
-              </button>
-              <div className="flex min-w-0 flex-1 flex-col items-center justify-center gap-2 px-1 text-center">
-                <span className="max-w-full truncate text-xs font-medium">{finalLb.name}</span>
-                {finalLb.locked ? (
-                  <span className="inline-flex items-center gap-1 text-[11px] text-amber-200">
-                    <Lock className="h-3.5 w-3.5 shrink-0" aria-hidden />
-                    Preview only until paid
-                  </span>
-                ) : preferInlineFinalSave ? (
-                  <button
-                    type="button"
-                    title={touchMobileFinalSaveUx?.saveButtonTitle}
-                    aria-label={
-                      touchMobileFinalSaveUx?.saveButtonTitle ?? "Save or share photo to your device"
-                    }
-                    disabled={finalSaveBusyId !== null}
-                    aria-busy={finalSaveBusyId === finalLb.id}
-                    onClick={() => void handleDeliverFinalPhotoMobile(finalLb)}
-                    className="inline-flex items-center gap-1 rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-zinc-900 enabled:hover:bg-white/90 disabled:opacity-50"
-                  >
-                    {finalSaveBusyId === finalLb.id ? (
-                      <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden />
-                    ) : (
-                      <Share2 className="h-3.5 w-3.5 shrink-0" aria-hidden />
-                    )}
-                    Save / Share
-                  </button>
-                ) : (
-                  <a
-                    href={getShareFinalDownloadUrl(token, finalLb.id)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-zinc-900"
-                  >
-                    <Download className="h-3.5 w-3.5 shrink-0" aria-hidden />
-                    Download
-                  </a>
-                )}
+          }
+        >
+          {!finalLb.locked && isShareFinalVideo(finalLb) ? (
+            <video
+              src={finalLb.url}
+              {...(finalLb.lockedPreviewUrl ? { poster: finalLb.lockedPreviewUrl } : {})}
+              controls
+              playsInline
+              preload="metadata"
+              aria-label={finalLb.name}
+              className={cn(
+                lightboxMediaClass,
+                gallery.rightsProtection && "select-none",
+              )}
+              onContextMenu={(e) => {
+                if (gallery.rightsProtection) e.preventDefault();
+              }}
+            />
+          ) : (
+            <Image
+              src={finalDisplaySrc(finalLb, publicKey)}
+              alt={finalLb.name}
+              width={1920}
+              height={1920}
+              sizes={SHARE_LIGHTBOX_SIZES}
+              quality={SHARE_LIGHTBOX_IMAGE_QUALITY}
+              className={cn(
+                lightboxMediaClass,
+                gallery.rightsProtection && "select-none",
+                finalLb.locked && "select-none",
+              )}
+              style={{ width: "auto", height: "auto" }}
+              draggable={!finalLb.locked}
+              onContextMenu={(e) => {
+                if (finalLb.locked || gallery.rightsProtection) e.preventDefault();
+              }}
+            />
+          )}
+        </MediaLightbox>
+      ) : null}
+
+      {finalFeedback ? (
+        <div className="fixed inset-0 z-[64] flex items-center justify-center p-4">
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/55"
+            aria-label="Close feedback"
+            onClick={() => {
+              if (!finalFeedbackBusy) setFinalFeedback(null);
+            }}
+          />
+          <div
+            className="relative z-10 w-full max-w-md rounded-2xl border border-zinc-200 bg-white p-5 shadow-2xl dark:border-zinc-800 dark:bg-zinc-950"
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Flag final: ${finalFeedback.finalName}`}
+          >
+            <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-50">
+              {finalFeedback.flaggedByClient ? "Update final feedback" : "Flag this final"}
+            </h2>
+            <p className="mt-1.5 text-sm leading-relaxed text-zinc-600 dark:text-zinc-300">
+              Tell your photographer what should be adjusted for {finalFeedback.finalName}.
+            </p>
+            {finalFeedback.photographerReply ? (
+              <div className="mt-4 rounded-xl border border-brand/15 bg-brand-soft/60 px-3 py-2.5 dark:border-brand/25 dark:bg-brand/10">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-brand-ink dark:text-brand-on-dark">
+                  Photographer reply
+                </p>
+                <p className="mt-1.5 text-sm leading-relaxed text-zinc-800 dark:text-zinc-100">
+                  {finalFeedback.photographerReply}
+                </p>
               </div>
+            ) : null}
+            <FormTextArea
+              value={finalFeedback.comment}
+              onChange={(e) =>
+                setFinalFeedback((current) =>
+                  current ? { ...current, comment: e.target.value } : current,
+                )
+              }
+              rows={4}
+              placeholder="Example: Skin tone looks too warm. Please re-edit."
+              className="mt-4 [&_.ant-input]:!resize-none [&_.ant-input]:!rounded-xl"
+            />
+            <div className="mt-5 flex justify-end gap-2">
               <button
                 type="button"
-                disabled={finalLbIndex < 0 || finalLbIndex >= gallery.finals.length - 1}
-                onClick={() => {
-                  const next = gallery.finals[finalLbIndex + 1];
-                  if (next) {
-                    setFinalLightboxId(next.id);
-                    setZoom(1);
-                  }
-                }}
-                className="rounded-full border border-white/30 px-4 py-2 text-sm disabled:opacity-30"
+                disabled={finalFeedbackBusy}
+                onClick={() => setFinalFeedback(null)}
+                className="rounded-xl border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-700 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-200"
               >
-                Next →
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={finalFeedbackBusy || finalFeedback.comment.trim().length === 0}
+                onClick={() => void submitFinalFeedback()}
+                className="inline-flex items-center gap-2 rounded-xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900"
+              >
+                {finalFeedbackBusy ? (
+                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                ) : (
+                  <Flag className="h-4 w-4" aria-hidden />
+                )}
+                {finalFeedback.flaggedByClient ? "Update" : "Flag"}
               </button>
             </div>
           </div>
@@ -1505,72 +1808,34 @@ export function ClientGalleryApp({ token }: { token: string }) {
       ) : null}
 
       {coverLightboxOpen && gallery.coverImageUrl ? (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Cover preview"
+        <MediaLightbox
+          open
+          onClose={closeAllPreviews}
+          ariaLabel="Cover preview"
+          mediaKey={gallery.coverImageUrl}
+          title={displayTitle ? `Cover — ${displayTitle}` : "Gallery cover"}
+          zoom={zoom}
+          onZoomChange={setZoom}
         >
-          <button
-            type="button"
-            className="absolute inset-0 cursor-default"
-            aria-label="Close"
-            onClick={() => closeAllPreviews()}
+          <Image
+            src={gallery.coverImageUrl}
+            alt={displayTitle ? `Cover — ${displayTitle}` : "Gallery cover"}
+            width={1920}
+            height={1920}
+            sizes={SHARE_LIGHTBOX_SIZES}
+            quality={SHARE_LIGHTBOX_IMAGE_QUALITY}
+            className={cn(
+              lightboxMediaClass,
+              "object-center",
+              gallery.rightsProtection && "select-none",
+            )}
+            style={{ ...coverImageObjectPosition, width: "auto", height: "auto" }}
+            draggable={false}
+            onContextMenu={(e) => {
+              if (gallery.rightsProtection) e.preventDefault();
+            }}
           />
-          <div className="relative z-10 flex max-h-[90vh] max-w-5xl flex-1 flex-col gap-4">
-            <div className="flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setZoom((z) => Math.min(2.5, z + 0.25))}
-                className="rounded-full bg-white/10 px-3 py-1 text-xs font-medium text-white hover:bg-white/20"
-              >
-                Zoom +
-              </button>
-              <button
-                type="button"
-                onClick={() => setZoom((z) => Math.max(1, z - 0.25))}
-                className="rounded-full bg-white/10 px-3 py-1 text-xs font-medium text-white hover:bg-white/20"
-              >
-                Zoom −
-              </button>
-              <button
-                type="button"
-                onClick={() => closeAllPreviews()}
-                className="rounded-full bg-white px-3 py-1 text-xs font-medium text-zinc-900"
-              >
-                Close
-              </button>
-            </div>
-            <div className="flex flex-1 items-center justify-center overflow-auto">
-              <Image
-                src={gallery.coverImageUrl}
-                alt={displayTitle ? `Cover — ${displayTitle}` : "Gallery cover"}
-                width={1920}
-                height={1920}
-                sizes={SHARE_LIGHTBOX_SIZES}
-                quality={SHARE_LIGHTBOX_IMAGE_QUALITY}
-                className={cn(
-                  "h-auto max-h-[75vh] w-auto max-w-full object-contain object-center transition-transform duration-200",
-                  gallery.rightsProtection && "select-none",
-                )}
-                style={{
-                  transform: `scale(${zoom})`,
-                  ...folderCoverObjectPositionStyle({
-                    _id: gallery.folderId ?? "",
-                    client: "",
-                    eventDate: "",
-                    description: "",
-                    coverFocalX: gallery.coverFocalX,
-                    coverFocalY: gallery.coverFocalY,
-                  } as ApiFolder),
-                }}
-                onContextMenu={(e) => {
-                  if (gallery.rightsProtection) e.preventDefault();
-                }}
-              />
-            </div>
-          </div>
-        </div>
+        </MediaLightbox>
       ) : null}
 
       {musicAllowed ? (
@@ -1585,38 +1850,36 @@ export function ClientGalleryApp({ token }: { token: string }) {
             preload="auto"
             className="sr-only"
             aria-hidden
+            onCanPlay={() => playGalleryMusic()}
           />
-          {galleryMusicStarted || galleryMusicMuted ? (
-            <div className="fixed bottom-4 right-4 z-[52] sm:bottom-6 sm:right-6">
-              <button
-                type="button"
-                onClick={() => {
-                  const next = !galleryMusicMuted;
-                  setGalleryMusicMuted(next);
-                  try {
-                    if (next) {
-                      sessionStorage.setItem(`${GALLERY_MUSIC_MUTE_PREFIX}${token}`, "1");
-                    } else {
-                      sessionStorage.removeItem(`${GALLERY_MUSIC_MUTE_PREFIX}${token}`);
-                      void audioRef.current?.play().then(() => {
-                        setGalleryMusicStarted(true);
-                      }).catch(() => {});
-                    }
-                  } catch {
-                    /* ignore */
-                  }
-                }}
-                className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-zinc-200/90 bg-white/95 text-zinc-900 shadow-lg backdrop-blur-sm dark:border-zinc-600 dark:bg-zinc-900/95 dark:text-zinc-50"
-                aria-label={galleryMusicMuted ? "Unmute gallery music" : "Mute gallery music"}
-              >
-                {galleryMusicMuted ? (
-                  <VolumeX className="h-5 w-5" aria-hidden />
-                ) : (
-                  <Volume2 className="h-5 w-5" aria-hidden />
-                )}
-              </button>
-            </div>
-          ) : null}
+          <div className="fixed bottom-4 right-4 z-[52] sm:bottom-6 sm:right-6">
+            <button
+              type="button"
+              onClick={toggleGalleryMusic}
+              className={cn(
+                "inline-flex h-11 items-center justify-center gap-2 rounded-full border border-zinc-200/90 bg-white/95 text-zinc-900 shadow-lg backdrop-blur-sm transition hover:bg-white dark:border-zinc-600 dark:bg-zinc-900/95 dark:text-zinc-50 dark:hover:bg-zinc-900",
+                galleryMusicStarted && !galleryMusicMuted ? "w-11 px-0" : "px-4",
+              )}
+              aria-label={
+                galleryMusicStarted && !galleryMusicMuted
+                  ? "Mute gallery music"
+                  : "Play gallery music"
+              }
+            >
+              {galleryMusicStarted && !galleryMusicMuted ? (
+                <Volume2 className="h-5 w-5" aria-hidden />
+              ) : (
+                <>
+                  {galleryMusicMuted ? (
+                    <VolumeX className="h-5 w-5" aria-hidden />
+                  ) : (
+                    <Volume2 className="h-5 w-5" aria-hidden />
+                  )}
+                  <span className="text-xs font-semibold">Play music</span>
+                </>
+              )}
+            </button>
+          </div>
         </>
       ) : null}
 
@@ -1634,8 +1897,8 @@ export function ClientGalleryApp({ token }: { token: string }) {
             </h2>
             <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-300">
               {gallery.selectionSubmitted
-                ? `You have ${selectedCount} image${selectedCount === 1 ? "" : "s"} selected. This sends your latest picks to your photographer.`
-                : `You chose ${selectedCount} image${selectedCount === 1 ? "" : "s"}. This sends your picks to your photographer.`}
+                ? `You have selected ${selectedCountLabel} image${selectedCount === 1 ? "" : "s"}. This sends your latest picks to your photographer.`
+                : `You selected ${selectedCountLabel} image${selectedCount === 1 ? "" : "s"}. This sends your picks to your photographer.`}
             </p>
             <div className="mt-6 flex justify-end gap-2">
               <button

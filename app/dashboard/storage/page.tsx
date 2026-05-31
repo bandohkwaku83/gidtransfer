@@ -21,9 +21,10 @@ import {
   type UsageSummaryResponse,
   UsageApiError,
 } from "@/lib/usage-api";
+import { getActivePlanDefinition } from "@/lib/subscription-plan";
 
 function formatBytes(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes < 0) return "—";
+  if (!Number.isFinite(bytes) || bytes < 0) return "N/A";
   const units = ["B", "KB", "MB", "GB", "TB"] as const;
   let v = bytes;
   let u = 0;
@@ -70,8 +71,8 @@ function mapGalleryToRow(g: UsageGalleryRow) {
     g.raws_size_bytes + g.selections_size_bytes + g.finals_size_bytes;
   return {
     id: g.id,
-    eventName: g.name || "—",
-    clientName: g.client?.name?.trim() || "—",
+    eventName: g.name || "N/A",
+    clientName: g.client?.name?.trim() || "N/A",
     bytesRaw: g.raws_size_bytes,
     bytesSelection: g.selections_size_bytes,
     bytesFinals: g.finals_size_bytes,
@@ -80,6 +81,7 @@ function mapGalleryToRow(g: UsageGalleryRow) {
 }
 
 export default function StoragePage() {
+  const plan = getActivePlanDefinition();
   const [sortKey, setSortKey] = useState<SortKey>("total");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
 
@@ -192,88 +194,113 @@ export default function StoragePage() {
   const showEmptyList = !listLoading && sortedRows.length === 0 && !listError;
 
   return (
-    <div className="mx-auto max-w-6xl space-y-8">
-      <section className="rounded-2xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-950">
-        {summaryError ? (
-          <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-200">
-            {summaryError}
-            <button
-              type="button"
-              className="ml-3 font-semibold underline"
-              onClick={() => void loadSummary()}
-            >
-              Retry
-            </button>
-          </div>
-        ) : null}
-
-        <div className="flex flex-wrap items-start justify-between gap-4">
+    <div className="dashboard-page space-y-6">
+      <section className="relative overflow-hidden rounded-2xl border border-slate-800/50 bg-gradient-to-br from-slate-950 via-indigo-950/85 to-slate-900 shadow-lg shadow-slate-900/20">
+        <div
+          className="pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full bg-brand/15 blur-3xl"
+          aria-hidden
+        />
+        <div className="relative space-y-4 p-5 sm:p-6">
           <div>
-            <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
-              Overall usage
-            </h2>
-            <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-              Total stored across all galleries (raws, selections, and finals).
+            <h1 className="text-2xl font-semibold tracking-tight text-white sm:text-[1.65rem]">
+              Storage
+            </h1>
+            <p className="mt-1.5 text-sm text-slate-400">
+              Raws, selections, and finals across all galleries.
             </p>
           </div>
-          <div className="text-right">
-            {summaryLoading ? (
-              <div className="h-9 w-28 animate-pulse rounded-lg bg-zinc-200 dark:bg-zinc-800" />
-            ) : (
-              <>
-                <p className="text-2xl font-semibold tabular-nums text-zinc-900 dark:text-zinc-50">
-                  {formatBytes(totals.used)}
-                </p>
-                <p className="text-xs text-zinc-500 dark:text-zinc-400">total</p>
-              </>
-            )}
-          </div>
-        </div>
 
-        <dl className="mt-6 grid gap-4 sm:grid-cols-3">
-          {(["raw", "selection", "finals"] as const).map((key) => {
-            const label =
-              key === "raw" ? "Raws" : key === "selection" ? "Selections" : "Finals";
-            const Icon = key === "raw" ? Layers : key === "selection" ? ImageIcon : Sparkles;
-            const bytes =
-              key === "raw"
-                ? totals.raw
-                : key === "selection"
-                  ? totals.selection
-                  : totals.finals;
-            const p =
-              key === "raw"
-                ? totals.percents.raw
-                : key === "selection"
-                  ? totals.percents.selection
-                  : totals.percents.finals;
-            return (
-              <div
-                key={key}
-                className="rounded-xl border border-zinc-100 bg-zinc-50/80 px-4 py-3 dark:border-zinc-800 dark:bg-zinc-900/40"
+          {summaryError ? (
+            <div className="rounded-xl border border-red-400/30 bg-red-500/10 px-4 py-3 text-sm text-red-100">
+              {summaryError}
+              <button
+                type="button"
+                className="ml-3 font-semibold underline"
+                onClick={() => void loadSummary()}
               >
-                <dt className="flex items-center gap-2 text-xs font-medium text-zinc-500 dark:text-zinc-400">
-                  <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden />
-                  {label}
-                </dt>
-                <dd className="mt-1 text-lg font-semibold tabular-nums text-zinc-900 dark:text-zinc-50">
-                  {summaryLoading ? (
-                    <span className="inline-block h-7 w-20 animate-pulse rounded bg-zinc-200 dark:bg-zinc-800" />
-                  ) : (
-                    formatBytes(bytes)
-                  )}
-                </dd>
-                <dd className="text-[11px] text-zinc-500 dark:text-zinc-400">
-                  {summaryLoading ? (
-                    <span className="inline-block h-3 w-16 animate-pulse rounded bg-zinc-200 dark:bg-zinc-800" />
-                  ) : (
-                    `${formatPercentDisplay(p)} of your uploads`
-                  )}
-                </dd>
+                Retry
+              </button>
+            </div>
+          ) : summaryLoading ? (
+            <div className="space-y-3">
+              <div className="h-9 w-32 animate-pulse rounded-lg bg-white/10" />
+              <div className="h-2 animate-pulse rounded-full bg-white/10" />
+              <div className="grid grid-cols-3 gap-2">
+                {[0, 1, 2].map((i) => (
+                  <div key={i} className="h-16 animate-pulse rounded-xl bg-white/10" />
+                ))}
               </div>
-            );
-          })}
-        </dl>
+            </div>
+          ) : (
+            <>
+              <div className="flex flex-wrap items-end justify-between gap-3">
+                <div>
+                  <p className="text-3xl font-semibold tabular-nums tracking-tight text-white">
+                    {formatBytes(totals.used)}
+                  </p>
+                  <p className="mt-0.5 text-sm text-slate-400">
+                    of {formatBytes(plan.storageBytes)}, {plan.label}
+                  </p>
+                </div>
+                <p className="text-xs font-medium text-slate-500">
+                  {formatPercentDisplay(pct(totals.used, plan.storageBytes))} of plan
+                </p>
+              </div>
+              <div
+                className="h-2 overflow-hidden rounded-full bg-white/10"
+                role="progressbar"
+                aria-valuenow={pct(totals.used, plan.storageBytes)}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-label="Storage used"
+              >
+                <div
+                  className="h-full rounded-full bg-brand transition-[width]"
+                  style={{
+                    width: `${Math.min(100, pct(totals.used, plan.storageBytes))}%`,
+                  }}
+                />
+              </div>
+              <dl className="grid grid-cols-3 gap-2 sm:gap-3">
+                {(["raw", "selection", "finals"] as const).map((key) => {
+                  const label =
+                    key === "raw" ? "Raws" : key === "selection" ? "Selections" : "Finals";
+                  const Icon =
+                    key === "raw" ? Layers : key === "selection" ? ImageIcon : Sparkles;
+                  const bytes =
+                    key === "raw"
+                      ? totals.raw
+                      : key === "selection"
+                        ? totals.selection
+                        : totals.finals;
+                  const share =
+                    key === "raw"
+                      ? totals.percents.raw
+                      : key === "selection"
+                        ? totals.percents.selection
+                        : totals.percents.finals;
+                  return (
+                    <div
+                      key={key}
+                      className="rounded-xl border border-white/10 bg-white/5 px-3 py-2.5"
+                    >
+                      <dt className="flex items-center gap-1.5 text-[11px] font-medium text-slate-400">
+                        <Icon className="h-3 w-3 shrink-0" aria-hidden />
+                        {label}
+                      </dt>
+                      <dd className="mt-1 text-sm font-semibold tabular-nums text-white">
+                        {formatBytes(bytes)}
+                      </dd>
+                      <dd className="text-[10px] text-slate-500">
+                        {formatPercentDisplay(share)} of uploads
+                      </dd>
+                    </div>
+                  );
+                })}
+              </dl>
+            </>
+          )}
+        </div>
       </section>
 
       <section className="overflow-hidden rounded-2xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">

@@ -1,24 +1,45 @@
+import type { GalleryCoverFrame } from "@/lib/gallery-cover-frame";
+
 export type SelectionState = "UNSELECTED" | "SELECTED";
 export type EditState = "NONE" | "IN_PROGRESS" | "EDITED";
 export type FolderStatus = "DRAFT" | "SELECTION_PENDING" | "COMPLETED";
 
+export type DemoGallerySet = {
+  id: string;
+  name: string;
+  sortOrder: number;
+};
+
 export type DemoAsset = {
   id: string;
   originalName: string;
+  /** Optional gallery set (subsection) for this raw/selection item. */
+  setId?: string | null;
   selection: SelectionState;
   editState: EditState;
   clientComment: string;
+  photographerReply?: string;
   hasEdited: boolean;
   thumbUrl: string;
+  /** ISO timestamp when the client selected/hearted this item. */
+  selectedAt?: string | null;
   /** Full-screen preview URL when better than {@link thumbUrl} (share galleries / API). */
   previewUrl?: string;
   editedPreviewUrl?: string;
+  /** Raw upload or selection row is a video file. */
+  isVideo?: boolean;
+  rejectedByClient?: boolean;
+  rejectionComment?: string;
 };
 
 export type DemoFinalAsset = {
   id: string;
   name: string;
+  setId?: string | null;
   url: string;
+  /** Final delivery file is a video. */
+  isVideo?: boolean;
+  mimeType?: string;
   /** Payment lock — client share hides full-res download until unlock. */
   locked?: boolean;
 };
@@ -39,6 +60,8 @@ export type DemoProject = {
   assets: DemoAsset[];
   finalAssets: DemoFinalAsset[];
   sharePasswordEnabled: boolean;
+  /** 4-digit client access code when {@link sharePasswordEnabled} is true (UI / demo). */
+  shareAccessPin?: string;
   /** Relative days from “today” in UI; null = no expiry */
   shareExpiryDays: number | null;
   /** Client submitted picks */
@@ -60,8 +83,60 @@ export type DemoClient = {
 const STORAGE_EXTRA = "gidostorage_demo_projects_v2";
 const STORAGE_OVERRIDES = "gidostorage_folder_overrides_v1";
 const STORAGE_CLIENTS_EXTRA = "gidostorage_demo_clients_v1";
+const STORAGE_CLIENT_PATCH = "gidostorage_demo_client_patch_v1";
 
-export type FolderOverride = Partial<DemoProject> & { deleted?: boolean };
+export type FolderOverride = Partial<DemoProject> & {
+  deleted?: boolean;
+  deletedAt?: string;
+  restoreBefore?: string;
+  /** Photographer lock on client selections (demo UI). */
+  selectionLocked?: boolean;
+  /** Max photos the client may heart-select; omit or 0 = unlimited (demo UI). */
+  selectionLimit?: number | null;
+  /** Simulate payment lock on finals for client share. */
+  finalsPaymentLocked?: boolean;
+  /** Cover focal point (demo — stored only in overrides). */
+  coverFocalX?: number;
+  coverFocalY?: number;
+  /** Client gallery cover frame (demo — stored only in overrides). */
+  coverFrame?: GalleryCoverFrame;
+  /** Cover backdrop color (demo — stored only in overrides). */
+  coverColor?: string;
+  /** Permanently hidden after trash purge (demo). */
+  purged?: boolean;
+  /** Demo-only streamed URL for gallery background music. */
+  demoBackgroundMusicUrl?: string;
+  /** Demo-only photographer replies keyed by `sel:<photoId>` or `fin:<finalId>`. */
+  feedbackReplies?: Record<string, string>;
+  /** Named subsections within this demo gallery. */
+  gallerySets?: DemoGallerySet[];
+  /** Demo-only set assignment when not stored on the asset row. */
+  assetSetIds?: Record<string, string | null>;
+  finalSetIds?: Record<string, string | null>;
+  /** Client gallery 4-digit gate (demo — stored in overrides). */
+  sharePasswordEnabled?: boolean;
+  shareAccessPin?: string;
+};
+
+const OVERRIDE_ONLY_FIELDS = new Set([
+  "deleted",
+  "deletedAt",
+  "restoreBefore",
+  "selectionLocked",
+  "selectionLimit",
+  "finalsPaymentLocked",
+  "purged",
+  "demoBackgroundMusicUrl",
+  "coverFocalX",
+  "coverFocalY",
+  "coverFrame",
+  "coverColor",
+  "gallerySets",
+  "assetSetIds",
+  "finalSetIds",
+  "sharePasswordEnabled",
+  "shareAccessPin",
+]);
 
 function emptyFinals(): DemoFinalAsset[] {
   return [];
@@ -75,7 +150,7 @@ export const SEED_PROJECTS: DemoProject[] = [
     shareToken: "demo-kwaku-gallery",
     createdAt: "2026-04-01T10:00:00.000Z",
     eventDate: "2026-05-18",
-    description: "Full-day coverage — ceremony & reception.",
+    description: "Full-day coverage, ceremony and reception.",
     updatedAt: "2026-04-10T15:30:00.000Z",
     status: "DRAFT",
     selectionSubmitted: false,
@@ -121,7 +196,7 @@ export const SEED_PROJECTS: DemoProject[] = [
   },
   {
     id: "p-portrait",
-    clientName: "Studio Portraits — April",
+    clientName: "Studio Portraits, April",
     contactEmail: "studio.portraits.april@client.gido",
     shareToken: "demo-portraits-april",
     createdAt: "2026-04-05T12:00:00.000Z",
@@ -205,8 +280,46 @@ export function appendExtraClient(client: DemoClient) {
   writeExtraClients([...readExtraClients(), client]);
 }
 
+function readClientPatches(): Record<string, Partial<DemoClient>> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = window.sessionStorage.getItem(STORAGE_CLIENT_PATCH);
+    if (!raw) return {};
+    const p = JSON.parse(raw) as unknown;
+    return typeof p === "object" && p !== null ? (p as Record<string, Partial<DemoClient>>) : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeClientPatches(next: Record<string, Partial<DemoClient>>) {
+  if (typeof window === "undefined") return;
+  window.sessionStorage.setItem(STORAGE_CLIENT_PATCH, JSON.stringify(next));
+}
+
+export function patchDemoClientFields(id: string, patch: Partial<DemoClient>) {
+  const cur = readClientPatches();
+  writeClientPatches({ ...cur, [id]: { ...cur[id], ...patch, updatedAt: new Date().toISOString() } });
+}
+
+export function deleteExtraClientById(id: string): boolean {
+  const before = readExtraClients();
+  const next = before.filter((c) => c.id !== id);
+  if (next.length === before.length) return false;
+  writeExtraClients(next);
+  const cp = readClientPatches();
+  if (cp[id]) {
+    const { [id]: _r, ...rest } = cp;
+    writeClientPatches(rest);
+  }
+  return true;
+}
+
 export function loadAllClients(): DemoClient[] {
-  return [...SEED_CLIENTS, ...readExtraClients()];
+  return [...SEED_CLIENTS, ...readExtraClients()].map((c) => {
+    const p = readClientPatches()[c.id];
+    return p ? { ...c, ...p } : c;
+  });
 }
 
 export function createClientDraft(input: {
@@ -249,6 +362,99 @@ export function patchFolderOverride(id: string, patch: FolderOverride) {
   writeOverrides({ ...cur, [id]: { ...cur[id], ...patch } });
 }
 
+export function getFolderOverride(id: string): FolderOverride | undefined {
+  return readOverrides()[id];
+}
+
+function demoSetId(): string {
+  return `set-${Math.random().toString(36).slice(2, 11)}`;
+}
+
+export function listDemoGallerySets(folderId: string): DemoGallerySet[] {
+  const sets = getFolderOverride(folderId)?.gallerySets ?? [];
+  return [...sets].sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
+}
+
+export function createDemoGallerySet(folderId: string, name: string): DemoGallerySet {
+  const trimmed = name.trim();
+  if (!trimmed) throw new Error("Set name is required");
+  const existing = listDemoGallerySets(folderId);
+  const sortOrder =
+    existing.length > 0 ? Math.max(...existing.map((s) => s.sortOrder)) + 1 : 0;
+  const row: DemoGallerySet = { id: demoSetId(), name: trimmed, sortOrder };
+  patchFolderOverride(folderId, { gallerySets: [...existing, row] });
+  return row;
+}
+
+export function updateDemoGallerySet(
+  folderId: string,
+  setId: string,
+  patch: { name?: string; sortOrder?: number },
+): DemoGallerySet {
+  const existing = listDemoGallerySets(folderId);
+  const idx = existing.findIndex((s) => s.id === setId);
+  if (idx < 0) throw new Error("Set not found");
+  const cur = existing[idx]!;
+  const next: DemoGallerySet = {
+    ...cur,
+    ...(patch.name !== undefined ? { name: patch.name.trim() || cur.name } : {}),
+    ...(patch.sortOrder !== undefined ? { sortOrder: patch.sortOrder } : {}),
+  };
+  const gallerySets = [...existing];
+  gallerySets[idx] = next;
+  patchFolderOverride(folderId, { gallerySets });
+  return next;
+}
+
+export function deleteDemoGallerySet(folderId: string, setId: string): void {
+  const o = getFolderOverride(folderId);
+  const existing = o?.gallerySets ?? [];
+  const gallerySets = existing.filter((s) => s.id !== setId);
+  const assetSetIds = { ...(o?.assetSetIds ?? {}) };
+  const finalSetIds = { ...(o?.finalSetIds ?? {}) };
+  for (const [id, sid] of Object.entries(assetSetIds)) {
+    if (sid === setId) assetSetIds[id] = null;
+  }
+  for (const [id, sid] of Object.entries(finalSetIds)) {
+    if (sid === setId) finalSetIds[id] = null;
+  }
+  const project = loadProjectById(folderId);
+  if (project) {
+    const assets = project.assets.map((a) =>
+      (a.setId === setId ? { ...a, setId: null } : a),
+    );
+    const finalAssets = project.finalAssets.map((f) =>
+      (f.setId === setId ? { ...f, setId: null } : f),
+    );
+    saveProjectSnapshot({ ...project, assets, finalAssets });
+  }
+  patchFolderOverride(folderId, { gallerySets, assetSetIds, finalSetIds });
+}
+
+function resolveDemoAssetSetId(
+  folderId: string,
+  assetId: string,
+  asset?: DemoAsset,
+): string | null {
+  if (asset?.setId != null && asset.setId !== "") return asset.setId;
+  const mapped = getFolderOverride(folderId)?.assetSetIds?.[assetId];
+  if (mapped === undefined) return null;
+  return mapped;
+}
+
+function resolveDemoFinalSetId(
+  folderId: string,
+  finalId: string,
+  fin?: DemoFinalAsset,
+): string | null {
+  if (fin?.setId != null && fin.setId !== "") return fin.setId;
+  const mapped = getFolderOverride(folderId)?.finalSetIds?.[finalId];
+  if (mapped === undefined) return null;
+  return mapped;
+}
+
+export { resolveDemoAssetSetId, resolveDemoFinalSetId };
+
 function readExtraProjects(): DemoProject[] {
   if (typeof window === "undefined") return [];
   try {
@@ -273,9 +479,14 @@ export function appendExtraProject(project: DemoProject) {
 function mergeProject(base: DemoProject): DemoProject {
   const o = readOverrides()[base.id];
   if (!o) return base;
+  const projectPatch: Partial<DemoProject> = {};
+  for (const [key, val] of Object.entries(o)) {
+    if (OVERRIDE_ONLY_FIELDS.has(key)) continue;
+    (projectPatch as Record<string, unknown>)[key] = val;
+  }
   return {
     ...base,
-    ...o,
+    ...projectPatch,
     assets: o.assets ?? base.assets,
     finalAssets: o.finalAssets ?? base.finalAssets,
   };
@@ -285,9 +496,13 @@ function isRemoved(p: DemoProject): boolean {
   return readOverrides()[p.id]?.deleted === true;
 }
 
+function isPurgedId(id: string): boolean {
+  return readOverrides()[id]?.purged === true;
+}
+
 export function loadAllProjects(): DemoProject[] {
   const merged = [...SEED_PROJECTS, ...readExtraProjects()].map(mergeProject);
-  return merged.filter((p) => !isRemoved(p));
+  return merged.filter((p) => !isPurgedId(p.id) && !isRemoved(p));
 }
 
 export function loadProjectById(id: string): DemoProject | undefined {
@@ -405,11 +620,58 @@ export function replaceExtraProject(updated: DemoProject) {
 }
 
 export function deleteFolder(id: string) {
+  const deletedAt = new Date().toISOString();
+  const restoreBefore = new Date(Date.now() + 30 * 86400000).toISOString();
   if (SEED_PROJECTS.some((s) => s.id === id)) {
-    patchFolderOverride(id, { deleted: true });
+    patchFolderOverride(id, { deleted: true, deletedAt, restoreBefore });
+    return;
+  }
+  if (readExtraProjects().some((p) => p.id === id)) {
+    patchFolderOverride(id, { deleted: true, deletedAt, restoreBefore });
+    return;
+  }
+}
+
+/** All merged projects including those in trash (for admin trash UI). */
+export function loadAllProjectsWithTrash(): DemoProject[] {
+  return [...SEED_PROJECTS, ...readExtraProjects()].map(mergeProject);
+}
+
+export function restoreFolderFromTrashDemo(id: string) {
+  patchFolderOverride(id, {
+    deleted: false,
+    deletedAt: undefined,
+    restoreBefore: undefined,
+  });
+}
+
+export function purgeFolderFromTrashDemo(id: string) {
+  if (SEED_PROJECTS.some((s) => s.id === id)) {
+    patchFolderOverride(id, {
+      purged: true,
+      deleted: false,
+      deletedAt: undefined,
+      restoreBefore: undefined,
+    });
     return;
   }
   writeExtraProjects(readExtraProjects().filter((p) => p.id !== id));
+  const cur = readOverrides();
+  const { [id]: _removed, ...rest } = cur;
+  writeOverrides(rest);
+}
+
+export function upsertDemoProject(project: DemoProject) {
+  if (SEED_PROJECTS.some((s) => s.id === project.id)) {
+    saveProjectSnapshot(project);
+    return;
+  }
+  const extras = readExtraProjects();
+  if (extras.some((p) => p.id === project.id)) {
+    replaceExtraProject(project);
+    return;
+  }
+  appendExtraProject(project);
 }
 
 export function saveProjectSnapshot(project: DemoProject) {

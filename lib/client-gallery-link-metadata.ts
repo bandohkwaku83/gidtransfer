@@ -1,6 +1,12 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
-import { getShareGallery, ShareGalleryError } from "@/lib/share-gallery-api";
+import {
+  getShareGallery,
+  publicGalleryKeyFromSlugs,
+  publicGalleryKeyFromToken,
+  type PublicGalleryKey,
+  ShareGalleryError,
+} from "@/lib/share-gallery-api";
 
 /** Link preview description for shared client galleries (WhatsApp, iMessage, etc.). */
 export const CLIENT_GALLERY_OG_DESCRIPTION = "Photo collection by Gidophotography";
@@ -60,35 +66,28 @@ export async function publicSiteOrigin(): Promise<string> {
   return origin;
 }
 
-/**
- * Open Graph / Twitter metadata for a client gallery. Canonical `/g/:token` stays on **this host**
- * (`admin.*` URLs keep `admin.*` in `og:url`). Actual preview **`og:image`** is served by
- * `opengraph-image.tsx` (JPEG, ~1200×630, compact) — raw S3 covers are often multi‑MiB and
- * mobile link previews time out → fall back to the site logo.
- */
-export async function buildClientGalleryLinkMetadata(rawToken: string): Promise<Metadata> {
-  const token = rawToken ? decodeGalleryToken(rawToken) : "";
+async function galleryMetadataFromKey(
+  key: PublicGalleryKey,
+  canonicalPath: string,
+): Promise<Metadata> {
   const siteOrigin = await publicSiteOrigin();
   const baseNoSlash = siteOrigin.replace(/\/$/, "");
 
   let title = "Client gallery";
   let hasCoverArt = false;
 
-  if (token) {
-    try {
-      const gallery = await getShareGallery(token, undefined, { baseOrigin: siteOrigin });
-      const name = gallery.eventName?.trim();
-      if (name) title = name;
-      hasCoverArt = Boolean(gallery.coverImageUrl?.trim());
-    } catch (e) {
-      if (!(e instanceof ShareGalleryError)) {
-        console.warn("[gallery-link-metadata] share fetch failed", e);
-      }
+  try {
+    const gallery = await getShareGallery(key, undefined, { baseOrigin: siteOrigin });
+    const name = gallery.eventName?.trim();
+    if (name) title = name;
+    hasCoverArt = Boolean(gallery.coverImageUrl?.trim());
+  } catch (e) {
+    if (!(e instanceof ShareGalleryError)) {
+      console.warn("[gallery-link-metadata] share fetch failed", e);
     }
   }
 
   const description = CLIENT_GALLERY_OG_DESCRIPTION;
-  const canonicalPath = rawToken ? `/g/${encodeURIComponent(rawToken)}` : "/g";
   const canonical = `${baseNoSlash}${canonicalPath}`;
 
   return {
@@ -109,4 +108,42 @@ export async function buildClientGalleryLinkMetadata(rawToken: string): Promise<
       description,
     },
   };
+}
+
+/**
+ * Open Graph / Twitter metadata for a client gallery. Canonical `/g/:token` stays on **this host**
+ * (`admin.*` URLs keep `admin.*` in `og:url`). Actual preview **`og:image`** is served by
+ * `opengraph-image.tsx` (JPEG, ~1200×630, compact) — raw S3 covers are often multi‑MiB and
+ * mobile link previews time out → fall back to the site logo.
+ */
+export async function buildClientGalleryLinkMetadata(rawToken: string): Promise<Metadata> {
+  const token = rawToken ? decodeGalleryToken(rawToken) : "";
+  const canonicalPath = rawToken ? `/g/${encodeURIComponent(rawToken)}` : "/g";
+  if (!token) {
+    return galleryMetadataFromKey(publicGalleryKeyFromToken(""), canonicalPath);
+  }
+  return galleryMetadataFromKey(publicGalleryKeyFromToken(token), canonicalPath);
+}
+
+export async function buildClientGallerySlugMetadata(
+  rawCompanySlug: string,
+  rawGallerySlug: string,
+): Promise<Metadata> {
+  let companySlug = rawCompanySlug;
+  let gallerySlug = rawGallerySlug;
+  try {
+    companySlug = decodeURIComponent(rawCompanySlug);
+    gallerySlug = decodeURIComponent(rawGallerySlug);
+  } catch {
+    companySlug = rawCompanySlug;
+    gallerySlug = rawGallerySlug;
+  }
+  const canonicalPath =
+    companySlug && gallerySlug
+      ? `/${encodeURIComponent(companySlug)}/${encodeURIComponent(gallerySlug)}`
+      : "/";
+  return galleryMetadataFromKey(
+    publicGalleryKeyFromSlugs(companySlug, gallerySlug),
+    canonicalPath,
+  );
 }

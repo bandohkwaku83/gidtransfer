@@ -1,11 +1,9 @@
 import { ApiError } from "@/lib/clients-api";
-import { authedFetch, extractMessage, parseJson } from "@/lib/http";
+import { listDemoFoldersApiModels } from "@/lib/demo-api-bridge";
 
-/** Notification document from GET /api/notifications (fields may vary by backend). */
 export type ApiNotification = {
   _id?: string;
   id?: string;
-  /** Server discriminator, e.g. `selection_submit`, `final_download`. */
   type?: string;
   notificationType?: string;
   kind?: string;
@@ -30,6 +28,57 @@ export type ListNotificationsResponse = {
   skip?: number;
   limit?: number;
 };
+
+const STORAGE = "gidostorage_demo_notifications_v1";
+
+type Stored = { items: ApiNotification[] };
+
+function seedNotifications(): ApiNotification[] {
+  const folders = listDemoFoldersApiModels();
+  const f = folders[0];
+  const now = new Date().toISOString();
+  const out: ApiNotification[] = [
+    {
+      _id: "n-demo-1",
+      type: "selection_submit",
+      title: "Client submitted selections",
+      body: "Demo notification. Data is stored only in this browser.",
+      readAt: null,
+      createdAt: now,
+      folder: f?._id,
+      shareIdentifier: f?.share?.slug,
+    },
+  ];
+  return out;
+}
+
+function readStore(): Stored {
+  if (typeof window === "undefined") return { items: seedNotifications() };
+  try {
+    const raw = window.sessionStorage.getItem(STORAGE);
+    if (!raw) {
+      const s = { items: seedNotifications() };
+      window.sessionStorage.setItem(STORAGE, JSON.stringify(s));
+      return s;
+    }
+    const p = JSON.parse(raw) as unknown;
+    if (p && typeof p === "object" && Array.isArray((p as Stored).items)) {
+      return p as Stored;
+    }
+  } catch {
+    /* fall through */
+  }
+  return { items: seedNotifications() };
+}
+
+function writeStore(s: Stored) {
+  if (typeof window === "undefined") return;
+  window.sessionStorage.setItem(STORAGE, JSON.stringify(s));
+}
+
+async function delay(ms = 20) {
+  await new Promise((r) => setTimeout(r, ms));
+}
 
 export function notificationRecordId(n: ApiNotification): string {
   const id = n._id ?? n.id;
@@ -85,7 +134,6 @@ function bookingRefId(n: ApiNotification): string | undefined {
   return undefined;
 }
 
-/** Normalized discriminator from the API (`type`, `notificationType`, `notification_type`, `kind`). */
 export function notificationKind(n: ApiNotification): string {
   const o = n as Record<string, unknown>;
   const raw =
@@ -97,7 +145,6 @@ export function notificationKind(n: ApiNotification): string {
   return typeof raw === "string" ? raw.trim().toLowerCase() : "";
 }
 
-/** In-app route for a notification, or null when there is no deep link. */
 export function notificationTargetHref(n: ApiNotification): string | null {
   const folderId = folderRefId(n);
   const share = shareToken(n);
@@ -105,7 +152,6 @@ export function notificationTargetHref(n: ApiNotification): string | null {
   const kind = notificationKind(n);
 
   if (folderId) {
-    // Admin-facing: client downloaded a final — open the gallery in the dashboard (finals workflow).
     if (kind === "final_download") return `/dashboard/folder/${encodeURIComponent(folderId)}`;
     if (share) return `/g/${encodeURIComponent(share)}`;
     return `/dashboard/folder/${encodeURIComponent(folderId)}`;
@@ -117,18 +163,9 @@ export function notificationTargetHref(n: ApiNotification): string | null {
 }
 
 export async function getNotificationsUnreadCount(): Promise<number> {
-  const res = await authedFetch("/api/notifications/unread-count", { method: "GET" });
-  const body = await parseJson(res);
-  if (!res.ok) {
-    throw new ApiError(
-      extractMessage(body, `Failed to load unread count (${res.status})`),
-      res.status,
-      body,
-    );
-  }
-  const o = body as Record<string, unknown>;
-  const n = o.unreadCount;
-  return typeof n === "number" && Number.isFinite(n) ? n : 0;
+  await delay();
+  const { items } = readStore();
+  return items.filter(isNotificationUnread).length;
 }
 
 export async function listNotifications(params: {
@@ -136,52 +173,46 @@ export async function listNotifications(params: {
   skip?: number;
   unreadOnly?: boolean;
 }): Promise<ListNotificationsResponse> {
-  const qs = new URLSearchParams();
-  qs.set("limit", String(params.limit ?? 30));
-  qs.set("skip", String(params.skip ?? 0));
-  qs.set("unreadOnly", params.unreadOnly === true ? "true" : "false");
-  const res = await authedFetch(`/api/notifications?${qs.toString()}`, { method: "GET" });
-  const body = await parseJson(res);
-  if (!res.ok) {
-    throw new ApiError(extractMessage(body, `Failed to load notifications (${res.status})`), res.status, body);
-  }
-  const data = body as ListNotificationsResponse;
+  await delay();
+  const { items } = readStore();
+  let rows = params.unreadOnly === true ? items.filter(isNotificationUnread) : [...items];
+  const skip = params.skip ?? 0;
+  const limit = params.limit ?? 30;
+  rows = rows.slice(skip, skip + limit);
+  const unreadCount = items.filter(isNotificationUnread).length;
   return {
-    notifications: Array.isArray(data?.notifications) ? data.notifications : [],
-    count: data?.count,
-    total: data?.total,
-    unreadCount: data?.unreadCount,
-    skip: data?.skip,
-    limit: data?.limit,
+    notifications: rows,
+    count: rows.length,
+    total: items.length,
+    unreadCount,
+    skip,
+    limit,
   };
 }
 
 export async function markNotificationRead(id: string): Promise<void> {
+  await delay();
   const safe = id.trim();
   if (!safe) throw new ApiError("Missing notification id", 400, null);
-  const res = await authedFetch(`/api/notifications/${encodeURIComponent(safe)}/read`, {
-    method: "PATCH",
-    body: JSON.stringify({}),
-  });
-  const body = await parseJson(res);
-  if (!res.ok) {
-    throw new ApiError(extractMessage(body, `Could not mark read (${res.status})`), res.status, body);
-  }
+  const store = readStore();
+  const next = store.items.map((n) =>
+    notificationRecordId(n) === safe ? { ...n, readAt: new Date().toISOString() } : n,
+  );
+  writeStore({ items: next });
 }
 
 export async function markAllNotificationsRead(): Promise<{ modifiedCount?: number }> {
-  const res = await authedFetch("/api/notifications/mark-all-read", {
-    method: "POST",
-    body: JSON.stringify({}),
+  await delay();
+  const store = readStore();
+  const now = new Date().toISOString();
+  let n = 0;
+  const next = store.items.map((x) => {
+    if (isNotificationUnread(x)) {
+      n += 1;
+      return { ...x, readAt: now };
+    }
+    return x;
   });
-  const body = await parseJson(res);
-  if (!res.ok) {
-    throw new ApiError(
-      extractMessage(body, `Could not mark all read (${res.status})`),
-      res.status,
-      body,
-    );
-  }
-  const o = body as { modifiedCount?: number };
-  return { modifiedCount: typeof o.modifiedCount === "number" ? o.modifiedCount : undefined };
+  writeStore({ items: next });
+  return { modifiedCount: n };
 }

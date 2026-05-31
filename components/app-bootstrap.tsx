@@ -21,14 +21,36 @@ const PRIORITY_ROUTES = [
   "/dashboard/sms",
   "/dashboard/notifications",
   "/login",
+  "/onboarding",
+  "/reset-password",
 ];
+
+const PUBLIC_GALLERY_RESERVED_SEGMENTS = new Set([
+  "dashboard",
+  "login",
+  "onboarding",
+  "reset-password",
+  "share",
+  "g",
+  "api",
+  "uploads",
+]);
+
+function isPublicGallerySlugPath(pathname: string): boolean {
+  const m = pathname.match(/^\/([^/]+)\/([^/]+)$/);
+  if (!m?.[1] || !m[2]) return false;
+  return !PUBLIC_GALLERY_RESERVED_SEGMENTS.has(m[1].toLowerCase());
+}
 
 function isPublicBootstrapPath(pathname: string): boolean {
   return (
     pathname === "/" ||
     pathname === "/login" ||
+    pathname === "/onboarding" ||
+    pathname === "/reset-password" ||
     pathname.startsWith("/share/") ||
-    pathname.startsWith("/g/")
+    pathname.startsWith("/g/") ||
+    isPublicGallerySlugPath(pathname)
   );
 }
 

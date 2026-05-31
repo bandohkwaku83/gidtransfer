@@ -40,6 +40,9 @@ export function CoverFocalPreview({
   embeddedDark,
   compactFooter,
 }: Props) {
+  const resolvedImageUrl = imageUrl.trim();
+  const hasImage = resolvedImageUrl.length > 0;
+
   const wrapRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{
     startX: number;
@@ -50,7 +53,7 @@ export function CoverFocalPreview({
 
   const onPointerDown = useCallback(
     (e: React.PointerEvent) => {
-      if (disabled) return;
+      if (disabled || !hasImage) return;
       const el = wrapRef.current;
       if (!el) return;
       e.preventDefault();
@@ -62,14 +65,14 @@ export function CoverFocalPreview({
         startFy: focalY,
       };
     },
-    [disabled, focalX, focalY],
+    [disabled, focalX, focalY, hasImage],
   );
 
   const onPointerMove = useCallback(
     (e: React.PointerEvent) => {
       const d = dragRef.current;
       const el = wrapRef.current;
-      if (!d || !el || disabled) return;
+      if (!d || !el || disabled || !hasImage) return;
       const rect = el.getBoundingClientRect();
       const w = Math.max(1, rect.width);
       const h = Math.max(1, rect.height);
@@ -80,7 +83,7 @@ export function CoverFocalPreview({
       const ny = clampFocal(d.startFy - (dy / h) * scale);
       onFocalChange(nx, ny);
     },
-    [disabled, onFocalChange],
+    [disabled, hasImage, onFocalChange],
   );
 
   const endDrag = useCallback((e: React.PointerEvent) => {
@@ -110,25 +113,40 @@ export function CoverFocalPreview({
           !disabled && embeddedDark && "hover:ring-2 hover:ring-white/25",
           frameClassName ??
             "aspect-[4/3] w-full sm:h-36 sm:w-44 sm:shrink-0",
-          disabled ? "cursor-not-allowed opacity-60" : "cursor-grab touch-none active:cursor-grabbing",
+          disabled
+            ? "cursor-not-allowed opacity-60"
+            : !hasImage
+              ? "cursor-default"
+              : "cursor-grab touch-none active:cursor-grabbing",
         )}
         role="presentation"
-        aria-label="Cover framing preview — drag to reposition"
+        aria-label="Cover framing preview. Drag to reposition"
       >
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={imageUrl}
-          alt=""
-          draggable={false}
-          className="h-full w-full select-none object-cover transition-[object-position] duration-200 ease-out motion-reduce:transition-none"
-          style={{ objectPosition: `${clampFocal(focalX)}% ${clampFocal(focalY)}%` }}
-        />
+        {hasImage ? (
+          /* eslint-disable-next-line @next/next/no-img-element */
+          <img
+            src={resolvedImageUrl}
+            alt=""
+            draggable={false}
+            className="h-full w-full select-none object-cover transition-[object-position] duration-200 ease-out motion-reduce:transition-none"
+            style={{ objectPosition: `${clampFocal(focalX)}% ${clampFocal(focalY)}%` }}
+          />
+        ) : (
+          <div
+            className={cn(
+              "flex h-full min-h-[8rem] w-full items-center justify-center px-4 text-center text-xs font-medium",
+              embeddedDark ? "text-white/45" : "text-zinc-500 dark:text-zinc-400",
+            )}
+          >
+            Upload a cover to preview framing
+          </div>
+        )}
         <div
           className="pointer-events-none absolute inset-0 ring-1 ring-inset ring-white/10"
           aria-hidden
         />
         {topRight ? <div className="absolute right-2 top-2 z-10">{topRight}</div> : null}
-        {!disabled ? (
+        {!disabled && hasImage ? (
           <div
             className={cn(
               "pointer-events-none absolute bottom-2 left-2 inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide backdrop-blur-md transition-opacity duration-200",

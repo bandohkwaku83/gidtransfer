@@ -1,31 +1,37 @@
-import { resolveCoverUrl } from "@/lib/folders-api";
-import { authedFetch, extractMessage, HttpError, parseJson } from "@/lib/http";
 import {
+  getDuplicateUploadPreference,
   setDuplicateUploadPreference,
   type DuplicateUploadAction,
 } from "@/lib/upload-preferences";
+import { HttpError } from "@/lib/http";
+import {
+  defaultBrandWatermarkSettings,
+  getBrandWatermarkSettings,
+  normalizeBrandWatermarkSettings,
+  saveBrandWatermarkSettings,
+  type BrandWatermarkSettings,
+} from "@/lib/watermark-brand";
 
-/** Photographer settings from `GET`/`PUT /api/settings`. See `docs/backend-api-watermark-and-media.md`. */
 export type ApiSettings = {
-  /** When true, backend should generate watermarked previews for raw uploads (server-side). */
   watermarkPreviewImages: boolean;
-  /** Relative path on server when present. */
+  brandWatermark: BrandWatermarkSettings;
   defaultCoverImage?: string;
   defaultCoverImageUrl?: string;
-  /**
-   * Default for `duplicateAction` on gallery uploads when the server stores it.
-   * Falls back to {@link getDuplicateUploadPreference} when omitted.
-   */
   duplicateUploadAction?: DuplicateUploadAction;
 };
 
 export type UpdateSettingsInput = {
   watermarkPreviewImages?: boolean;
+  brandWatermark?: BrandWatermarkSettings;
   defaultCoverImage?: File | null;
   duplicateUploadAction?: DuplicateUploadAction;
 };
 
 export class SettingsApiError extends HttpError {}
+
+async function delay(ms = 20) {
+  await new Promise((r) => setTimeout(r, ms));
+}
 
 function normalizeSettingsPayload(raw: unknown): ApiSettings {
   const obj =
@@ -46,9 +52,13 @@ function normalizeSettingsPayload(raw: unknown): ApiSettings {
     duplicateUploadAction = dupRaw;
   }
 
+  const brandRaw = obj.brandWatermark ?? obj.brand_watermark;
   const normalized: ApiSettings = {
     watermarkPreviewImages: Boolean(
       obj.watermarkPreviewImages ?? obj.watermark_preview_images,
+    ),
+    brandWatermark: normalizeBrandWatermarkSettings(
+      brandRaw ?? (typeof window !== "undefined" ? getBrandWatermarkSettings() : undefined),
     ),
     defaultCoverImage:
       typeof obj.defaultCoverImage === "string" ? obj.defaultCoverImage : undefined,
@@ -64,64 +74,48 @@ function normalizeSettingsPayload(raw: unknown): ApiSettings {
   return normalized;
 }
 
-/** Best URL to show the default cover from settings (matches folder cover resolution). */
+/** Best URL to show the default cover from settings, or null when none is configured. */
 export function getSettingsDefaultCoverUrl(settings: ApiSettings): string | null {
-  return (
-    resolveCoverUrl(settings.defaultCoverImageUrl ?? null) ??
-    resolveCoverUrl(settings.defaultCoverImage ?? null)
-  );
+  const u = settings.defaultCoverImageUrl ?? settings.defaultCoverImage;
+  if (typeof u === "string" && u.trim() && /^https?:\/\//i.test(u.trim())) return u.trim();
+  return null;
 }
 
 export async function getSettings(): Promise<ApiSettings> {
-  const res = await authedFetch("/api/settings", { method: "GET" });
-  const body = await parseJson(res);
-  if (!res.ok) {
-    throw new SettingsApiError(
-      extractMessage(body, `Failed to load settings (${res.status})`),
-      res.status,
-      body,
-    );
-  }
-  return normalizeSettingsPayload(body);
+  await delay();
+  const dup = typeof window !== "undefined" ? getDuplicateUploadPreference() : undefined;
+  return normalizeSettingsPayload({
+    watermarkPreviewImages: false,
+    brandWatermark:
+      typeof window !== "undefined"
+        ? getBrandWatermarkSettings()
+        : defaultBrandWatermarkSettings(),
+    duplicateUploadAction: dup,
+  });
 }
 
 export async function updateSettings(input: UpdateSettingsInput): Promise<ApiSettings> {
-  const coverFile = input.defaultCoverImage;
-  const hasFile = coverFile instanceof File;
-
-  let res: Response;
-  if (hasFile) {
-    const fd = new FormData();
-    fd.append("defaultCoverImage", coverFile);
-    if (input.watermarkPreviewImages !== undefined) {
-      fd.append("watermarkPreviewImages", String(input.watermarkPreviewImages));
-    }
-    if (input.duplicateUploadAction !== undefined) {
-      fd.append("duplicateUploadAction", input.duplicateUploadAction);
-    }
-    res = await authedFetch("/api/settings", { method: "PUT", body: fd });
-  } else {
-    const payload: Record<string, boolean | string> = {};
-    if (input.watermarkPreviewImages !== undefined) {
-      payload.watermarkPreviewImages = input.watermarkPreviewImages;
-    }
-    if (input.duplicateUploadAction !== undefined) {
-      payload.duplicateUploadAction = input.duplicateUploadAction;
-    }
-    res = await authedFetch("/api/settings", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
+  await delay();
+  const cur = await getSettings();
+  if (input.duplicateUploadAction !== undefined) {
+    setDuplicateUploadPreference(input.duplicateUploadAction);
+  }
+  let defaultCoverImageUrl = cur.defaultCoverImageUrl;
+  if (input.defaultCoverImage instanceof File) {
+    defaultCoverImageUrl = `https://picsum.photos/seed/${encodeURIComponent(input.defaultCoverImage.name.slice(0, 40))}/1200/900`;
+  }
+  const brandWatermark =
+    input.brandWatermark !== undefined
+      ? normalizeBrandWatermarkSettings(input.brandWatermark)
+      : cur.brandWatermark;
+  if (typeof window !== "undefined" && input.brandWatermark !== undefined) {
+    saveBrandWatermarkSettings(brandWatermark);
   }
 
-  const body = await parseJson(res);
-  if (!res.ok) {
-    throw new SettingsApiError(
-      extractMessage(body, `Failed to save settings (${res.status})`),
-      res.status,
-      body,
-    );
-  }
-  return normalizeSettingsPayload(body);
+  return normalizeSettingsPayload({
+    watermarkPreviewImages: input.watermarkPreviewImages ?? cur.watermarkPreviewImages,
+    brandWatermark,
+    defaultCoverImageUrl,
+    duplicateUploadAction: input.duplicateUploadAction ?? getDuplicateUploadPreference(),
+  });
 }

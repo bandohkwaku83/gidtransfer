@@ -1,4 +1,5 @@
-import { authedFetch, extractMessage, HttpError, parseJson } from "@/lib/http";
+import { loadAllProjects } from "@/lib/demo-data";
+import { HttpError } from "@/lib/http";
 
 export type UsageCategoryBreakdown = {
   bytes: number;
@@ -41,47 +42,69 @@ export type UsageGalleriesResponse = {
 
 export class UsageApiError extends HttpError {}
 
-function num(v: unknown): number {
-  return typeof v === "number" && Number.isFinite(v) ? v : 0;
+async function delay(ms = 20) {
+  await new Promise((r) => setTimeout(r, ms));
+}
+
+/** Demo usage model: fixed bytes per asset class (not real file sizes). */
+export const DEMO_BYTES_PER_RAW_ASSET = 4_500_000;
+export const DEMO_BYTES_PER_FINAL_ASSET = 2_200_000;
+export const DEMO_BYTES_PER_SELECTED_ASSET = 800_000;
+
+function fakeBytesFromCount(n: number, unit: number): number {
+  return Math.max(0, Math.floor(n * unit));
+}
+
+export function estimateDemoBytesForNewRawAssets(count: number): number {
+  return fakeBytesFromCount(Math.max(0, count), DEMO_BYTES_PER_RAW_ASSET);
+}
+
+export function estimateDemoBytesForNewFinalAssets(count: number): number {
+  return fakeBytesFromCount(Math.max(0, count), DEMO_BYTES_PER_FINAL_ASSET);
+}
+
+export function computeDemoStorageTotalBytes(): number {
+  const projects = loadAllProjects();
+  let raws = 0;
+  let finals = 0;
+  let sel = 0;
+  for (const p of projects) {
+    raws += fakeBytesFromCount(p.assets.length, DEMO_BYTES_PER_RAW_ASSET);
+    finals += fakeBytesFromCount(p.finalAssets.length, DEMO_BYTES_PER_FINAL_ASSET);
+    sel += fakeBytesFromCount(
+      p.assets.filter((a) => a.selection === "SELECTED").length,
+      DEMO_BYTES_PER_SELECTED_ASSET,
+    );
+  }
+  return raws + sel + finals;
 }
 
 export async function fetchUsageSummary(): Promise<UsageSummaryResponse> {
-  const res = await authedFetch("/api/usage/summary", { method: "GET" });
-  const body = await parseJson(res);
-  if (!res.ok) {
-    throw new UsageApiError(
-      extractMessage(body, `Failed to load usage summary (${res.status})`),
-      res.status,
-      body,
+  await delay();
+  const projects = loadAllProjects();
+  let raws = 0;
+  let finals = 0;
+  let sel = 0;
+  for (const p of projects) {
+    raws += fakeBytesFromCount(p.assets.length, DEMO_BYTES_PER_RAW_ASSET);
+    finals += fakeBytesFromCount(p.finalAssets.length, DEMO_BYTES_PER_FINAL_ASSET);
+    sel += fakeBytesFromCount(
+      p.assets.filter((a) => a.selection === "SELECTED").length,
+      DEMO_BYTES_PER_SELECTED_ASSET,
     );
   }
-  const data = body as Partial<UsageSummaryResponse>;
-  const by = data.by_category;
+  const total = raws + sel + finals;
+  const pct = (part: number) => (total > 0 ? Math.round((part / total) * 1000) / 10 : 0);
   return {
-    total_storage_bytes: num(data.total_storage_bytes),
-    raws_size_bytes: num(data.raws_size_bytes),
-    selections_size_bytes: num(data.selections_size_bytes),
-    finals_size_bytes: num(data.finals_size_bytes),
-    by_category:
-      by && typeof by === "object"
-        ? {
-            raws:
-              by.raws && typeof by.raws === "object"
-                ? { bytes: num(by.raws.bytes), percent_of_total: num(by.raws.percent_of_total) }
-                : undefined,
-            selections:
-              by.selections && typeof by.selections === "object"
-                ? {
-                    bytes: num(by.selections.bytes),
-                    percent_of_total: num(by.selections.percent_of_total),
-                  }
-                : undefined,
-            finals:
-              by.finals && typeof by.finals === "object"
-                ? { bytes: num(by.finals.bytes), percent_of_total: num(by.finals.percent_of_total) }
-                : undefined,
-          }
-        : undefined,
+    total_storage_bytes: total,
+    raws_size_bytes: raws,
+    selections_size_bytes: sel,
+    finals_size_bytes: finals,
+    by_category: {
+      raws: { bytes: raws, percent_of_total: pct(raws) },
+      selections: { bytes: sel, percent_of_total: pct(sel) },
+      finals: { bytes: finals, percent_of_total: pct(finals) },
+    },
   };
 }
 
@@ -92,43 +115,37 @@ export async function fetchUsageGalleries(params: {
   order: "asc" | "desc";
   signal?: AbortSignal;
 }): Promise<UsageGalleriesResponse> {
-  const qs = new URLSearchParams();
-  qs.set("sort_by", params.sortBy);
-  qs.set("order", params.order);
-  const res = await authedFetch(`/api/usage/galleries?${qs.toString()}`, {
-    method: "GET",
-    signal: params.signal,
-  });
-  const body = await parseJson(res);
-  if (!res.ok) {
-    throw new UsageApiError(
-      extractMessage(body, `Failed to load gallery usage (${res.status})`),
-      res.status,
-      body,
+  await delay();
+  void params.signal;
+  const projects = loadAllProjects();
+  let rows: UsageGalleryRow[] = projects.map((p) => {
+    const raws = fakeBytesFromCount(p.assets.length, DEMO_BYTES_PER_RAW_ASSET);
+    const finals = fakeBytesFromCount(p.finalAssets.length, DEMO_BYTES_PER_FINAL_ASSET);
+    const selections = fakeBytesFromCount(
+      p.assets.filter((a) => a.selection === "SELECTED").length,
+      DEMO_BYTES_PER_SELECTED_ASSET,
     );
-  }
-  const data = body as Partial<UsageGalleriesResponse>;
-  const galleries = Array.isArray(data.galleries) ? data.galleries : [];
-  const normalized: UsageGalleryRow[] = galleries.map((g) => {
-    const row = g as Partial<UsageGalleryRow>;
-    const c = row.client;
+    const total = raws + selections + finals;
     return {
-      id: typeof row.id === "string" ? row.id : "",
-      name: typeof row.name === "string" ? row.name : "",
-      client: {
-        id: c && typeof c === "object" && typeof c.id === "string" ? c.id : "",
-        name: c && typeof c === "object" && typeof c.name === "string" ? c.name : "",
-      },
-      raws_size_bytes: num(row.raws_size_bytes),
-      selections_size_bytes: num(row.selections_size_bytes),
-      finals_size_bytes: num(row.finals_size_bytes),
-      total_size_bytes: num(row.total_size_bytes),
+      id: p.id,
+      name: p.clientName,
+      client: { id: `virtual-${p.id}`, name: p.clientName },
+      raws_size_bytes: raws,
+      selections_size_bytes: selections,
+      finals_size_bytes: finals,
+      total_size_bytes: total,
     };
   });
+  const dir = params.order === "asc" ? 1 : -1;
+  if (params.sortBy === "name") {
+    rows = rows.sort((a, b) => dir * a.name.localeCompare(b.name));
+  } else {
+    rows = rows.sort((a, b) => dir * (a.total_size_bytes - b.total_size_bytes));
+  }
   return {
-    count: typeof data.count === "number" ? data.count : normalized.length,
-    sort_by: typeof data.sort_by === "string" ? data.sort_by : params.sortBy,
-    order: typeof data.order === "string" ? data.order : params.order,
-    galleries: normalized,
+    count: rows.length,
+    sort_by: params.sortBy,
+    order: params.order,
+    galleries: rows,
   };
 }
