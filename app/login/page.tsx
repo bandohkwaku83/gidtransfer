@@ -62,7 +62,7 @@ const slides = [
     title: "Bookings to finals on autopilot",
     body: "Quotes, contracts, invoices, and reminders in one dashboard. Keep admin work in one place while you shoot.",
   },
-] as const satisfies ReadonlyArray<{
+] satisfies ReadonlyArray<{
   image: string;
   alt: string;
   eyebrow: string;

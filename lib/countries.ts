@@ -14,7 +14,7 @@ function buildCountryOptions(): CountryOption[] {
   try {
     codes =
       typeof Intl.supportedValuesOf === "function"
-        ? Intl.supportedValuesOf("region")
+        ? (Intl.supportedValuesOf as unknown as (key: "region") => string[])("region")
         : FALLBACK_COUNTRY_OPTIONS.map((c) => c.value);
   } catch {
     return FALLBACK_COUNTRY_OPTIONS;

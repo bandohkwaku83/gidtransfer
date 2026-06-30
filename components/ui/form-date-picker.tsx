@@ -42,7 +42,10 @@ export function FormDatePicker({
   return (
     <DatePicker
       value={parseIsoDate(value)}
-      onChange={(d) => onChange(d ? d.format("YYYY-MM-DD") : "")}
+      onChange={(d) => {
+        const single = Array.isArray(d) ? d[0] : d;
+        onChange(single ? single.format("YYYY-MM-DD") : "");
+      }}
       format={format}
       size={size}
       allowClear={allowClear ?? (isOnboarding ? false : undefined)}

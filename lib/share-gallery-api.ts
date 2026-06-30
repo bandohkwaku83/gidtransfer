@@ -1413,8 +1413,8 @@ async function togglePublicPhotoSelection(
   options: PublicFetchOptions & { comment?: string } = {},
 ): Promise<void> {
   const resolved = resolvePublicGalleryKey(key);
-  const fetchOptions = publicGallerySessionOptions(resolved, options);
-  const { comment, ...rest } = fetchOptions;
+  const { comment, ...rest } = options;
+  const fetchOptions = publicGallerySessionOptions(resolved, rest);
   await publicJson(
     publicGalleryApiPath(resolved, "/select"),
     {
@@ -1423,10 +1423,10 @@ async function togglePublicPhotoSelection(
         photoId,
         ...(comment !== undefined ? { comment } : {}),
       }),
-      signal: rest.signal,
+      signal: fetchOptions.signal,
     },
     "Could not update selection",
-    rest,
+    fetchOptions,
   );
 }
 
