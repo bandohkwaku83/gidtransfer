@@ -18,7 +18,10 @@ export const metadata: Metadata = {
   ),
   title: `${APP_NAME} | Photographer workspace and client galleries`,
   description:
-    "Photographer workspace and client galleries for proofing, delivery, and branded client experiences (UI preview).",
+    "Photographer workspace and client galleries for proofing, delivery, and branded client experiences.",
+  icons: {
+    icon: "/svgs/dashboard_logo.svg",
+  },
 };
 
 export default function RootLayout({
