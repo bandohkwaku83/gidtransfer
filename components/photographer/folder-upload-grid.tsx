@@ -11,7 +11,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { Dropdown, type MenuProps } from "antd";
-import { Flag, ImageIcon, Lock, MoreVertical, Trash2, Upload } from "lucide-react";
+import { Flag, ImageIcon, Lock, MoreVertical, Trash2, Unlock, Upload, X } from "lucide-react";
 import { InlineActionSkeleton } from "@/components/ui/skeletons";
 import { moveIdInList } from "@/lib/move-id-in-list";
 import { cn } from "@/lib/utils";
@@ -24,6 +24,7 @@ export type FolderUploadGridItem = {
   mediaSrc: string;
   isVideo: boolean;
   locked?: boolean;
+  outstandingBalanceGhs?: number | null;
   flagged?: boolean;
   /** Show subtle processing overlay while thumbnails are generating. */
   derivativesPending?: boolean;
@@ -86,6 +87,9 @@ type UploadTileProps = {
   onOpenPreview: (id: string) => void;
   onDelete: (id: string) => void;
   onSetCover?: (id: string) => void;
+  onLockFinal?: (id: string) => void;
+  onUnlockFinal?: (id: string) => void;
+  lockBusyId?: string | null;
   settingCover: boolean;
   onTilePointerDown: (event: React.PointerEvent<HTMLElement>, item: FolderUploadGridItem) => void;
 };
@@ -104,11 +108,14 @@ function UploadTile({
   onOpenPreview,
   onDelete,
   onSetCover,
+  onLockFinal,
+  onUnlockFinal,
+  lockBusyId,
   settingCover,
   onTilePointerDown,
 }: UploadTileProps) {
   const [menuOpen, setMenuOpen] = useState(false);
-  const actionBusy = deleting || settingCover;
+  const actionBusy = deleting || settingCover || lockBusyId === item.id;
 
   const menuItems = useMemo<NonNullable<MenuProps["items"]>>(() => {
     const items: NonNullable<MenuProps["items"]> = [];
@@ -120,6 +127,23 @@ function UploadTile({
         disabled: mediaDeleteBlocked || actionBusy,
       });
     }
+    if (deleteKeyPrefix === "final") {
+      if (item.locked && onUnlockFinal) {
+        items.push({
+          key: "unlock",
+          label: "Unlock for client download",
+          icon: <Unlock className="h-3.5 w-3.5" aria-hidden />,
+          disabled: mediaDeleteBlocked || actionBusy,
+        });
+      } else if (!item.locked && onLockFinal) {
+        items.push({
+          key: "lock",
+          label: "Lock for client",
+          icon: <Lock className="h-3.5 w-3.5" aria-hidden />,
+          disabled: mediaDeleteBlocked || actionBusy,
+        });
+      }
+    }
     items.push({
       key: "delete",
       label: "Delete",
@@ -128,13 +152,21 @@ function UploadTile({
       disabled: mediaDeleteBlocked || actionBusy,
     });
     return items;
-  }, [actionBusy, item.isVideo, mediaDeleteBlocked, onSetCover, settingCover]);
+  }, [actionBusy, deleteKeyPrefix, item.isVideo, item.locked, mediaDeleteBlocked, onLockFinal, onSetCover, onUnlockFinal, settingCover]);
 
   const onMenuClick: MenuProps["onClick"] = ({ key, domEvent }) => {
     domEvent.stopPropagation();
     setMenuOpen(false);
     if (key === "cover") {
       onSetCover?.(item.id);
+      return;
+    }
+    if (key === "lock") {
+      onLockFinal?.(item.id);
+      return;
+    }
+    if (key === "unlock") {
+      onUnlockFinal?.(item.id);
       return;
     }
     if (key === "delete") {
@@ -254,9 +286,16 @@ function UploadTile({
           </span>
         ) : null}
         {item.locked ? (
-          <span className="pointer-events-none absolute bottom-2 right-2 z-10 inline-flex items-center gap-0.5 rounded-md bg-black/70 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-white">
-            <Lock className="h-2.5 w-2.5" aria-hidden />
-            Locked
+          <span className="pointer-events-none absolute bottom-2 right-2 z-10 inline-flex max-w-[calc(100%-1rem)] flex-col items-end gap-0.5">
+            <span className="inline-flex items-center gap-0.5 rounded-md bg-black/70 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-white">
+              <Lock className="h-2.5 w-2.5 shrink-0" aria-hidden />
+              Locked
+            </span>
+            {item.outstandingBalanceGhs != null && item.outstandingBalanceGhs > 0 ? (
+              <span className="rounded-md bg-amber-500/90 px-1.5 py-0.5 text-[9px] font-semibold tabular-nums text-white">
+                GHS {item.outstandingBalanceGhs.toFixed(2)} owing
+              </span>
+            ) : null}
           </span>
         ) : null}
         <p
@@ -306,6 +345,7 @@ export function FolderUploadSectionHeader({
 
 export function FolderUploadBulkToolbar({
   selectedCount,
+  totalCount,
   allSelected,
   onSelectAll,
   onDeleteSelected,
@@ -316,6 +356,7 @@ export function FolderUploadBulkToolbar({
   selectAllRef,
 }: {
   selectedCount: number;
+  totalCount?: number;
   allSelected: boolean;
   onSelectAll: (checked: boolean) => void;
   onDeleteSelected: () => void;
@@ -325,41 +366,121 @@ export function FolderUploadBulkToolbar({
   deleteKeyPrefix: "raw" | "final";
   selectAllRef?: RefObject<HTMLInputElement | null>;
 }) {
+  const hasSelection = selectedCount > 0;
+  const deletingSelected = deletingKey === `${deleteKeyPrefix}:bulk`;
+  const deletingAll = deletingKey === `${deleteKeyPrefix}:all`;
+  const actionBusy = deletingSelected || deletingAll;
+
   return (
-    <div className="flex flex-wrap items-center gap-2 rounded-xl border border-zinc-100 bg-zinc-50/80 px-2.5 py-2 dark:border-zinc-800 dark:bg-zinc-900/50">
-      <label className="inline-flex cursor-pointer select-none items-center gap-2 rounded-lg px-2 py-1.5 text-xs font-medium text-zinc-600 transition hover:bg-white/80 dark:text-zinc-300 dark:hover:bg-zinc-800/80">
+    <div
+      className={cn(
+        "flex flex-wrap items-center gap-2 py-1 transition-[background-color] duration-300 ease-out motion-reduce:transition-none",
+        hasSelection && "rounded-xl bg-brand-soft/40 px-2 dark:bg-brand/10",
+      )}
+    >
+      <label
+        className={cn(
+          "inline-flex cursor-pointer select-none items-center gap-2.5 rounded-xl px-2 py-1.5 text-xs font-medium transition",
+          hasSelection
+            ? "text-brand-ink dark:text-brand-on-dark"
+            : "text-zinc-600 hover:bg-zinc-50 dark:text-zinc-300 dark:hover:bg-zinc-800/60",
+        )}
+      >
         <input
           ref={selectAllRef}
           type="checkbox"
           checked={allSelected}
           disabled={mediaDeleteBlocked}
           onChange={(e) => onSelectAll(e.target.checked)}
-          className="h-3.5 w-3.5 rounded border-zinc-300 text-brand focus:ring-brand dark:border-zinc-600"
+          className="h-4 w-4 rounded border-zinc-300 text-brand focus:ring-2 focus:ring-brand/30 focus:ring-offset-0 disabled:opacity-40 dark:border-zinc-600"
         />
-        Select all
+        <span>{allSelected ? "All selected" : "Select all"}</span>
       </label>
-      <span className="hidden h-4 w-px bg-zinc-200 sm:block dark:bg-zinc-700" aria-hidden />
-      {selectedCount > 0 ? (
-        <span className="px-1 text-[11px] font-medium tabular-nums text-zinc-500 dark:text-zinc-400">
-          {selectedCount} selected
-        </span>
+
+      {hasSelection ? (
+        <div className="flex min-w-0 items-center gap-1.5">
+          <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-brand px-2 text-[11px] font-bold tabular-nums text-white shadow-sm">
+            {selectedCount}
+          </span>
+          {totalCount != null ? (
+            <span className="text-[11px] font-medium tabular-nums text-zinc-500 dark:text-zinc-400">
+              of {totalCount}
+            </span>
+          ) : (
+            <span className="text-[11px] font-medium text-zinc-500 dark:text-zinc-400">selected</span>
+          )}
+        </div>
       ) : null}
-      <button
-        type="button"
-        onClick={onDeleteSelected}
-        disabled={mediaDeleteBlocked || selectedCount === 0}
-        className="ml-auto inline-flex items-center justify-center rounded-lg px-3 py-1.5 text-xs font-semibold text-zinc-700 transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-40 dark:text-zinc-200 dark:hover:bg-zinc-800"
-      >
-        {deletingKey === `${deleteKeyPrefix}:bulk` ? <InlineActionSkeleton /> : "Delete selected"}
-      </button>
-      <button
-        type="button"
-        onClick={onDeleteAll}
-        disabled={mediaDeleteBlocked}
-        className="inline-flex items-center justify-center rounded-lg px-3 py-1.5 text-xs font-semibold text-red-600 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40 dark:text-red-400 dark:hover:bg-red-950/40"
-      >
-        {deletingKey === `${deleteKeyPrefix}:all` ? <InlineActionSkeleton /> : "Delete all"}
-      </button>
+
+      <div className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
+        {hasSelection ? (
+          <>
+            <button
+              type="button"
+              onClick={onDeleteSelected}
+              disabled={mediaDeleteBlocked || actionBusy}
+              className={cn(
+                "inline-flex min-h-8 items-center justify-center gap-1.5 rounded-full border px-3 py-1.5 text-[11px] font-semibold transition",
+                "border-red-200/90 bg-red-50 text-red-700 hover:border-red-300 hover:bg-red-100",
+                "disabled:cursor-not-allowed disabled:opacity-45",
+                "dark:border-red-400/35 dark:bg-red-500/15 dark:text-red-100 dark:hover:bg-red-500/25",
+              )}
+            >
+              {deletingSelected ? (
+                <InlineActionSkeleton />
+              ) : (
+                <>
+                  <Trash2 className="h-3.5 w-3.5 shrink-0 opacity-90" aria-hidden />
+                  <span>Delete</span>
+                </>
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={() => onSelectAll(false)}
+              disabled={mediaDeleteBlocked || actionBusy}
+              title="Clear selection"
+              aria-label="Clear selection"
+              className={cn(
+                "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-zinc-200/90 bg-white text-zinc-500 transition",
+                "hover:border-zinc-300 hover:bg-zinc-50 hover:text-zinc-800",
+                "disabled:cursor-not-allowed disabled:opacity-45",
+                "dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-zinc-200",
+              )}
+            >
+              <X className="h-3.5 w-3.5" aria-hidden />
+            </button>
+            <span className="hidden h-4 w-px bg-zinc-200 sm:block dark:bg-zinc-700" aria-hidden />
+          </>
+        ) : null}
+        <button
+          type="button"
+          onClick={onDeleteAll}
+          disabled={mediaDeleteBlocked || actionBusy}
+          className={cn(
+            "inline-flex min-h-8 items-center justify-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-semibold transition",
+            hasSelection
+              ? "text-zinc-500 hover:bg-white/70 hover:text-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-900/60 dark:hover:text-zinc-200"
+              : cn(
+                  "border border-red-200/90 bg-red-50 text-red-700 hover:border-red-300 hover:bg-red-100",
+                  "dark:border-red-400/35 dark:bg-red-500/15 dark:text-red-100 dark:hover:bg-red-500/25",
+                ),
+            "disabled:cursor-not-allowed disabled:opacity-45",
+          )}
+        >
+          {deletingAll ? (
+            <InlineActionSkeleton />
+          ) : (
+            <>
+              <Trash2
+                className={cn("h-3.5 w-3.5 shrink-0", hasSelection ? "opacity-70" : "opacity-90")}
+                aria-hidden
+              />
+              <span>Delete all</span>
+            </>
+          )}
+        </button>
+      </div>
     </div>
   );
 }
@@ -468,6 +589,9 @@ export function FolderUploadMediaGrid({
   onOpenPreview,
   onDelete,
   onSetCover,
+  onLockFinal,
+  onUnlockFinal,
+  lockBusyId,
   deletingKey,
   settingCoverKey,
   mediaDeleteBlocked,
@@ -482,6 +606,9 @@ export function FolderUploadMediaGrid({
   onOpenPreview: (id: string) => void;
   onDelete: (id: string) => void;
   onSetCover?: (id: string) => void;
+  onLockFinal?: (id: string) => void;
+  onUnlockFinal?: (id: string) => void;
+  lockBusyId?: string | null;
   deletingKey: string | null;
   settingCoverKey: string | null;
   mediaDeleteBlocked: boolean;
@@ -768,6 +895,9 @@ export function FolderUploadMediaGrid({
                 onOpenPreview={onPreviewClick}
                 onDelete={onDelete}
                 onSetCover={onSetCover}
+                onLockFinal={onLockFinal}
+                onUnlockFinal={onUnlockFinal}
+                lockBusyId={lockBusyId}
                 settingCover={settingCover}
                 onTilePointerDown={(event, tile) => {
                   const target = event.target as HTMLElement;

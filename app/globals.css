@@ -333,6 +333,26 @@
   }
 }
 
+@keyframes splash-enter {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes splash-progress {
+  0% {
+    transform: translateX(-120%);
+  }
+  100% {
+    transform: translateX(320%);
+  }
+}
+
 @layer utilities {
   .font-display {
     font-family: var(--font-display);
@@ -397,6 +417,12 @@
   }
   .animate-landing-scribble {
     animation: landing-scribble 3.2s ease-in-out infinite;
+  }
+  .animate-splash-enter {
+    animation: splash-enter 0.65s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  .animate-splash-progress {
+    animation: splash-progress 1.35s cubic-bezier(0.4, 0, 0.2, 1) infinite;
   }
 
   /* ============================ PATTERNS ============================ */
@@ -703,6 +729,10 @@
   .animate-landing-spark,
   .animate-landing-ping-soft,
   .animate-landing-scribble {
+    animation: none !important;
+  }
+  .animate-splash-enter,
+  .animate-splash-progress {
     animation: none !important;
   }
 }

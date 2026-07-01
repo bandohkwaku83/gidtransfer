@@ -30,6 +30,8 @@ export type ApiGalleryPhoto = {
   flaggedAt?: string | null;
   locked?: boolean;
   isLocked?: boolean;
+  outstandingBalanceGhs?: number | null;
+  clientPaid?: boolean;
   createdAt?: string;
   updatedAt?: string;
   setId?: string | null;
@@ -112,6 +114,10 @@ export function galleryPhotoToApiFolderMedia(photo: ApiGalleryPhoto): ApiFolderM
     flaggedByClient: photo.flaggedByClient === true,
     flaggedAt: photo.flaggedAt ?? null,
     locked: photo.locked === true || photo.isLocked === true,
+    ...(photo.outstandingBalanceGhs != null
+      ? { outstandingBalanceGhs: photo.outstandingBalanceGhs }
+      : {}),
+    ...(photo.clientPaid !== undefined ? { clientPaid: photo.clientPaid } : {}),
     setId: photo.setId ?? null,
     derivativesReady: photo.derivativesReady,
   };
@@ -546,6 +552,22 @@ export async function patchGalleryFinalsLock(
       body: JSON.stringify(body),
     },
     "Failed to update final delivery lock",
+    FoldersApiError,
+  );
+}
+
+export async function patchGalleryFinalLock(
+  galleryId: string,
+  finalId: string,
+  body: { isLocked: boolean; amountOwing?: number; outstandingBalanceGhs?: number },
+): Promise<{ message?: string; final: ApiGalleryPhoto }> {
+  return authedJson<{ message?: string; final: ApiGalleryPhoto }>(
+    `${galleryPath(galleryId)}/finals/${encodeURIComponent(finalId)}/lock`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    },
+    "Failed to update final lock",
     FoldersApiError,
   );
 }

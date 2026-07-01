@@ -130,7 +130,7 @@ export function FeaturesSection() {
             </Link>
           </div>
           <p className="mt-5 text-xs text-white/50 sm:text-sm">
-            14-day Pro trial · Cancel anytime
+            30-day trial · Any plan after your trial · Cancel anytime
           </p>
         </div>
       </section>

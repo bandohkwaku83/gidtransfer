@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import {
   clientInitials,
+  canDownloadShareFinal,
   editedCardClass,
   finalDisplaySrc,
   GalleryViewMoreButton,
@@ -59,6 +60,7 @@ import {
   postShareGalleryFinalFlag,
   postShareGalleryPhotoComment,
   postShareGalleryUnlock,
+  postShareGalleryAccessEmail,
   submitShareGallerySelectionsToPhotographer,
   type NormalizedShareGallery,
   ShareGalleryError,
@@ -71,12 +73,30 @@ import {
 import { usePreferInlineFinalSave } from "@/lib/use-prefer-inline-final-save";
 import { useShareSaveHints } from "@/lib/use-share-save-hints";
 import { cn } from "@/lib/utils";
-import { APP_NAME, studioLogoSrc as resolveStudioLogoSrc } from "@/lib/branding";
+import {
+  APP_NAME,
+  MARKETING_SITE_ORIGIN,
+  studioLogoSrc as resolveStudioLogoSrc,
+} from "@/lib/branding";
 import { GalleryAccessGate } from "@/components/client/gallery-access-gate";
+import { GalleryEmailGate } from "@/components/client/gallery-email-gate";
+import { ClientGalleryAssetGrid } from "@/components/client/client-gallery-asset-grid";
+import { ClientGallerySetBar } from "@/components/client/client-gallery-set-bar";
 import { ClientPreviewWatermarkOverlay } from "@/components/client/preview-watermark-overlay";
 import { GalleryCoverHero } from "@/components/client/gallery-cover-hero";
 import { MediaLightbox, lightboxMediaClass } from "@/components/ui/media-lightbox";
 import { mergeGalleryAccessSettings } from "@/lib/gallery-access-merge";
+import {
+  hasGalleryEmailAccess,
+  recordGalleryAccessEmail,
+  writeGalleryEmailSession,
+} from "@/lib/gallery-email-access";
+import {
+  filterMediaByGallerySet,
+  readMediaSetId,
+  type GallerySetFilter,
+  sortGallerySets,
+} from "@/lib/gallery-set-filter";
 import { GalleryBlogClientSection } from "@/components/gallery-blog/gallery-blog-client-section";
 import {
   ensureDemoGalleryBlogSeed,
@@ -84,7 +104,7 @@ import {
   resolveGalleryBlogFolderId,
 } from "@/lib/gallery-blog";
 import {
-  clientGalleryAssetSrc,
+  clientGalleryLightboxSrc,
   shouldShowClientPreviewWatermarkOverlay,
 } from "@/lib/preview-watermark-display";
 
@@ -112,12 +132,17 @@ export function ClientGalleryApp({ publicKey }: { publicKey: PublicGalleryKey })
   const [assets, setAssets] = useState<DemoAsset[]>([]);
   const [loadState, setLoadState] = useState<"loading" | "locked" | "error" | "ok">("loading");
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [emailAccessGranted, setEmailAccessGranted] = useState(() =>
+    hasGalleryEmailAccess(sessionId),
+  );
+  const [galleryGridKey, setGalleryGridKey] = useState(0);
   const [syncBusy, setSyncBusy] = useState(false);
   const [submitSelectionsBusy, setSubmitSelectionsBusy] = useState(false);
   const [lightboxId, setLightboxId] = useState<string | null>(null);
   const [finalLightboxId, setFinalLightboxId] = useState<string | null>(null);
   const [coverLightboxOpen, setCoverLightboxOpen] = useState(false);
   const [photoTab, setPhotoTab] = useState<GalleryPhotoTab>("all");
+  const [setFilter, setSetFilter] = useState<GallerySetFilter>("all");
   const [publishedBlogCount, setPublishedBlogCount] = useState(0);
   const [zoom, setZoom] = useState(1);
   const [gridLayout, setGridLayout] = useState<GridLayout>("masonry");
@@ -176,12 +201,15 @@ export function ClientGalleryApp({ publicKey }: { publicKey: PublicGalleryKey })
 
   useEffect(() => {
     initialPhotoTabAppliedRef.current = false;
+    setSetFilter("all");
     setVisibleMediaLimit(SHARE_GALLERY_INITIAL_VISIBLE);
+    setEmailAccessGranted(hasGalleryEmailAccess(sessionId));
+    setGalleryGridKey(0);
   }, [sessionId]);
 
   useEffect(() => {
     setVisibleMediaLimit(SHARE_GALLERY_INITIAL_VISIBLE);
-  }, [photoTab]);
+  }, [photoTab, setFilter]);
 
   const updateLayoutMenuPosition = useCallback(() => {
     const button = layoutMenuButtonRef.current;
@@ -425,6 +453,7 @@ export function ClientGalleryApp({ publicKey }: { publicKey: PublicGalleryKey })
    */
   useEffect(() => {
     if (loadState !== "ok" || !gallery) return;
+    if (gallery.emailGateEnabled && !emailAccessGranted) return;
     if (initialPhotoTabAppliedRef.current) return;
     initialPhotoTabAppliedRef.current = true;
 
@@ -440,7 +469,7 @@ export function ClientGalleryApp({ publicKey }: { publicKey: PublicGalleryKey })
       }
     }
 
-    const showFinals = gallery.finalDelivery !== false;
+    const showFinals = gallery.finalDelivery === true;
 
     if (tabParam === "selected" || viewParam === "selected") {
       setPhotoTab("selected");
@@ -477,7 +506,7 @@ export function ClientGalleryApp({ publicKey }: { publicKey: PublicGalleryKey })
     } else {
       setPhotoTab("all");
     }
-  }, [gallery, loadState]);
+  }, [gallery, loadState, emailAccessGranted]);
 
   useEffect(() => {
     let cancelled = false;
@@ -491,7 +520,7 @@ export function ClientGalleryApp({ publicKey }: { publicKey: PublicGalleryKey })
         if (cancelled) return;
         const merged = mergeGalleryAccessSettings(g, sessionId);
         setGallery(merged);
-        setAssets(toDemoAssets(merged.assets));
+        setAssets(toDemoAssets(merged.assets.filter((a) => !a.removedFromBrowse)));
         setLoadState("ok");
       })
       .catch((err) => {
@@ -548,7 +577,7 @@ export function ClientGalleryApp({ publicKey }: { publicKey: PublicGalleryKey })
   /** When false, hide all client download / save-to-device actions on finals. */
   const finalsDownloadsAllowed = gallery?.allowDownloads !== false;
 
-  const showFinalsTab = gallery ? gallery.finalDelivery !== false : true;
+  const showFinalsTab = gallery?.finalDelivery === true;
   // const showBlogTab = publishedBlogCount > 0;
   const showBlogTab = false;
   const isPhotoGridTab = photoTab !== "blog";
@@ -560,14 +589,75 @@ export function ClientGalleryApp({ publicKey }: { publicKey: PublicGalleryKey })
   const editedCount = gallery?.finals.length ?? 0;
   const uploadsCount = gallery?.counts?.uploads ?? assets.length;
 
-  const visibleAssets = useMemo(() => {
+  const gallerySets = useMemo(
+    () =>
+      sortGallerySets(gallery?.sets ?? []).filter(
+        (s) => !s.counts || s.counts.uploads > 0 || s.counts.finals > 0,
+      ),
+    [gallery?.sets],
+  );
+
+  const showGallerySets = gallerySets.length > 0 && isPhotoGridTab;
+
+  useEffect(() => {
+    if (setFilter === "all") return;
+    if (!gallerySets.some((s) => s.id === setFilter)) {
+      setSetFilter("all");
+    }
+  }, [gallerySets, setFilter]);
+
+  const tabAssets = useMemo(() => {
     if (photoTab === "blog") return [];
-    if (photoTab === "selected") return assets.filter((a) => a.selection === "SELECTED");
+    if (photoTab === "selected") {
+      const picks = gallery?.selectionAssets;
+      if (picks?.length) {
+        const liveById = new Map(assets.map((a) => [a.id, a]));
+        return picks.map((sa) => liveById.get(sa.id) ?? toDemoAssets([sa])[0]!);
+      }
+      return assets.filter((a) => a.selection === "SELECTED");
+    }
     if (photoTab === "edited") return [];
     return assets;
-  }, [assets, photoTab]);
+  }, [assets, photoTab, gallery?.selectionAssets]);
 
-  const visibleFinals = useMemo(() => gallery?.finals ?? [], [gallery]);
+  const useStackedSetSections =
+    photoTab === "all" && setFilter === "all" && gallerySets.length > 0;
+
+  const uploadSections = useMemo(() => {
+    if (!useStackedSetSections) return null;
+    const sections: { id: string; title: string; assets: DemoAsset[] }[] = [];
+    for (const set of gallerySets) {
+      if (set.counts && set.counts.uploads === 0 && set.counts.finals === 0) {
+        continue;
+      }
+      const setAssets = tabAssets.filter((a) => readMediaSetId(a) === set.id);
+      if (setAssets.length > 0) {
+        sections.push({ id: set.id, title: set.name, assets: setAssets });
+      }
+    }
+    const unsorted = tabAssets.filter((a) => readMediaSetId(a) === null);
+    if (unsorted.length > 0) {
+      sections.push({ id: "__unsorted__", title: "Other", assets: unsorted });
+    }
+    return sections.length > 0 ? sections : null;
+  }, [useStackedSetSections, gallerySets, tabAssets]);
+
+  const setBarCountItems = useMemo(() => {
+    if (photoTab === "edited") return gallery?.finals ?? [];
+    return tabAssets;
+  }, [photoTab, tabAssets, gallery?.finals]);
+
+  const visibleAssets = useMemo(
+    () => filterMediaByGallerySet(tabAssets, setFilter),
+    [tabAssets, setFilter],
+  );
+
+  const tabFinals = useMemo(() => gallery?.finals ?? [], [gallery?.finals]);
+
+  const visibleFinals = useMemo(
+    () => filterMediaByGallerySet(tabFinals, setFilter),
+    [tabFinals, setFilter],
+  );
 
   const displayedFinals = useMemo(
     () => visibleFinals.slice(0, visibleMediaLimit),
@@ -590,7 +680,7 @@ export function ClientGalleryApp({ publicKey }: { publicKey: PublicGalleryKey })
 
   const downloadableFinals = useMemo(
     () =>
-      finalsDownloadsAllowed ? visibleFinals.filter((f) => !f.locked) : [],
+      visibleFinals.filter((f) => canDownloadShareFinal(f, finalsDownloadsAllowed)),
     [visibleFinals, finalsDownloadsAllowed],
   );
 
@@ -783,13 +873,13 @@ export function ClientGalleryApp({ publicKey }: { publicKey: PublicGalleryKey })
     return () => window.removeEventListener("keydown", onKey);
   }, [photoSaveAssist, closePhotoSaveAssist]);
 
-  async function refetchGallery() {
+  const refetchGallery = useCallback(async () => {
     const g = await getShareGallery(publicKey, undefined, { sessionId });
     const merged = mergeGalleryAccessSettings(g, sessionId);
     setGallery(merged);
-    setAssets(toDemoAssets(merged.assets));
+    setAssets(toDemoAssets(merged.assets.filter((a) => !a.removedFromBrowse)));
     return merged;
-  }
+  }, [publicKey, sessionId]);
 
   const handleGalleryUnlock = useCallback(
     async (entered: string): Promise<boolean> => {
@@ -797,7 +887,7 @@ export function ClientGalleryApp({ publicKey }: { publicKey: PublicGalleryKey })
         const g = await postShareGalleryUnlock(publicKey, entered);
         const merged = mergeGalleryAccessSettings(g, sessionId);
         setGallery(merged);
-        setAssets(toDemoAssets(merged.assets));
+        setAssets(toDemoAssets(merged.assets.filter((a) => !a.removedFromBrowse)));
         setLoadState("ok");
         return true;
       } catch (e) {
@@ -808,6 +898,31 @@ export function ClientGalleryApp({ publicKey }: { publicKey: PublicGalleryKey })
       }
     },
     [publicKey, sessionId],
+  );
+
+  const handleEmailGateSubmit = useCallback(
+    async (email: string): Promise<boolean> => {
+      const trimmed = email.trim();
+      if (!trimmed) return false;
+      try {
+        writeGalleryEmailSession(sessionId, trimmed);
+        if (gallery?.folderId) {
+          recordGalleryAccessEmail(gallery.folderId, trimmed);
+        }
+        try {
+          await postShareGalleryAccessEmail(publicKey, trimmed);
+        } catch {
+          /* Demo / offline — refetch may still succeed with visitor email header. */
+        }
+        await refetchGallery();
+        setGalleryGridKey((key) => key + 1);
+        setEmailAccessGranted(true);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [gallery?.folderId, publicKey, refetchGallery, sessionId],
   );
 
   async function handleDownloadAllFinals() {
@@ -1196,6 +1311,15 @@ export function ClientGalleryApp({ publicKey }: { publicKey: PublicGalleryKey })
     return <GalleryAccessGate onUnlock={handleGalleryUnlock} />;
   }
 
+  if (loadState === "ok" && gallery?.emailGateEnabled && !emailAccessGranted) {
+    return (
+      <GalleryEmailGate
+        studioName={studioDisplayName}
+        onSubmit={handleEmailGateSubmit}
+      />
+    );
+  }
+
   if (loadState === "error" || !gallery) {
     return (
       <div className="min-h-screen bg-zinc-50 px-4 py-16 text-center dark:bg-black">
@@ -1211,7 +1335,7 @@ export function ClientGalleryApp({ publicKey }: { publicKey: PublicGalleryKey })
               .then((g) => {
                 const merged = mergeGalleryAccessSettings(g, sessionId);
                 setGallery(merged);
-                setAssets(toDemoAssets(merged.assets));
+                setAssets(toDemoAssets(merged.assets.filter((a) => !a.removedFromBrowse)));
                 setLoadState("ok");
               })
               .catch((err) => {
@@ -1505,6 +1629,18 @@ export function ClientGalleryApp({ publicKey }: { publicKey: PublicGalleryKey })
                 </div>
               ) : null}
             </div>
+
+            {showGallerySets ? (
+              <ClientGallerySetBar
+                className="mt-2"
+                sets={gallerySets}
+                allSetsLabel={gallery?.setsAllLabel}
+                allSetsSortOrder={gallery?.setsAllSortOrder}
+                filter={setFilter}
+                onFilterChange={setSetFilter}
+                items={setBarCountItems}
+              />
+            ) : null}
           </div>
         </div>
       </header>
@@ -1572,7 +1708,7 @@ export function ClientGalleryApp({ publicKey }: { publicKey: PublicGalleryKey })
                   </button>
                 </div>
               ) : null}
-              <ul className={galleryListClass(gridLayout)}>
+              <ul key={`finals-${galleryGridKey}`} className={galleryListClass(gridLayout)}>
               {displayedFinals.map((f, index) => {
                 const locked = Boolean(f.locked);
                 const imgSrc = finalDisplaySrc(f, publicKey);
@@ -1644,9 +1780,19 @@ export function ClientGalleryApp({ publicKey }: { publicKey: PublicGalleryKey })
                       </button>
                       {locked ? (
                         <div
-                          className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/25 to-transparent"
+                          className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center bg-black/50 p-3 text-center text-white"
                           aria-hidden
-                        />
+                        >
+                          <Lock className="size-6 shrink-0 opacity-90" aria-hidden />
+                          {f.outstandingBalanceGhs != null && f.outstandingBalanceGhs > 0 ? (
+                            <p className="mt-2 text-xs font-semibold tabular-nums">
+                              Pay GHS {f.outstandingBalanceGhs.toFixed(2)} to download
+                            </p>
+                          ) : null}
+                          <p className="mt-1 max-w-[14rem] text-[11px] leading-snug text-white/90">
+                            Contact your photographer to unlock downloads
+                          </p>
+                        </div>
                       ) : null}
                       <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex justify-end bg-gradient-to-t from-black/55 via-black/20 to-transparent p-2 opacity-100 transition sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
                         <div className="pointer-events-auto flex items-center gap-1.5">
@@ -1746,139 +1892,53 @@ export function ClientGalleryApp({ publicKey }: { publicKey: PublicGalleryKey })
               ? "You have not selected any media yet."
               : "No media in this gallery yet."}
           </p>
-        ) : (
-          <>
-          <ul className={galleryListClass(gridLayout)}>
-            {displayedAssets.map((a, index) => {
-              const isVideo = isClientAssetVideo(a);
-              const mediaSrc = clientGalleryAssetSrc(a, previewWatermarkEnabled);
-              const showPreviewWatermark = shouldShowClientPreviewWatermarkOverlay(
-                a,
-                previewWatermarkEnabled,
-                isVideo,
-              );
-              const isSelected = a.selection === "SELECTED";
-              const assetComment = a.clientComment?.trim() ?? "";
-              const hasAssetComment = assetComment.length > 0;
+        ) : uploadSections ? (
+          <div className="space-y-10">
+            {uploadSections.map((section, sectionIndex) => {
+              const indexOffset = uploadSections
+                .slice(0, sectionIndex)
+                .reduce((sum, s) => sum + s.assets.length, 0);
               return (
-                <li
-                  key={a.id}
-                  className={uploadItemClass(gridLayout, index, isSelected)}
-                >
-                  <div className={uploadImageWrapClass(gridLayout, index)}>
-                    <button
-                      type="button"
-                      className={
-                        isCollageGridLayout(gridLayout)
-                          ? "block w-full text-left"
-                          : "absolute inset-0 block h-full w-full text-left"
-                      }
-                      onClick={() => openLb(a.id)}
-                    >
-                      {isVideo ? (
-                        <video
-                          src={mediaSrc}
-                          muted
-                          playsInline
-                          preload="metadata"
-                          aria-label={a.originalName}
-                          className={
-                            isCollageGridLayout(gridLayout)
-                              ? "block h-auto w-full bg-black transition group-hover:brightness-[0.97]"
-                              : "absolute inset-0 h-full w-full bg-black object-cover transition group-hover:brightness-[0.97]"
-                          }
-                        />
-                      ) : isCollageGridLayout(gridLayout) ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={mediaSrc}
-                          alt={a.originalName}
-                          loading={index < 12 ? "eager" : "lazy"}
-                          decoding="async"
-                          draggable={!gallery.rightsProtection}
-                          className="block h-auto w-full transition group-hover:brightness-[0.97]"
-                        />
-                      ) : (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={mediaSrc}
-                          alt={a.originalName}
-                          loading={index < 10 ? "eager" : "lazy"}
-                          decoding="async"
-                          draggable={!gallery.rightsProtection}
-                          className="absolute inset-0 h-full w-full object-cover transition group-hover:brightness-[0.97]"
-                        />
-                      )}
-                      {isVideo ? <VideoTileOverlay /> : null}
-                    </button>
-                    {showPreviewWatermark ? (
-                      <ClientPreviewWatermarkOverlay text={previewWatermarkLabel} />
-                    ) : null}
-
-                    {!editingLocked ? (
-                      <div
-                        className={cn(
-                          "pointer-events-none absolute inset-x-0 bottom-0 z-10 flex justify-end bg-gradient-to-t from-black/55 via-black/20 to-transparent p-2 transition group-focus-within:opacity-100 group-hover:opacity-100",
-                          isSelected || hasAssetComment ? "opacity-100" : "opacity-100 sm:opacity-0",
-                        )}
-                      >
-                        <div className="pointer-events-auto flex items-center gap-1.5">
-                          <button
-                            type="button"
-                            disabled={syncBusy}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              openPhotoComment(a);
-                            }}
-                            className={tileActionClass(hasAssetComment)}
-                            aria-label={
-                              hasAssetComment
-                                ? `View note for ${a.originalName}`
-                                : `Add note for ${a.originalName}`
-                            }
-                            title={hasAssetComment ? "View note" : "Add note"}
-                          >
-                            <MessageCircle
-                              className={cn("h-4 w-4", hasAssetComment && "fill-white")}
-                              aria-hidden="true"
-                            />
-                          </button>
-                          <button
-                            type="button"
-                            disabled={syncBusy}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              void toggleSelect(a.id);
-                            }}
-                            className={tileActionClass(isSelected)}
-                            aria-label={isSelected ? "Unselect photo" : "Select photo"}
-                            title={isSelected ? "Unselect" : "Select"}
-                          >
-                            <Heart className="h-4 w-4" aria-hidden="true" />
-                          </button>
-                        </div>
-                      </div>
-                    ) : hasAssetComment ? (
-                      <div className="absolute right-2 top-2 z-10">
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openPhotoComment(a);
-                          }}
-                          className="inline-flex items-center gap-1 rounded-full bg-sky-500/90 px-2 py-1 text-[10px] font-semibold text-white shadow-sm backdrop-blur-sm transition hover:bg-sky-500"
-                          aria-label={`View note for ${a.originalName}`}
-                        >
-                          <MessageCircle className="h-3 w-3 fill-white" aria-hidden />
-                          Note
-                        </button>
-                      </div>
-                    ) : null}
-                  </div>
-                </li>
+                <section key={section.id}>
+                  <h2
+                    className="mb-4 text-lg font-semibold tracking-tight text-zinc-900 dark:text-zinc-100"
+                    style={{ fontFamily: bodyFamily }}
+                  >
+                    {section.title}
+                  </h2>
+                  <ClientGalleryAssetGrid
+                    key={`${galleryGridKey}-${section.id}`}
+                    assets={section.assets}
+                    gridLayout={gridLayout}
+                    previewWatermarkEnabled={previewWatermarkEnabled}
+                    previewWatermarkLabel={previewWatermarkLabel}
+                    rightsProtection={gallery.rightsProtection}
+                    editingLocked={editingLocked}
+                    syncBusy={syncBusy}
+                    onOpen={openLb}
+                    onToggleSelect={toggleSelect}
+                    onOpenComment={openPhotoComment}
+                    indexOffset={indexOffset}
+                  />
+                </section>
               );
             })}
-          </ul>
+          </div>
+        ) : (
+          <>
+          <ClientGalleryAssetGrid
+            key={galleryGridKey}
+            assets={displayedAssets}
+            gridLayout={gridLayout}
+            previewWatermarkEnabled={previewWatermarkEnabled}
+            previewWatermarkLabel={previewWatermarkLabel}
+            rightsProtection={gallery.rightsProtection}
+            editingLocked={editingLocked}
+            syncBusy={syncBusy}
+            onOpen={openLb}
+            onToggleSelect={toggleSelect}
+            onOpenComment={openPhotoComment}
+          />
           {hasMoreAssets ? (
             <GalleryViewMoreButton
               onClick={loadMoreGalleryMedia}
@@ -1890,13 +1950,21 @@ export function ClientGalleryApp({ publicKey }: { publicKey: PublicGalleryKey })
       </main>
 
       <footer className="border-t border-zinc-200/80 bg-white px-4 py-8 pb-[max(env(safe-area-inset-bottom),2rem)] text-center dark:border-zinc-800 dark:bg-zinc-950 sm:px-5">
-        <Image
-          src="/svgs/color_logo.svg"
-          alt={APP_NAME}
-          width={72}
-          height={78}
-          className="mx-auto h-10 w-auto object-contain opacity-90 sm:h-11"
-        />
+        <a
+          href={MARKETING_SITE_ORIGIN}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label={`Visit ${APP_NAME}`}
+          className="inline-block rounded-sm opacity-90 transition-opacity hover:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-400"
+        >
+          <Image
+            src="/svgs/color_logo.svg"
+            alt={APP_NAME}
+            width={72}
+            height={78}
+            className="mx-auto h-10 w-auto object-contain sm:h-11"
+          />
+        </a>
       </footer>
 
       {lightboxId && lbAsset ? (
@@ -1989,7 +2057,7 @@ export function ClientGalleryApp({ publicKey }: { publicKey: PublicGalleryKey })
         >
           {lbAssetIsVideo ? (
             <video
-              src={clientGalleryAssetSrc(lbAsset, previewWatermarkEnabled)}
+              src={clientGalleryLightboxSrc(lbAsset, previewWatermarkEnabled)}
               controls
               playsInline
               preload="metadata"
@@ -2007,7 +2075,7 @@ export function ClientGalleryApp({ publicKey }: { publicKey: PublicGalleryKey })
             <div className="relative inline-block max-h-full max-w-full">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src={clientGalleryAssetSrc(lbAsset, previewWatermarkEnabled)}
+                src={clientGalleryLightboxSrc(lbAsset, previewWatermarkEnabled)}
                 alt={lbAsset.originalName}
                 className={cn(
                   lightboxMediaClass,
@@ -2039,7 +2107,11 @@ export function ClientGalleryApp({ publicKey }: { publicKey: PublicGalleryKey })
           mediaKey={finalLb.id}
           title={finalLb.name}
           subtitle={
-            finalLb.locked ? "Preview only until paid" : undefined
+            finalLb.locked
+              ? finalLb.outstandingBalanceGhs != null && finalLb.outstandingBalanceGhs > 0
+                ? `GHS ${finalLb.outstandingBalanceGhs.toFixed(2)} outstanding — preview only`
+                : "Preview only until paid"
+              : undefined
           }
           counter={
             visibleFinals.length > 1
@@ -2068,9 +2140,16 @@ export function ClientGalleryApp({ publicKey }: { publicKey: PublicGalleryKey })
           footer={
             <div className="flex flex-col items-center gap-2 sm:flex-row sm:justify-center">
               {finalLb.locked ? (
-                <span className="inline-flex items-center gap-1.5 text-xs text-amber-200">
-                  <Lock className="size-3.5 shrink-0" aria-hidden />
-                  Preview only until paid
+                <span className="inline-flex flex-col items-center gap-1 text-center text-xs text-amber-200">
+                  <span className="inline-flex items-center gap-1.5">
+                    <Lock className="size-3.5 shrink-0" aria-hidden />
+                    {finalLb.outstandingBalanceGhs != null && finalLb.outstandingBalanceGhs > 0
+                      ? `Pay GHS ${finalLb.outstandingBalanceGhs.toFixed(2)} to download`
+                      : "Preview only until paid"}
+                  </span>
+                  <span className="text-[11px] text-amber-100/80">
+                    Contact your photographer to unlock downloads
+                  </span>
                 </span>
               ) : (
                 <>

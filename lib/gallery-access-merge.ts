@@ -2,6 +2,10 @@ import {
   readGalleryAccessClientConfig,
   type GalleryAccessClientConfig,
 } from "@/lib/gallery-access-client-config";
+import {
+  readGalleryEmailGateConfig,
+  type GalleryEmailGateConfig,
+} from "@/lib/gallery-email-access";
 import { getFolderOverride } from "@/lib/demo-data";
 import { normalizeGalleryCoverColor } from "@/lib/gallery-cover-color";
 import { normalizeGalleryCoverFrame } from "@/lib/gallery-cover-frame";
@@ -14,6 +18,7 @@ export function mergeGalleryAccessSettings(
   sessionId: string,
 ): NormalizedShareGallery {
   const local: GalleryAccessClientConfig | null = readGalleryAccessClientConfig(sessionId);
+  const localEmail: GalleryEmailGateConfig | null = readGalleryEmailGateConfig(sessionId);
   const enabled =
     gallery.sharePasswordEnabled === true
       ? true
@@ -24,9 +29,16 @@ export function mergeGalleryAccessSettings(
     (gallery.shareAccessPin?.replace(/\D/g, "").padStart(4, "0").slice(-4) ||
       local?.pin?.replace(/\D/g, "").padStart(4, "0").slice(-4)) ??
     "";
+  const emailGateEnabled =
+    gallery.emailGateEnabled === true
+      ? true
+      : gallery.emailGateEnabled === false
+        ? false
+        : localEmail?.enabled === true;
   let merged: NormalizedShareGallery = {
     ...gallery,
     sharePasswordEnabled: enabled,
+    emailGateEnabled,
     ...(pin ? { shareAccessPin: pin } : {}),
   };
 

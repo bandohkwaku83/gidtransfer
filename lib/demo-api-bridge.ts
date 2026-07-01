@@ -145,6 +145,7 @@ function finalToMedia(f: DemoFinalAsset, folderId: string): ApiFolderMedia {
     mimeType: f.mimeType,
     isVideo: f.isVideo === true,
     locked: f.locked === true,
+    ...(f.outstandingBalanceGhs != null ? { outstandingBalanceGhs: f.outstandingBalanceGhs } : {}),
     setId: resolveDemoFinalSetId(folderId, f.id, f),
   };
 }
@@ -209,6 +210,10 @@ export function demoProjectToApiFolder(project: DemoProject): ApiFolder {
     selection,
     finals,
     sets,
+    ...(override?.setsAllLabel?.trim() ? { setsAllLabel: override.setsAllLabel.trim() } : {}),
+    ...(override?.setsAllSortOrder !== undefined
+      ? { setsAllSortOrder: override.setsAllSortOrder }
+      : {}),
     finalDelivery: project.finalAssets.length > 0 || project.status !== "DRAFT",
     finalsPaymentLocked: override?.finalsPaymentLocked ?? false,
     createdAt: project.createdAt,
@@ -220,6 +225,12 @@ export function demoProjectToApiFolder(project: DemoProject): ApiFolder {
       : {}),
     backgroundMusicEnabled: Boolean(bg?.trim()),
     backgroundMusicUrl: bg?.trim() || undefined,
+    ...(override?.sharePasswordEnabled !== undefined
+      ? { sharePasswordEnabled: override.sharePasswordEnabled }
+      : {}),
+    ...(override?.emailGateEnabled !== undefined
+      ? { emailGateEnabled: override.emailGateEnabled }
+      : {}),
   };
 }
 

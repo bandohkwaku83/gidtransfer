@@ -1,5 +1,9 @@
 /** Product identity — workspace + client galleries SaaS. */
 export const APP_NAME = "Gidtransfer";
+
+/** Public marketing site origin (homepage, pricing, etc.). */
+export const MARKETING_SITE_ORIGIN =
+  process.env.NEXT_PUBLIC_SITE_URL?.trim().replace(/\/$/, "") || "http://localhost:3000";
 export const PRODUCT_TAGLINE = "Photographer workspace & client galleries";
 export const FOOTER_DESCRIPTION =
   "Gidtransfer is an online gallery and studio platform built for professional photographers. It combines beautiful client galleries and smart proofing workflows to create a seamless, premium client delivery experience.";

@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
-import { APP_NAME } from "@/lib/branding";
+import { buildMarketingPageMetadata } from "@/lib/marketing/site-seo";
 
-export const metadata: Metadata = {
-  title: `Pricing | ${APP_NAME}`,
-  description:
-    "Simple pricing for photographers. Start free, upgrade when your studio grows. No per-gallery fees, no commission on print sales.",
-};
+export const metadata: Metadata = buildMarketingPageMetadata(
+  "Pricing",
+  "Gidtransfer pricing for photographers. Start free, upgrade when your studio grows. No per-gallery fees, no commission on print sales.",
+  "/pricing",
+);
 
 export default function PricingLayout({ children }: { children: React.ReactNode }) {
   return children;

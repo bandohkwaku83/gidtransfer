@@ -343,10 +343,14 @@ export function apiFolderMediaToDemoAsset(m: ApiFolderMedia): DemoAsset {
 
 function readOutstandingAmountGhs(o: Record<string, unknown>): number {
   const raw =
+    o.outstandingBalanceGhs ??
+    o.outstanding_balance_ghs ??
     o.outstandingAmountGHS ??
     o.outstanding_amount_ghs ??
     o.amountRemainingGHS ??
-    o.amount_remaining_ghs;
+    o.amount_remaining_ghs ??
+    o.amountOwing ??
+    o.amount_owing;
   if (typeof raw === "number" && Number.isFinite(raw)) return Math.max(0, raw);
   if (typeof raw === "string" && raw.trim()) {
     const n = Number(raw.trim().replace(/,/g, ""));
@@ -450,12 +454,15 @@ export function apiFolderMediaToFinal(m: ApiFolderMedia): DemoFinalAsset {
     lockStatus.toLowerCase() === "locked";
   const setId =
     m.setId != null && m.setId !== "" ? String(m.setId) : null;
+  const balanceRaw = m.outstandingBalanceGhs ?? readOutstandingAmountGhs(o);
+  const outstandingBalanceGhs = balanceRaw > 0 ? balanceRaw : m.outstandingBalanceGhs ?? null;
   return {
     id,
     name,
     url,
     locked,
     setId,
+    ...(outstandingBalanceGhs != null ? { outstandingBalanceGhs } : {}),
     ...(mimeType ? { mimeType } : {}),
     ...(isVideo ? { isVideo: true } : {}),
   };

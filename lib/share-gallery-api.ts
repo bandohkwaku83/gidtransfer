@@ -2,6 +2,7 @@ import { API_BASE_URL, apiUrl, sameOriginUploadsUrl } from "@/lib/api";
 import { getBackendApiUrl } from "@/lib/backend-proxy";
 import { extractMessage, HttpError, parseJson } from "@/lib/http";
 import { clearGalleryAccessToken, readGalleryAccessToken, writeGalleryAccessToken } from "@/lib/gallery-access-client-config";
+import { readGalleryEmailSession } from "@/lib/gallery-email-access";
 import { parseFolderCoverFocal } from "@/lib/folders/helpers";
 import { applyBrandWatermarkToImageBlob } from "@/lib/apply-brand-watermark";
 import { getBrandWatermarkSettings } from "@/lib/watermark-brand";
@@ -16,6 +17,8 @@ import {
   apiCoverStyleToFrame,
   apiGridStyleToLayout,
 } from "@/lib/galleries-api";
+import { normalizeGallerySets, type ApiGallerySet } from "@/lib/gallery-sets-api";
+import { readSetsBarSettingsFromApiBody } from "@/lib/gallery-set-filter";
 
 export type ShareGalleryAsset = {
   id: string;
@@ -35,19 +38,31 @@ export type ShareGalleryAsset = {
   rejectionComment?: string;
   clientComment?: string;
   photographerReply?: string;
+  /** Gallery set (subsection) this upload belongs to. */
+  setId?: string | null;
+  /** Thumbnails still processing when false. */
+  derivativesReady?: boolean;
+  /** Selected photo removed from uploads browse — still shown on Selections tab. */
+  removedFromBrowse?: boolean;
 };
 
 export type ShareGalleryFinal = {
   id: string;
   name: string;
-  /** Full-resolution URL when unlocked; may still be present when locked for admin-style APIs. */
+  /** Preview image URL — always present, including when locked. */
   url: string;
+  /** Full-quality download URL; null when locked. */
+  downloadUrl?: string | null;
+  /** False when locked or gallery downloads are disabled. */
+  downloadsEnabled?: boolean;
   /** MIME type of the delivered file (e.g. image/jpeg, video/mp4). */
   mimeType?: string;
   /** Delivered final is a video file. */
   isVideo?: boolean;
-  /** When true, client should use locked preview only and cannot download full files until unlocked. */
+  /** When true, client sees preview only and cannot download until unlocked. */
   locked?: boolean;
+  outstandingBalanceGhs?: number | null;
+  clientPaid?: boolean;
   /** Optional explicit preview URL for locked state (watermarked / reduced). */
   lockedPreviewUrl?: string;
   /** Client feedback left on this delivered edit. */
@@ -57,6 +72,8 @@ export type ShareGalleryFinal = {
   /** True when the client explicitly flagged this final for revision. */
   flaggedByClient?: boolean;
   flaggedAt?: string | null;
+  /** Gallery set (subsection) this final belongs to. */
+  setId?: string | null;
 };
 
 export type ShareGalleryStudio = {
@@ -69,9 +86,12 @@ export type ShareGalleryStudio = {
 export type PublicGalleryPhoto = {
   id: string;
   galleryId?: string;
+  setId?: string | null;
   originalFilename: string;
   url: string;
   thumbUrl?: string;
+  gridUrl?: string;
+  viewUrl?: string;
   displayUrl?: string;
   derivativesReady?: boolean;
   mimeType?: string;
@@ -81,6 +101,7 @@ export type PublicGalleryPhoto = {
   clientComment?: string;
   rejectedByClient?: boolean;
   rejectionComment?: string;
+  removedFromBrowse?: boolean;
   selectedAt?: string | null;
   rejectedAt?: string | null;
 };
@@ -141,6 +162,10 @@ export type PublicGalleryResponse = {
     clientName?: string | null;
     sharePasswordEnabled?: boolean;
     share_password_enabled?: boolean;
+    emailGateEnabled?: boolean;
+    email_gate_enabled?: boolean;
+    requireEmailToView?: boolean;
+    require_email_to_view?: boolean;
     shareAccessPin?: string;
     share_access_pin?: string;
     accessPin?: string;
@@ -162,12 +187,16 @@ export type PublicGalleryResponse = {
   selections?: PublicGalleryPhoto[];
   rejections?: PublicGalleryPhoto[];
   finals?: PublicGalleryFinal[];
+  sets?: ApiGallerySet[];
   counts?: {
     uploads: number;
     selected: number;
     rejected?: number;
     finals: number;
     flaggedFinals?: number;
+    sets?: number;
+    selectionLimit?: number | null;
+    selectionsRemaining?: number | null;
   };
 };
 
@@ -210,6 +239,8 @@ export type NormalizedShareGallery = {
   sharePasswordEnabled?: boolean;
   /** Expected 4-digit access code for client gate (UI validation until server verify endpoint). */
   shareAccessPin?: string;
+  /** When true, clients must enter an email before viewing the gallery. */
+  emailGateEnabled?: boolean;
   /** Absolute URL for optional looping background music (empty when disabled or not set). */
   backgroundMusicUrl?: string;
   /** When false, clients should not play music. Defaults to true when omitted. */
@@ -222,9 +253,24 @@ export type NormalizedShareGallery = {
   allowDownloads?: boolean;
   /** When true, client-facing originals/previews should show the studio preview watermark. */
   watermarkPreviewEnabled?: boolean;
+  /** Named subsections within this gallery (e.g. Ceremony, Reception). */
+  sets?: ApiGallerySet[];
+  /** Client-facing label for the combined “All” sets pill. */
+  setsAllLabel?: string;
+  /** Sort position of the “All” pill among set pills (0 = first). */
+  setsAllSortOrder?: number;
+  /** Client heart-picks — may include photos removed from uploads browse. */
+  selectionAssets?: ShareGalleryAsset[];
   assets: ShareGalleryAsset[];
   finals: ShareGalleryFinal[];
-  counts?: { uploads: number; selected: number; rejected?: number; finals: number; flaggedFinals?: number };
+  counts?: {
+    uploads: number;
+    selected: number;
+    rejected?: number;
+    finals: number;
+    flaggedFinals?: number;
+    selectionsRemaining?: number | null;
+  };
 };
 
 type Raw = Record<string, unknown>;
@@ -240,6 +286,7 @@ export class ShareGalleryPasswordRequiredError extends ShareGalleryError {
 }
 
 export const GALLERY_ACCESS_TOKEN_HEADER = "X-Gallery-Access-Token";
+export const GALLERY_VISITOR_EMAIL_HEADER = "X-Gallery-Visitor-Email";
 
 export function isShareGalleryPasswordRequiredBody(body: unknown): boolean {
   if (!body || typeof body !== "object") return false;
@@ -724,6 +771,13 @@ export function resolvePublicGalleryImageUrl(url?: string | null): string {
   return `/${normalized}`;
 }
 
+function readSetIdFromRow(o: Raw): string | null | undefined {
+  const raw = o.setId ?? o.set_id ?? o.gallerySetId ?? o.gallery_set_id;
+  if (raw === undefined) return undefined;
+  if (raw == null || raw === "") return null;
+  return String(raw);
+}
+
 function assetFromRow(item: unknown, idx: number): ShareGalleryAsset | null {
   if (!item || typeof item !== "object") return null;
   const o = item as Raw;
@@ -742,19 +796,29 @@ function assetFromRow(item: unknown, idx: number): ShareGalleryAsset | null {
     str(o.thumbnail) ||
     str(o.thumb) ||
     "";
-  const largePreview =
+  const gridRaw = str(o.gridUrl) || str(o.grid_url) || "";
+  const viewRaw =
+    str(o.viewUrl) ||
+    str(o.view_url) ||
     str(o.displayUrl) ||
-    str(o.url) ||
     str(o.previewUrl) ||
+    "";
+  const largePreview =
+    viewRaw ||
+    str(o.url) ||
     str(o.image) ||
     str(o.src) ||
     "";
-  const thumbRaw = smallThumb || "";
+  const thumbRaw = gridRaw || smallThumb || "";
   const thumbUrl = thumbRaw ? resolvePublicGalleryImageUrl(thumbRaw) : "";
-  const urlResolved = largePreview ? resolvePublicGalleryImageUrl(largePreview) : "";
+  const viewUrlResolved = viewRaw ? resolvePublicGalleryImageUrl(viewRaw) : "";
+  const fullUrlRaw = str(o.url) || "";
+  const urlResolved = fullUrlRaw
+    ? resolvePublicGalleryImageUrl(fullUrlRaw)
+    : viewUrlResolved || thumbUrl;
   if (!thumbUrl && !urlResolved) return null;
 
-  const displayUrlRaw = str(o.displayUrl) || str(o.previewUrl) || "";
+  const displayUrlRaw = str(o.displayUrl) || str(o.previewUrl) || viewRaw || "";
   const displayUrlResolved = displayUrlRaw
     ? resolvePublicGalleryImageUrl(displayUrlRaw)
     : "";
@@ -774,11 +838,20 @@ function assetFromRow(item: unknown, idx: number): ShareGalleryAsset | null {
   const previewUrl =
     isVideo
       ? mediaUrl
-      : displayUrlResolved && thumbUrl && displayUrlResolved !== thumbUrl
-        ? displayUrlResolved
-        : displayUrlResolved && !thumbUrl
+      : viewUrlResolved && viewUrlResolved !== thumbUrl
+        ? viewUrlResolved
+        : displayUrlResolved && thumbUrl && displayUrlResolved !== thumbUrl
           ? displayUrlResolved
-          : undefined;
+          : displayUrlResolved && !thumbUrl
+            ? displayUrlResolved
+            : undefined;
+
+  const derivativesReady =
+    o.derivativesReady === undefined && o.derivatives_ready === undefined
+      ? undefined
+      : bool(o.derivativesReady) || bool(o.derivatives_ready);
+  const removedFromBrowse =
+    bool(o.removedFromBrowse) || bool(o.removed_from_browse);
 
   const sel = str(o.selection).toUpperCase();
   const selected =
@@ -801,6 +874,7 @@ function assetFromRow(item: unknown, idx: number): ShareGalleryAsset | null {
     str(o.photographerReply) ||
     str(o.photographer_reply) ||
     "";
+  const setId = readSetIdFromRow(o);
 
   return {
     id,
@@ -816,7 +890,25 @@ function assetFromRow(item: unknown, idx: number): ShareGalleryAsset | null {
     ...(rejectionComment ? { rejectionComment } : {}),
     ...(clientComment ? { clientComment } : {}),
     ...(photographerReply ? { photographerReply } : {}),
+    ...(setId !== undefined ? { setId } : {}),
+    ...(derivativesReady !== undefined ? { derivativesReady } : {}),
+    ...(removedFromBrowse ? { removedFromBrowse: true } : {}),
   };
+}
+
+function readFinalOutstandingBalanceGhs(o: Raw): number | null {
+  const raw =
+    o.outstandingBalanceGhs ??
+    o.outstanding_balance_ghs ??
+    o.amountOwing ??
+    o.amount_owing;
+  if (raw === null || raw === undefined) return null;
+  if (typeof raw === "number" && Number.isFinite(raw)) return Math.max(0, raw);
+  if (typeof raw === "string" && raw.trim()) {
+    const n = Number(raw.trim().replace(/,/g, ""));
+    if (Number.isFinite(n)) return Math.max(0, n);
+  }
+  return null;
 }
 
 function finalFromRow(item: unknown, idx: number): ShareGalleryFinal | null {
@@ -850,7 +942,7 @@ function finalFromRow(item: unknown, idx: number): ShareGalleryFinal | null {
   const truthy = (v: unknown) => v === true || v === "true";
   const lockStatus =
     str(o.lockStatus).toLowerCase() || str(o.lock_status).toLowerCase();
-  const locked =
+  const legacyLocked =
     bool(o.locked) ||
     truthy(o.isLocked) ||
     truthy(o.is_locked) ||
@@ -860,16 +952,45 @@ function finalFromRow(item: unknown, idx: number): ShareGalleryFinal | null {
     truthy(o.download_locked) ||
     lockStatus === "locked";
 
-  const downloadRaw = str(o.downloadUrl) || str(o.download_url) || "";
-  const previewRaw = str(o.url) || str(o.fileUrl) || lockedPreviewRaw;
-  const urlRaw = locked ? previewRaw : downloadRaw || previewRaw;
+  const downloadUrlRaw = str(o.downloadUrl) || str(o.download_url) || "";
+  const previewRaw = str(o.url) || str(o.fileUrl) || "";
+  const hasExplicitLockFields =
+    o.isLocked !== undefined ||
+    o.is_locked !== undefined ||
+    o.downloadUrl !== undefined ||
+    o.download_url !== undefined ||
+    o.downloadsEnabled !== undefined ||
+    o.downloads_enabled !== undefined;
 
-  const url = locked ? "" : resolvePublicGalleryImageUrl(urlRaw);
-  const lockedPreviewUrl = locked
-    ? resolvePublicGalleryImageUrl(lockedPreviewRaw || previewRaw)
-    : lockedPreviewRaw
-      ? resolvePublicGalleryImageUrl(lockedPreviewRaw)
-      : "";
+  const isLocked =
+    hasExplicitLockFields
+      ? truthy(o.isLocked) || truthy(o.is_locked) || legacyLocked
+      : legacyLocked;
+
+  const downloadsEnabled =
+    typeof o.downloadsEnabled === "boolean"
+      ? o.downloadsEnabled
+      : typeof o.downloads_enabled === "boolean"
+        ? o.downloads_enabled
+        : !isLocked;
+
+  const locked = isLocked || (downloadsEnabled === false && !downloadUrlRaw && legacyLocked);
+
+  const outstandingBalanceGhs = readFinalOutstandingBalanceGhs(o);
+  const clientPaid =
+    o.clientPaid === true ||
+    str(o.clientPaid).toLowerCase() === "true" ||
+    o.client_paid === true ||
+    str(o.client_paid).toLowerCase() === "true";
+
+  const previewUrl = resolvePublicGalleryImageUrl(previewRaw || lockedPreviewRaw);
+  const downloadUrl = downloadUrlRaw ? resolvePublicGalleryImageUrl(downloadUrlRaw) : null;
+  const lockedPreviewUrl = lockedPreviewRaw
+    ? resolvePublicGalleryImageUrl(lockedPreviewRaw)
+    : previewUrl || "";
+
+  const url = previewUrl || lockedPreviewUrl || (locked ? "" : downloadUrl || "");
+  const resolvedDownloadUrl = locked || downloadsEnabled === false ? null : downloadUrl;
 
   if (!url && !lockedPreviewUrl) return null;
 
@@ -889,19 +1010,25 @@ function finalFromRow(item: unknown, idx: number): ShareGalleryFinal | null {
     str(o.flaggedByClient).toLowerCase() === "true" ||
     str(o.flagged_by_client).toLowerCase() === "true";
   const flaggedAt = str(o.flaggedAt) || str(o.flagged_at) || "";
+  const setId = readSetIdFromRow(o);
 
   return {
     id,
     name,
     url: url || lockedPreviewUrl,
+    downloadUrl: resolvedDownloadUrl,
+    downloadsEnabled,
     ...(mimeType ? { mimeType } : {}),
     ...(isVideo ? { isVideo: true } : {}),
     locked,
+    ...(outstandingBalanceGhs != null ? { outstandingBalanceGhs } : {}),
+    ...(clientPaid ? { clientPaid: true } : {}),
     lockedPreviewUrl: lockedPreviewUrl || undefined,
     ...(clientComment ? { clientComment } : {}),
     ...(photographerReply ? { photographerReply } : {}),
     ...(flaggedByClient ? { flaggedByClient: true } : {}),
     ...(flaggedAt ? { flaggedAt } : {}),
+    ...(setId !== undefined ? { setId } : {}),
   };
 }
 
@@ -1050,11 +1177,45 @@ export function normalizeShareGalleryBody(body: unknown): NormalizedShareGallery
     assets.push(a);
   }
 
+  const selectionsRaw: unknown[] = Array.isArray(root.selections)
+    ? (root.selections as unknown[])
+    : nested && Array.isArray(nested.selections)
+      ? (nested.selections as unknown[])
+      : [];
+  const selectionAssets: ShareGalleryAsset[] = [];
+  for (let i = 0; i < selectionsRaw.length; i++) {
+    const a = assetFromRow(selectionsRaw[i], i);
+    if (!a) continue;
+    a.selection = "SELECTED";
+    selectionAssets.push(a);
+  }
+
   const finals: ShareGalleryFinal[] = [];
   for (let i = 0; i < finalsRaw.length; i++) {
     const f = finalFromRow(finalsRaw[i], i);
     if (f) finals.push(f);
   }
+
+  const setsRaw: unknown[] =
+    Array.isArray(root.sets)
+      ? (root.sets as unknown[])
+      : folder && Array.isArray(folder.sets)
+        ? (folder.sets as unknown[])
+        : nested && Array.isArray(nested.sets)
+          ? (nested.sets as unknown[])
+          : [];
+  const sets = normalizeGallerySets(setsRaw);
+  const setsBarFromFolder = folder ? readSetsBarSettingsFromApiBody(folder) : {};
+  const setsBarFromRoot = readSetsBarSettingsFromApiBody(root);
+  const setsBarFromNested = nested ? readSetsBarSettingsFromApiBody(nested) : {};
+  const setsAllLabel =
+    setsBarFromFolder.setsAllLabel ??
+    setsBarFromRoot.setsAllLabel ??
+    setsBarFromNested.setsAllLabel;
+  const setsAllSortOrder =
+    setsBarFromFolder.setsAllSortOrder ??
+    setsBarFromRoot.setsAllSortOrder ??
+    setsBarFromNested.setsAllSortOrder;
 
   const folderId =
     str(folder?._id) ||
@@ -1072,10 +1233,24 @@ export function normalizeShareGalleryBody(body: unknown): NormalizedShareGallery
       selected:
         typeof o.selected === "number"
           ? o.selected
-          : assets.filter((x) => x.selection === "SELECTED").length,
+          : selectionAssets.length > 0
+            ? selectionAssets.length
+            : assets.filter((x) => x.selection === "SELECTED").length,
       ...(typeof o.rejected === "number" ? { rejected: o.rejected } : {}),
       finals: typeof o.finals === "number" ? o.finals : finals.length,
       ...(typeof o.flaggedFinals === "number" ? { flaggedFinals: o.flaggedFinals } : {}),
+      ...(o.selectionsRemaining !== undefined || o.selections_remaining !== undefined
+        ? {
+            selectionsRemaining:
+              o.selectionsRemaining === null || o.selections_remaining === null
+                ? null
+                : typeof o.selectionsRemaining === "number"
+                  ? o.selectionsRemaining
+                  : typeof o.selections_remaining === "number"
+                    ? o.selections_remaining
+                    : null,
+          }
+        : {}),
     };
   } else {
     counts = undefined;
@@ -1148,6 +1323,21 @@ export function normalizeShareGalleryBody(body: unknown): NormalizedShareGallery
     (folder as Raw | null)?.share_password_enabled,
     root.sharePasswordEnabled,
     (root as Raw).share_password_enabled,
+  );
+
+  const emailGateEnabled = readShareFlag(
+    folderPayload.emailGateEnabled,
+    folderPayload.email_gate_enabled,
+    folderPayload.requireEmailToView,
+    folderPayload.require_email_to_view,
+    folder?.emailGateEnabled,
+    (folder as Raw | null)?.email_gate_enabled,
+    (folder as Raw | null)?.requireEmailToView,
+    (folder as Raw | null)?.require_email_to_view,
+    root.emailGateEnabled,
+    (root as Raw).email_gate_enabled,
+    root.requireEmailToView,
+    (root as Raw).require_email_to_view,
   );
 
   const design = readGalleryDesign(folder, root, folderPayload);
@@ -1262,6 +1452,7 @@ export function normalizeShareGalleryBody(body: unknown): NormalizedShareGallery
     finalDelivery,
     rightsProtection,
     sharePasswordEnabled,
+    emailGateEnabled,
     ...(sharePasswordEnabled && shareAccessPin ? { shareAccessPin } : {}),
     backgroundMusicUrl,
     backgroundMusicEnabled,
@@ -1269,6 +1460,10 @@ export function normalizeShareGalleryBody(body: unknown): NormalizedShareGallery
     ...(bodyFont ? { bodyFont } : {}),
     ...(allowDownloads !== undefined ? { allowDownloads } : {}),
     watermarkPreviewEnabled,
+    ...(sets.length > 0 ? { sets } : {}),
+    ...(setsAllLabel ? { setsAllLabel } : {}),
+    ...(setsAllSortOrder !== undefined ? { setsAllSortOrder } : {}),
+    ...(selectionAssets.length > 0 ? { selectionAssets } : {}),
     assets,
     finals,
     counts,
@@ -1314,6 +1509,12 @@ function appendGalleryAccessToken(headers: Headers, sessionId?: string): void {
   if (!sessionId || typeof window === "undefined") return;
   const token = readGalleryAccessToken(sessionId);
   if (token) headers.set(GALLERY_ACCESS_TOKEN_HEADER, token);
+}
+
+function appendGalleryVisitorEmail(headers: Headers, sessionId?: string): void {
+  if (!sessionId || typeof window === "undefined") return;
+  const email = readGalleryEmailSession(sessionId);
+  if (email) headers.set(GALLERY_VISITOR_EMAIL_HEADER, email);
 }
 
 function publicGallerySessionOptions(
@@ -1381,6 +1582,7 @@ async function publicFetch(
     headers.set("Content-Type", "application/json");
   }
   appendGalleryAccessToken(headers, options.sessionId);
+  appendGalleryVisitorEmail(headers, options.sessionId);
   return fetch(publicFetchUrl(path, options), {
     ...init,
     headers,
@@ -1464,6 +1666,37 @@ export async function postShareGalleryUnlock(
     throw new ShareGalleryError("Could not load gallery.", 500, body);
   }
   return normalized;
+}
+
+/** Record client email used to open a public gallery (`POST .../access-email`). */
+export async function postShareGalleryAccessEmail(
+  key: PublicGalleryKey | string,
+  email: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  const resolved = resolvePublicGalleryKey(key);
+  const sessionId = publicGallerySessionId(resolved);
+  const res = await publicFetch(
+    publicGalleryApiPath(resolved, "/access-email"),
+    {
+      method: "POST",
+      body: JSON.stringify({ email: email.trim() }),
+      signal,
+    },
+    { signal, sessionId },
+  );
+  const body = await parseJson(res);
+  if (!res.ok) {
+    throw new ShareGalleryError(
+      extractMessage(body, `Could not record gallery access (${res.status})`),
+      res.status,
+      body,
+    );
+  }
+  const accessToken = str((body as Raw | null)?.accessToken);
+  if (accessToken) {
+    writeGalleryAccessToken(sessionId, accessToken);
+  }
 }
 
 /**
@@ -1676,10 +1909,13 @@ export function getShareFinalSaveHref(
   f: ShareGalleryFinal,
   options: { preferInlineImageViewer: boolean },
 ): string {
-  if (!f.locked && options.preferInlineImageViewer && f.url?.trim()) {
+  if (f.locked || f.downloadsEnabled === false) {
+    return f.url?.trim() ?? "";
+  }
+  if (options.preferInlineImageViewer && f.url?.trim()) {
     return f.url.trim();
   }
-  const fallback = getShareFinalDownloadUrl(key, f.id);
+  const fallback = f.downloadUrl?.trim() || getShareFinalDownloadUrl(key, f.id);
   return fallback || (f.url?.trim() ?? "");
 }
 
@@ -1702,7 +1938,18 @@ export async function fetchShareFinalDownloadBlob(
   key: PublicGalleryKey | string,
   f: ShareGalleryFinal,
 ): Promise<Blob> {
-  const url = (f.url?.trim() || getShareFinalDownloadUrl(key, f.id)).trim();
+  if (f.locked || f.downloadsEnabled === false) {
+    const balance =
+      f.outstandingBalanceGhs != null
+        ? ` (GHS ${f.outstandingBalanceGhs.toFixed(2)} outstanding)`
+        : "";
+    throw new ShareGalleryError(
+      `This final is locked until payment is received${balance}.`,
+      403,
+      { outstandingBalanceGhs: f.outstandingBalanceGhs ?? undefined },
+    );
+  }
+  const url = (f.downloadUrl?.trim() || getShareFinalDownloadUrl(key, f.id)).trim();
   if (!url) {
     throw new ShareGalleryError(`Could not download “${f.name}”.`, 400, null);
   }

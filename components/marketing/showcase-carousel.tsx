@@ -36,14 +36,34 @@ function wrapOffset(index: number, active: number, total: number) {
   return offset;
 }
 
-function cardStyle(offset: number) {
+function cardStyle(offset: number, compact: boolean, viewportWidth: number) {
   const abs = Math.abs(offset);
-  if (abs > MAX_VISIBLE_OFFSET) {
+  const maxOffset = compact ? 1 : MAX_VISIBLE_OFFSET;
+
+  if (abs > maxOffset) {
     return {
       visible: false,
       transform: "translate(-50%, -50%) rotateY(0deg) scale(0.5)",
       opacity: 0,
       zIndex: 0,
+      blur: 0,
+    };
+  }
+
+  if (compact) {
+    const cardW = Math.min(viewportWidth * 0.78, 300);
+    const scale = offset === 0 ? 1 : 0.82;
+    const sideHalf = (cardW * scale) / 2;
+    const gap = 10;
+    const step = cardW / 2 + sideHalf + gap;
+    const translateX = offset * step;
+    const opacity = offset === 0 ? 1 : 0.5;
+
+    return {
+      visible: true,
+      transform: `translate(calc(-50% + ${translateX}px), -50%) scale(${scale})`,
+      opacity,
+      zIndex: offset === 0 ? 100 : 10,
       blur: 0,
     };
   }
@@ -64,11 +84,34 @@ function cardStyle(offset: number) {
   };
 }
 
+function useCompactCarousel() {
+  const [compact, setCompact] = useState(false);
+  const [viewportWidth, setViewportWidth] = useState(390);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 639px)");
+    const update = () => {
+      setCompact(mq.matches);
+      setViewportWidth(window.innerWidth);
+    };
+    update();
+    mq.addEventListener("change", update);
+    window.addEventListener("resize", update);
+    return () => {
+      mq.removeEventListener("change", update);
+      window.removeEventListener("resize", update);
+    };
+  }, []);
+
+  return { compact, viewportWidth };
+}
+
 function easeOutCubic(t: number) {
   return 1 - Math.pow(1 - t, 3);
 }
 
 export function ShowcaseCarousel({ items }: { items: readonly ShowcaseCarouselItem[] }) {
+  const { compact, viewportWidth } = useCompactCarousel();
   const [position, setPosition] = useState(0);
   const [dragging, setDragging] = useState(false);
   const [snapping, setSnapping] = useState(false);
@@ -286,7 +329,8 @@ export function ShowcaseCarousel({ items }: { items: readonly ShowcaseCarouselIt
       <div
         ref={containerRef}
         className={cn(
-          "relative mx-auto h-[min(85vw,640px)] max-h-[640px] w-full max-w-6xl touch-none select-none [perspective:1400px]",
+          "relative mx-auto w-full max-w-6xl touch-pan-y select-none [perspective:1400px]",
+          "h-[min(104vw,400px)] sm:h-[min(64vw,453px)] md:h-[min(51vw,507px)] lg:h-[533px] lg:max-h-[640px]",
           dragging ? "cursor-grabbing" : "cursor-grab",
         )}
         onPointerDown={onPointerDown}
@@ -306,7 +350,7 @@ export function ShowcaseCarousel({ items }: { items: readonly ShowcaseCarouselIt
         <div className="relative flex h-full items-center justify-center [transform-style:preserve-3d]">
           {items.map((item, index) => {
             const offset = wrapOffset(index, position, total);
-            const style = cardStyle(offset);
+            const style = cardStyle(offset, compact, viewportWidth);
             const isSelected = index === activeIndex;
 
             return (
@@ -323,7 +367,7 @@ export function ShowcaseCarousel({ items }: { items: readonly ShowcaseCarouselIt
                   goTo(index);
                 }}
                 className={cn(
-                  "absolute top-1/2 left-1/2 w-[min(70vw,280px)] sm:w-[min(48vw,340px)] md:w-[min(38vw,380px)] lg:w-[400px]",
+                  "absolute top-1/2 left-1/2 w-[min(78vw,300px)] sm:w-[min(48vw,340px)] md:w-[min(38vw,380px)] lg:w-[400px]",
                   "aspect-[3/4] overflow-hidden bg-slate-100 [transform-style:preserve-3d] [backface-visibility:hidden]",
                   motionEnabled
                     ? "transition-[transform,opacity,filter,box-shadow,border-color] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]"
@@ -331,6 +375,7 @@ export function ShowcaseCarousel({ items }: { items: readonly ShowcaseCarouselIt
                   isSelected
                     ? "cursor-default rounded-[1.75rem] border-[3px] shadow-[0_42px_90px_-28px_rgba(85,0,31,0.4)]"
                     : "cursor-pointer rounded-2xl border border-slate-200/80 shadow-[0_24px_50px_-28px_rgba(15,23,42,0.28)]",
+                  compact && !isSelected && "pointer-events-none",
                   !style.visible && "pointer-events-none",
                 )}
                 style={{
@@ -355,11 +400,12 @@ export function ShowcaseCarousel({ items }: { items: readonly ShowcaseCarouselIt
         </div>
       </div>
 
-      <p className="mt-4 text-center text-xs text-slate-500">
-        Drag or scroll to browse galleries
+      <p className="mt-4 text-center text-xs text-slate-500 sm:text-sm">
+        <span className="sm:hidden">Swipe to browse galleries</span>
+        <span className="hidden sm:inline">Drag or scroll to browse galleries</span>
       </p>
 
-      <div className="mt-5 flex items-center justify-center gap-2">
+      <div className="mt-4 flex items-center justify-center gap-2 sm:mt-5">
         {items.map((item, index) => (
           <button
             key={`dot-${item.id}`}

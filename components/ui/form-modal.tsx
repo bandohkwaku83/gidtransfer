@@ -33,6 +33,8 @@ type FormModalProps = {
   busy?: boolean;
   /** Stack above other modals (e.g. nested “Add client”). */
   elevated?: boolean;
+  /** Stack above elevated modals (e.g. folder editor overlays). */
+  priority?: boolean;
   maxWidth?: "md" | "lg" | "split" | "splitWide";
   titleId?: string;
   children: ReactNode;
@@ -43,6 +45,7 @@ export function FormModal({
   onClose,
   busy,
   elevated,
+  priority,
   maxWidth = "lg",
   titleId,
   children,
@@ -58,7 +61,7 @@ export function FormModal({
     <div
       className={cn(
         "fixed inset-0 flex items-center justify-center overflow-y-auto overscroll-y-contain p-4 py-6 sm:py-8",
-        elevated ? "z-[70]" : "z-50",
+        priority ? "z-[110]" : elevated ? "z-[70]" : "z-50",
       )}
     >
       <button

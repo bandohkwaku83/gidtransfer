@@ -2,7 +2,7 @@
 
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Loader2 } from "lucide-react";
+import { AppSplashLoader } from "@/components/app-splash-loader";
 import {
   fetchAuthMe,
   mapApiUserToAuthUser,
@@ -10,7 +10,6 @@ import {
   verifyEmailPath,
 } from "@/lib/auth-api";
 import { consumeAuthHandoffFromUrl, getAuth, getAuthToken, setAuthSession } from "@/lib/auth-demo";
-import { cn } from "@/lib/utils";
 
 /** App Router paths; must match real `app/` routes (use pathname shape Next resolves). */
 const PRIORITY_ROUTES = [
@@ -154,19 +153,7 @@ export function AppBootstrap({ children }: { children: ReactNode }) {
   const showSplash = !bootDone && !publicPath;
 
   if (showSplash) {
-    return (
-      <div
-        className={cn(
-          "fixed inset-0 z-[9999] flex flex-col items-center justify-center gap-4",
-          "bg-zinc-950 text-white",
-        )}
-        aria-busy="true"
-        aria-live="polite"
-      >
-        <Loader2 className="h-10 w-10 animate-spin text-brand-on-dark opacity-90" aria-hidden />
-        <p className="text-sm font-medium text-zinc-300">Loading studio…</p>
-      </div>
-    );
+    return <AppSplashLoader />;
   }
 
   return <>{children}</>;

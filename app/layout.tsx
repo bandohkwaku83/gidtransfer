@@ -3,7 +3,7 @@ import { Geist_Mono } from "next/font/google";
 import { AppAntdProviders } from "@/components/app-providers";
 import { AppBootstrap } from "@/components/app-bootstrap";
 import { ToastProvider } from "@/components/toast-provider";
-import { APP_NAME } from "@/lib/branding";
+import { buildRootSiteMetadata } from "@/lib/marketing/site-seo";
 import { fontVariables } from "@/lib/fonts";
 import "./globals.css";
 
@@ -12,17 +12,7 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-export const metadata: Metadata = {
-  metadataBase: new URL(
-    process.env.NEXT_PUBLIC_SITE_URL?.trim() || "http://localhost:3000",
-  ),
-  title: `${APP_NAME} | Photographer workspace and client galleries`,
-  description:
-    "Photographer workspace and client galleries for proofing, delivery, and branded client experiences.",
-  icons: {
-    icon: "/svgs/dashboard_logo.svg",
-  },
-};
+export const metadata: Metadata = buildRootSiteMetadata();
 
 export default function RootLayout({
   children,

@@ -122,18 +122,32 @@ export function toDemoAssets(shareAssets: ShareGalleryAsset[]): DemoAsset[] {
     ...(a.displayUrl ? { displayUrl: a.displayUrl } : {}),
     ...(a.previewUrl ? { previewUrl: a.previewUrl } : {}),
     ...(a.isVideo ? { isVideo: true } : {}),
+    ...(a.setId !== undefined ? { setId: a.setId } : {}),
+    ...(a.derivativesReady === false ? { derivativesReady: false } : {}),
+    ...(a.removedFromBrowse ? { removedFromBrowse: true } : {}),
   }));
+}
+
+export function canDownloadShareFinal(
+  f: ShareGalleryFinal,
+  galleryDownloadsAllowed: boolean,
+): boolean {
+  if (!galleryDownloadsAllowed) return false;
+  if (f.locked) return false;
+  if (f.downloadsEnabled === false) return false;
+  return true;
 }
 
 export function finalDisplaySrc(
   f: ShareGalleryFinal,
   key: PublicGalleryKey | string,
 ): string {
+  if (f.url?.trim()) return f.url.trim();
   const locked = Boolean(f.locked);
   const resolved = resolvePublicGalleryKey(key);
   return locked
     ? f.lockedPreviewUrl || getShareFinalLockedPreviewUrl(resolved, f.id)
-    : f.url;
+    : f.downloadUrl?.trim() || f.url;
 }
 
 /** Unlocked originals may be video; locked delivery always uses the JPEG locked-preview URL. */

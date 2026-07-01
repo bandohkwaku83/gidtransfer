@@ -1,5 +1,6 @@
 import type { GalleryCoverFrame } from "@/lib/gallery-cover-frame";
 import type { GalleryImageLayout } from "@/lib/gallery-image-layout";
+import { ALL_SETS_PILL_ID } from "@/lib/gallery-set-filter";
 
 export type SelectionState = "UNSELECTED" | "SELECTED";
 export type EditState = "NONE" | "IN_PROGRESS" | "EDITED";
@@ -49,6 +50,7 @@ export type DemoFinalAsset = {
   mimeType?: string;
   /** Payment lock — client share hides full-res download until unlock. */
   locked?: boolean;
+  outstandingBalanceGhs?: number | null;
 };
 
 export type DemoProject = {
@@ -69,6 +71,8 @@ export type DemoProject = {
   sharePasswordEnabled: boolean;
   /** 4-digit client access code when {@link sharePasswordEnabled} is true (UI / demo). */
   shareAccessPin?: string;
+  /** When true, clients must enter an email before viewing (UI / demo). */
+  emailGateEnabled?: boolean;
   /** Relative days from “today” in UI; null = no expiry */
   shareExpiryDays: number | null;
   /** Client submitted picks */
@@ -121,6 +125,10 @@ export type FolderOverride = Partial<DemoProject> & {
   watermarkFinalsEnabled?: boolean;
   /** Named subsections within this demo gallery. */
   gallerySets?: DemoGallerySet[];
+  /** Client-facing label for the combined “All” sets pill (demo). */
+  setsAllLabel?: string;
+  /** Sort position of the “All” pill among set pills (demo). */
+  setsAllSortOrder?: number;
   /** Demo-only set assignment when not stored on the asset row. */
   assetSetIds?: Record<string, string | null>;
   finalSetIds?: Record<string, string | null>;
@@ -129,6 +137,8 @@ export type FolderOverride = Partial<DemoProject> & {
   /** Client gallery 4-digit gate (demo — stored in overrides). */
   sharePasswordEnabled?: boolean;
   shareAccessPin?: string;
+  /** Require email before client gallery opens (demo — stored in overrides). */
+  emailGateEnabled?: boolean;
   /** Per-gallery preview watermark for client originals (demo — stored in overrides). */
   watermarkPreviewEnabled?: boolean;
   /** When true, the client share link is live (demo — stored in overrides). */
@@ -151,11 +161,14 @@ const OVERRIDE_ONLY_FIELDS = new Set([
   "coverColor",
   "imageLayout",
   "gallerySets",
+  "setsAllLabel",
+  "setsAllSortOrder",
   "assetSetIds",
   "finalSetIds",
   "galleryBlogPosts",
   "sharePasswordEnabled",
   "shareAccessPin",
+  "emailGateEnabled",
   "shareEnabled",
   "shareSharedAt",
   "watermarkFinalsEnabled",
@@ -463,6 +476,38 @@ export function updateDemoGallerySet(
   gallerySets[idx] = next;
   patchFolderOverride(folderId, { gallerySets });
   return next;
+}
+
+export function reorderDemoGallerySets(folderId: string, orderedIds: string[]): DemoGallerySet[] {
+  const allIndex = orderedIds.indexOf(ALL_SETS_PILL_ID);
+  const existing = listDemoGallerySets(folderId);
+  const byId = new Map(existing.map((s) => [s.id, s]));
+  const gallerySets = orderedIds
+    .filter((id) => id !== ALL_SETS_PILL_ID)
+    .map((id, sortOrder) => {
+      const row = byId.get(id);
+      return row ? { ...row, sortOrder } : null;
+    })
+    .filter((s): s is DemoGallerySet => Boolean(s));
+  patchFolderOverride(folderId, {
+    gallerySets,
+    ...(allIndex >= 0 ? { setsAllSortOrder: allIndex } : {}),
+  });
+  return gallerySets;
+}
+
+export function patchDemoSetsBarSettings(
+  folderId: string,
+  patch: { setsAllLabel?: string; setsAllSortOrder?: number },
+): void {
+  const next: FolderOverride = {};
+  if (patch.setsAllLabel !== undefined) {
+    next.setsAllLabel = patch.setsAllLabel.trim() || undefined;
+  }
+  if (patch.setsAllSortOrder !== undefined) {
+    next.setsAllSortOrder = Math.max(0, Math.floor(patch.setsAllSortOrder));
+  }
+  patchFolderOverride(folderId, next);
 }
 
 export function deleteDemoGallerySet(folderId: string, setId: string): void {

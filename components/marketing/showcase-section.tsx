@@ -21,8 +21,8 @@ export function ShowcaseSection({ embedded = false }: ShowcaseSectionProps) {
       className={cn(
         "relative overflow-hidden bg-[#FFFCF2]",
         embedded
-          ? "-mt-20 pb-20 pt-36 sm:-mt-28 sm:pb-28 sm:pt-44"
-          : "pb-20 pt-12 sm:pb-28 sm:pt-16",
+          ? "-mt-16 pb-16 pt-28 sm:-mt-28 sm:pb-28 sm:pt-44"
+          : "pb-16 pt-10 sm:pb-28 sm:pt-16",
       )}
     >
       <div aria-hidden className="pointer-events-none absolute inset-0">
@@ -44,27 +44,27 @@ export function ShowcaseSection({ embedded = false }: ShowcaseSectionProps) {
           <p className="text-[11px] font-medium uppercase tracking-[0.28em] text-slate-400">
             Showcase
           </p>
-          <div className="mt-4 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="mt-3 flex flex-col gap-4 sm:mt-4 sm:flex-row sm:items-center sm:justify-between">
             {embedded ? (
-              <h2 className="max-w-lg font-display text-3xl font-normal leading-snug tracking-tight text-slate-900 sm:text-4xl">
+              <h2 className="max-w-lg font-display text-[1.65rem] font-normal leading-snug tracking-tight text-slate-900 sm:text-4xl">
                 Every gallery, beautifully presented
               </h2>
             ) : (
-              <h1 className="max-w-lg font-display text-3xl font-normal leading-snug tracking-tight text-slate-900 sm:text-4xl">
+              <h1 className="max-w-lg font-display text-[1.65rem] font-normal leading-snug tracking-tight text-slate-900 sm:text-4xl">
                 Every gallery, beautifully presented
               </h1>
             )}
             <Link
               href={signUpHref}
-              className="inline-flex shrink-0 items-center rounded-sm bg-[#55001F] px-5 py-2.5 text-sm font-semibold text-white shadow-[0_14px_30px_-12px_rgba(85,0,31,0.45)] transition hover:bg-[#440019]"
+              className="inline-flex w-full shrink-0 items-center justify-center rounded-xl bg-[#55001F] px-5 py-3 text-sm font-semibold text-white shadow-[0_14px_30px_-12px_rgba(85,0,31,0.45)] transition hover:bg-[#440019] sm:w-auto sm:rounded-sm sm:py-2.5"
             >
               {signedIn ? "Open studio" : "Start free"}
             </Link>
           </div>
-          <div className="mt-5 h-px w-10 bg-slate-200" aria-hidden />
+          <div className="mt-4 h-px w-10 bg-slate-200" aria-hidden />
         </div>
 
-        <div className="mt-6 sm:mt-8">
+        <div className="mt-5 sm:mt-8">
           <ShowcaseCarousel items={showcaseItems} />
         </div>
       </div>

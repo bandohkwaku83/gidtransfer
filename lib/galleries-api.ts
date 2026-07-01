@@ -100,6 +100,8 @@ export type ApiGallery = {
   titleFont?: string | null;
   bodyFont?: string | null;
   passwordProtected?: boolean;
+  emailGateEnabled?: boolean;
+  requireEmailToView?: boolean;
   allowDownloads?: boolean;
   backgroundMusicUrl?: string | null;
   backgroundMusicEnabled?: boolean;
@@ -118,6 +120,10 @@ export type ApiGallery = {
   createdAt?: string;
   updatedAt?: string;
   stats?: ApiGalleryStats;
+  /** Client-facing label for the combined “All” sets pill. */
+  setsAllLabel?: string | null;
+  /** Sort position of the “All” pill among set pills (0 = first). */
+  setsAllSortOrder?: number | null;
 };
 
 export type GalleryListCounts = {
@@ -189,6 +195,7 @@ export type GalleryClientAccessBody = {
   passwordProtected?: boolean;
   password?: string;
   allowDownloads?: boolean;
+  emailGateEnabled?: boolean;
 };
 
 export type GallerySelectionSettingsBody = {
@@ -609,6 +616,12 @@ export function mapGalleryToApiFolder(
   const selectionLimit =
     maxSelections == null || maxSelections === 0 ? null : Math.max(1, Math.floor(maxSelections));
   const galleryType = resolveGalleryTypeId(gallery);
+  const rawGallery = gallery as ApiGallery & {
+    sets_all_label?: string | null;
+    sets_all_sort_order?: number | null;
+  };
+  const setsAllLabelRaw = g.setsAllLabel ?? rawGallery.sets_all_label;
+  const setsAllSortOrderRaw = g.setsAllSortOrder ?? rawGallery.sets_all_sort_order;
 
   return {
     _id: String(gallery.id ?? raw._id ?? ""),
@@ -647,6 +660,9 @@ export function mapGalleryToApiFolder(
       : {}),
     ...(g.allowDownloads !== undefined ? { allowDownloads: g.allowDownloads === true } : {}),
     ...(g.passwordProtected === true ? { sharePasswordEnabled: true } : {}),
+    ...(g.emailGateEnabled === true || g.requireEmailToView === true
+      ? { emailGateEnabled: true }
+      : {}),
     usingDefaultCover: g.useDefaultCover !== false,
     ...(shareCover ? { shareCoverImageUrl: shareCover } : {}),
     ...(g.shareUseDefaultCover !== undefined
@@ -690,6 +706,12 @@ export function mapGalleryToApiFolder(
     uploads: [],
     selection: [],
     finals: [],
+    ...(typeof setsAllLabelRaw === "string" && setsAllLabelRaw.trim()
+      ? { setsAllLabel: setsAllLabelRaw.trim() }
+      : {}),
+    ...(typeof setsAllSortOrderRaw === "number" && Number.isFinite(setsAllSortOrderRaw)
+      ? { setsAllSortOrder: Math.max(0, Math.floor(setsAllSortOrderRaw)) }
+      : {}),
   };
 }
 

@@ -21,8 +21,13 @@ export function bestGalleryMediaSrc(asset: PreviewMedia): string {
   );
 }
 
-/** Client gallery image URL — prefer watermarked preview when ready, else full image. */
-export function clientGalleryAssetSrc(
+/** Thumbnail URL for grid tiles — prefers {@link PreviewMedia.thumbUrl} (API `gridUrl`). */
+export function clientGalleryGridSrc(asset: PreviewMedia): string {
+  return asset.thumbUrl.trim() || bestGalleryMediaSrc(asset);
+}
+
+/** Lightbox / fullscreen URL — prefers API `viewUrl` mapped to preview/display fields. */
+export function clientGalleryLightboxSrc(
   asset: PreviewMedia,
   watermarkPreviewEnabled: boolean,
 ): string {
@@ -30,9 +35,19 @@ export function clientGalleryAssetSrc(
     const wm = (asset.displayUrl ?? asset.previewUrl)?.trim();
     if (wm) return wm;
   }
+  const view = asset.previewUrl?.trim() || asset.displayUrl?.trim();
+  if (view) return view;
   const full = asset.url?.trim();
   if (full) return full;
   return asset.thumbUrl.trim();
+}
+
+/** Client gallery image URL — prefer watermarked preview when ready, else full image. */
+export function clientGalleryAssetSrc(
+  asset: PreviewMedia,
+  watermarkPreviewEnabled: boolean,
+): string {
+  return clientGalleryLightboxSrc(asset, watermarkPreviewEnabled);
 }
 
 /**

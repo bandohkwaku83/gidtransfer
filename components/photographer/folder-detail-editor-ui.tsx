@@ -74,6 +74,7 @@ import {
   buildWhatsAppShareUrl,
 } from "@/lib/gallery-share-links";
 import { statusLabel } from "@/components/photographer/folder-detail-bits";
+import type { GalleryAccessEmailEntry } from "@/lib/gallery-email-access";
 
 export type FolderEditorTab = "dashboard" | "gallery" | "uploads" | "selection" | "finals" | "blog";
 export type PreviewLayout = GalleryImageLayout;
@@ -253,6 +254,44 @@ function GalleryAccessPinPanel({
       <p className="mt-2.5 text-[10px] text-zinc-500 dark:text-zinc-400">
         Regenerating invalidates the previous code for anyone who already had it.
       </p>
+    </div>
+  );
+}
+
+function GalleryAccessEmailList({ entries }: { entries: GalleryAccessEmailEntry[] }) {
+  if (entries.length === 0) {
+    return (
+      <p className="mt-3 text-[10px] leading-relaxed text-zinc-500 dark:text-zinc-400">
+        No emails recorded yet. When clients open the gallery, their addresses appear here.
+      </p>
+    );
+  }
+
+  return (
+    <div className="mt-3 max-h-48 overflow-y-auto rounded-xl border border-zinc-100 bg-white dark:border-zinc-800 dark:bg-zinc-950">
+      <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
+        {entries.map((entry) => (
+          <li
+            key={`${entry.email}-${entry.accessedAt}`}
+            className="flex items-start justify-between gap-3 px-3 py-2.5"
+          >
+            <span className="min-w-0 truncate text-xs font-medium text-zinc-800 dark:text-zinc-100">
+              {entry.email}
+            </span>
+            <time
+              dateTime={entry.accessedAt}
+              className="shrink-0 text-[10px] tabular-nums text-zinc-500 dark:text-zinc-400"
+            >
+              {new Date(entry.accessedAt).toLocaleString(undefined, {
+                month: "short",
+                day: "numeric",
+                hour: "numeric",
+                minute: "2-digit",
+              })}
+            </time>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
@@ -1046,6 +1085,10 @@ export function CustomizeGallerySidebar({
   onCopyAccessPin,
   onRegenerateAccessPin,
   accessPinBusy,
+  emailGateEnabled,
+  onEmailGateChange,
+  galleryAccessEmails,
+  emailGateBusy,
   coverBusy,
   hasCover,
   coverSrc,
@@ -1095,6 +1138,10 @@ export function CustomizeGallerySidebar({
   onCopyAccessPin: () => void;
   onRegenerateAccessPin: () => void;
   accessPinBusy?: boolean;
+  emailGateEnabled: boolean;
+  onEmailGateChange: (v: boolean) => void;
+  galleryAccessEmails: GalleryAccessEmailEntry[];
+  emailGateBusy?: boolean;
   coverBusy: boolean;
   hasCover: boolean;
   coverSrc: string;
@@ -1382,6 +1429,38 @@ export function CustomizeGallerySidebar({
                   onCopy={onCopyAccessPin}
                   onRegenerate={onRegenerateAccessPin}
                 />
+              ) : null}
+            </div>
+
+            <div className="rounded-xl border border-zinc-100 bg-zinc-50/50 p-3 dark:border-zinc-800 dark:bg-zinc-900/30">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex min-w-0 items-center gap-2">
+                  <Mail className="h-4 w-4 shrink-0 text-zinc-500" aria-hidden />
+                  <div>
+                    <p className="text-sm font-medium text-zinc-800 dark:text-zinc-200">
+                      Require email to view
+                    </p>
+                    <p className="text-[10px] text-zinc-500 dark:text-zinc-400">
+                      {emailGateEnabled
+                        ? "Clients enter their email before the gallery opens"
+                        : "Gallery opens without collecting an email"}
+                    </p>
+                  </div>
+                </div>
+                <ToggleSwitch
+                  label="Require email to view"
+                  checked={emailGateEnabled}
+                  disabled={emailGateBusy || accessPinBusy}
+                  onChange={onEmailGateChange}
+                />
+              </div>
+              {emailGateEnabled ? (
+                <div className="mt-3 border-t border-zinc-100 pt-3 dark:border-zinc-800">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
+                    Emails used to open
+                  </p>
+                  <GalleryAccessEmailList entries={galleryAccessEmails} />
+                </div>
               ) : null}
             </div>
           </div>

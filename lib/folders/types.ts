@@ -38,6 +38,9 @@ export type ApiFolderMedia = {
   name?: string;
   /** Whether this final is payment-locked for the client share (downloads disabled until unlock). */
   locked?: boolean;
+  isLocked?: boolean;
+  outstandingBalanceGhs?: number | null;
+  clientPaid?: boolean;
   /** Primary file URL (often original / full-quality for admin views). */
   url?: string;
   /** When present, preferred URL for UI (e.g. watermarked preview when watermarking is enabled). */
@@ -119,6 +122,8 @@ export type ApiFolder = {
   allowDownloads?: boolean;
   /** When true, clients must enter a password/PIN before viewing. */
   sharePasswordEnabled?: boolean;
+  /** When true, clients must enter an email before viewing. */
+  emailGateEnabled?: boolean;
   usingDefaultCover?: boolean;
   /** Client hero frozen when the share link was activated (admin working cover may differ). */
   shareCoverImageUrl?: string;
@@ -147,7 +152,12 @@ export type ApiFolder = {
   /** Final images the client flagged for revisions, with comments. */
   flaggedFinals?: ApiFolderMedia[];
   /** Named subsections within this gallery (e.g. ceremony, reception). */
+  /** Named subsections within this gallery. */
   sets?: ApiGallerySet[];
+  /** Client-facing label for the combined “All” sets pill. */
+  setsAllLabel?: string;
+  /** Sort position of the “All” pill among set pills (0 = first). */
+  setsAllSortOrder?: number;
   rawMedia?: ApiFolderMedia[];
   selectionMedia?: ApiFolderMedia[];
   finalMedia?: ApiFolderMedia[];

@@ -7,12 +7,14 @@ import {
   listGalleryFinals,
   listGalleryUploads,
   patchGalleryFinalReply,
+  patchGalleryFinalLock,
   patchGalleryFinalsLock,
   patchGallerySelectionReply,
   reorderGalleryFinals,
   reorderGalleryUploads,
   uploadGalleryFinals,
   uploadGalleryPhotos,
+  galleryPhotoToApiFolderMedia,
 } from "@/lib/gallery-media-api";
 import {
   activateGalleryShareLink,
@@ -62,6 +64,8 @@ import {
   listDemoGallerySets,
   loadProjectById,
   patchFolderOverride,
+  patchDemoSetsBarSettings,
+  reorderDemoGallerySets,
   reorderDemoProjectFinalMedia,
   reorderDemoProjectRawMedia,
   saveProjectSnapshot,
@@ -71,6 +75,9 @@ import {
   createGallerySet,
   deleteGallerySet,
   listGallerySets,
+  patchGallerySetsBarSettings,
+  reorderGallerySets,
+  reorderSetsBarPills,
   updateGallerySet,
 } from "@/lib/gallery-sets-api";
 import { loadClientNameById } from "@/lib/clients-api";
@@ -89,6 +96,7 @@ import {
 } from "@/lib/subscription-plan";
 import {
   type ApiFolder,
+  type ApiFolderMedia,
   type BulkMediaSoftDeleteResult,
   type CreateFolderInput,
   type DuplicateUploadAction,
@@ -432,6 +440,25 @@ export async function deleteFolderGallerySet(folderId: string, setId: string) {
   await deleteGallerySet(folderId, setId);
 }
 
+export async function reorderFolderGallerySets(folderId: string, orderedIds: string[]) {
+  if (isLocalDemoFolderId(folderId)) {
+    reorderDemoGallerySets(folderId, orderedIds);
+    return listDemoGallerySets(folderId);
+  }
+  return reorderSetsBarPills(folderId, orderedIds);
+}
+
+export async function patchFolderSetsBarSettings(
+  folderId: string,
+  patch: { setsAllLabel?: string; setsAllSortOrder?: number },
+) {
+  if (isLocalDemoFolderId(folderId)) {
+    patchDemoSetsBarSettings(folderId, patch);
+    return;
+  }
+  await patchGallerySetsBarSettings(folderId, patch);
+}
+
 export async function createFolder(input: CreateFolderInput): Promise<ApiFolder> {
   assertCanCreateGallery();
 
@@ -701,6 +728,7 @@ export async function patchFolderClientAccess(
     passwordProtected?: boolean;
     password?: string;
     allowDownloads?: boolean;
+    emailGateEnabled?: boolean;
   },
 ): Promise<ApiFolder> {
   if (isLocalDemoFolderId(folderId)) {
@@ -710,6 +738,9 @@ export async function patchFolderClientAccess(
         ? { sharePasswordEnabled: input.passwordProtected }
         : {}),
       ...(input.password?.trim() ? { shareAccessPin: input.password.trim() } : {}),
+      ...(input.emailGateEnabled !== undefined
+        ? { emailGateEnabled: input.emailGateEnabled }
+        : {}),
     });
     const f = getDemoFolderApiModel(folderId);
     if (!f) throw new FoldersApiError("Gallery not found.", 404, null);
@@ -719,6 +750,7 @@ export async function patchFolderClientAccess(
         ? { sharePasswordEnabled: input.passwordProtected }
         : {}),
       ...(input.allowDownloads !== undefined ? { allowDownloads: input.allowDownloads } : {}),
+      ...(input.emailGateEnabled !== undefined ? { emailGateEnabled: input.emailGateEnabled } : {}),
     };
   }
 
@@ -726,6 +758,7 @@ export async function patchFolderClientAccess(
   if (input.passwordProtected !== undefined) body.passwordProtected = input.passwordProtected;
   if (input.password !== undefined) body.password = input.password;
   if (input.allowDownloads !== undefined) body.allowDownloads = input.allowDownloads;
+  if (input.emailGateEnabled !== undefined) body.emailGateEnabled = input.emailGateEnabled;
   await updateGalleryClientAccess(folderId, body);
   return reloadFolderAfterGalleryPatch(folderId);
 }
@@ -912,6 +945,67 @@ export async function unlockFolderFinalDelivery(folderId: string): Promise<ApiFo
     outstandingBalanceGhs: 0,
   });
   return getFolder(folderId);
+}
+
+export async function patchFolderFinalLock(
+  folderId: string,
+  finalId: string,
+  input: { isLocked: boolean; amountOwing?: number },
+): Promise<ApiFolderMedia> {
+  if (isLocalDemoFolderId(folderId)) {
+    const project = loadProjectById(folderId);
+    if (!project) {
+      throw new FoldersApiError("Gallery not found", 404, null);
+    }
+    const target = project.finalAssets.find((f) => f.id === finalId);
+    if (!target) {
+      throw new FoldersApiError("Final not found", 404, null);
+    }
+    if (input.isLocked) {
+      const raw = input.amountOwing;
+      const hasStoredBalance = target.outstandingBalanceGhs != null && target.outstandingBalanceGhs > 0;
+      if (raw == null && !hasStoredBalance) {
+        throw new FoldersApiError("Amount owing (GHS) is required when locking a final", 400, null);
+      }
+      if (raw != null && (Number.isNaN(raw) || raw < 0)) {
+        throw new FoldersApiError("Amount owing must be a non-negative number", 400, null);
+      }
+    }
+    const finalAssets = project.finalAssets.map((f) => {
+      if (f.id !== finalId) return f;
+      if (input.isLocked) {
+        const amount =
+          input.amountOwing ??
+          (f.outstandingBalanceGhs != null && f.outstandingBalanceGhs > 0
+            ? f.outstandingBalanceGhs
+            : 0);
+        return { ...f, locked: true, outstandingBalanceGhs: amount };
+      }
+      return { ...f, locked: false, outstandingBalanceGhs: null };
+    });
+    saveProjectSnapshot({ ...project, finalAssets });
+    const updated = finalAssets.find((f) => f.id === finalId)!;
+    return {
+      _id: updated.id,
+      id: updated.id,
+      name: updated.name,
+      originalName: updated.name,
+      originalFilename: updated.name,
+      url: updated.url,
+      mimeType: updated.mimeType,
+      isVideo: updated.isVideo === true,
+      locked: updated.locked === true,
+      outstandingBalanceGhs: updated.outstandingBalanceGhs ?? null,
+      clientPaid: !updated.locked,
+      setId: updated.setId ?? null,
+    };
+  }
+
+  const body = input.isLocked
+    ? { isLocked: true as const, amountOwing: input.amountOwing }
+    : { isLocked: false as const };
+  const res = await patchGalleryFinalLock(folderId, finalId, body);
+  return galleryPhotoToApiFolderMedia(res.final);
 }
 
 export async function deleteFolderRawMedia(

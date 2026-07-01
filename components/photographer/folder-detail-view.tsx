@@ -11,7 +11,6 @@ import {
   Layers,
   Lock,
   MessageCircle,
-  Unlock,
 } from "lucide-react";
 import {
   ActiveFeedbackPanel,
@@ -31,6 +30,11 @@ import {
 import { useToast } from "@/components/toast-provider";
 import { FormInput } from "@/components/ui/form-input";
 import { writeGalleryAccessClientConfig } from "@/lib/gallery-access-client-config";
+import {
+  readGalleryAccessEmails,
+  writeGalleryEmailGateConfig,
+  type GalleryAccessEmailEntry,
+} from "@/lib/gallery-email-access";
 import { generateGalleryAccessPin } from "@/lib/gallery-access-pin";
 import {
   publicGalleryKeyFromToken,
@@ -59,6 +63,10 @@ import {
 import { GalleryDashboardPanel } from "@/components/photographer/gallery-dashboard-panel";
 import { CreateFolderModal } from "@/components/photographer/create-folder-modal";
 import { GallerySetBar } from "@/components/photographer/gallery-set-bar";
+import {
+  LockFinalModal,
+  type LockFinalModalState,
+} from "@/components/photographer/lock-final-modal";
 import { UploadDragger } from "@/components/photographer/upload-dragger";
 import {
   isFinalUploadableFile,
@@ -108,7 +116,6 @@ import {
   FALLBACK_SHARE_EXPIRY_PRESETS,
   formatRestoreBeforeLabel,
   FoldersApiError,
-  finalImagesLockedForClient,
   getFolderShareAbsoluteUrl,
   getShareLinkExpiryPresets,
   incomingFilenamesConflictingWithFolder,
@@ -137,16 +144,18 @@ import {
   reorderFolderRawMedia,
   applyOrderByIds,
   mergeVisibleOrder,
-  lockFolderFinalDelivery,
-  unlockFolderFinalDelivery,
+  patchFolderFinalLock,
   updateFolder,
   uploadFolderBackgroundMusic,
   uploadFolderFinalMedia,
   uploadFolderRawMedia,
   createFolderGallerySet,
   deleteFolderGallerySet,
+  patchFolderSetsBarSettings,
+  reorderFolderGallerySets,
   updateFolderGallerySet,
   type ApiFolder,
+  type ApiFolderMedia,
   type DuplicateUploadAction,
   type FinalDeliveryUploadFields,
   type ShareLinkExpiryPreset,
@@ -166,6 +175,7 @@ import { getAuth } from "@/lib/auth-demo";
 import { STUDIO_NAME } from "@/lib/branding";
 import {
   filterMediaByGallerySet,
+  buildSetsBarOrder,
   sortGallerySets,
   uploadSetIdForFilter,
   type GallerySetFilter,
@@ -329,6 +339,8 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
   const [bodyFontDraft, setBodyFontDraft] = useState("Inter");
   const [allowDownloadsDraft, setAllowDownloadsDraft] = useState(true);
   const [passwordProtectionDraft, setPasswordProtectionDraft] = useState(false);
+  const [emailGateDraft, setEmailGateDraft] = useState(false);
+  const [galleryAccessEmails, setGalleryAccessEmails] = useState<GalleryAccessEmailEntry[]>([]);
   const [galleryAccessPinDraft, setGalleryAccessPinDraft] = useState("");
   const [accessPinCopied, setAccessPinCopied] = useState(false);
   const [selectionFilter, setSelectionFilter] = useState<"selected" | "comments">("selected");
@@ -379,6 +391,7 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
   const [savingImageLayout, setSavingImageLayout] = useState(false);
   const [savingDesignFonts, setSavingDesignFonts] = useState(false);
   const [accessPinBusy, setAccessPinBusy] = useState(false);
+  const [emailGateBusy, setEmailGateBusy] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [coverBusy, setCoverBusy] = useState(false);
   /** Bust Next/Image and browser cache when the cover file changes at the same URL. */
@@ -408,10 +421,8 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
   const [studioBrandWatermarkEnabled, setStudioBrandWatermarkEnabled] = useState<boolean | null>(null);
   const [savingUploadWatermark, setSavingUploadWatermark] = useState(false);
   const [savingFinalWatermark, setSavingFinalWatermark] = useState(false);
-  const [unlockingFinals, setUnlockingFinals] = useState(false);
-  const [lockFinalDeliveryOpen, setLockFinalDeliveryOpen] = useState(false);
-  const [lockFinalDeliveryAmount, setLockFinalDeliveryAmount] = useState("");
-  const [lockingFinalDelivery, setLockingFinalDelivery] = useState(false);
+  const [lockFinalModal, setLockFinalModal] = useState<LockFinalModalState | null>(null);
+  const [lockFinalBusyId, setLockFinalBusyId] = useState<string | null>(null);
 
   useEffect(() => {
     queueMicrotask(() => setOrigin(typeof window !== "undefined" ? window.location.origin : ""));
@@ -701,10 +712,31 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
     }
     const override = getFolderOverride(folder._id);
     setPasswordProtectionDraft(folder.sharePasswordEnabled ?? override?.sharePasswordEnabled ?? false);
+    setEmailGateDraft(folder.emailGateEnabled ?? override?.emailGateEnabled ?? false);
+    setGalleryAccessEmails(readGalleryAccessEmails(folder._id));
     if (override?.shareAccessPin) {
       setGalleryAccessPinDraft(override.shareAccessPin);
     }
   }, [folder]);
+
+  useEffect(() => {
+    if (!folder?._id) return;
+    const refreshEmails = () => setGalleryAccessEmails(readGalleryAccessEmails(folder._id));
+    const onStorage = (event: StorageEvent) => {
+      if (!event.key?.includes(folder._id)) return;
+      refreshEmails();
+    };
+    const onCustom = (event: Event) => {
+      const detail = (event as CustomEvent<{ folderId?: string }>).detail;
+      if (detail?.folderId === folder._id) refreshEmails();
+    };
+    window.addEventListener("storage", onStorage);
+    window.addEventListener("gidostorage-gallery-email-log", onCustom);
+    return () => {
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener("gidostorage-gallery-email-log", onCustom);
+    };
+  }, [folder?._id]);
 
   const shareAccessSessionId = useMemo(() => {
     const code = folder?.share?.code?.trim();
@@ -748,14 +780,30 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
     [folder, shareAccessSessionId],
   );
 
+  const syncEmailGatePreview = useCallback(
+    (enabled: boolean) => {
+      if (!folder || !shareAccessSessionId) return;
+      writeGalleryEmailGateConfig(shareAccessSessionId, { enabled });
+      patchFolderOverride(folder._id, { emailGateEnabled: enabled });
+    },
+    [folder, shareAccessSessionId],
+  );
+
   const saveClientAccess = useCallback(
     async (patch: {
       passwordProtected?: boolean;
       password?: string;
       allowDownloads?: boolean;
+      emailGateEnabled?: boolean;
     }) => {
       if (!folder) return;
-      setAccessPinBusy(true);
+      const busyEmail = patch.emailGateEnabled !== undefined;
+      const busyAccess =
+        patch.passwordProtected !== undefined ||
+        patch.password !== undefined ||
+        patch.allowDownloads !== undefined;
+      if (busyEmail) setEmailGateBusy(true);
+      if (busyAccess) setAccessPinBusy(true);
       try {
         const updated = await patchFolderClientAccess(folder._id, patch);
         setFolder(updated);
@@ -764,6 +812,11 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
             patch.passwordProtected ?? updated.sharePasswordEnabled ?? false;
           const pin = patch.password ?? galleryAccessPinDraft;
           syncShareAccessPreview(enabled, pin);
+        }
+        if (patch.emailGateEnabled !== undefined) {
+          const enabled = patch.emailGateEnabled ?? updated.emailGateEnabled ?? false;
+          setEmailGateDraft(enabled);
+          syncEmailGatePreview(enabled);
         }
       } catch (e) {
         showToast(
@@ -775,10 +828,11 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
           "error",
         );
       } finally {
-        setAccessPinBusy(false);
+        if (busyEmail) setEmailGateBusy(false);
+        if (busyAccess) setAccessPinBusy(false);
       }
     },
-    [folder, galleryAccessPinDraft, showToast, syncShareAccessPreview],
+    [folder, galleryAccessPinDraft, showToast, syncEmailGatePreview, syncShareAccessPreview],
   );
 
   const onPasswordProtectionChange = useCallback(
@@ -795,6 +849,14 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
       });
     },
     [galleryAccessPinDraft, saveClientAccess],
+  );
+
+  const onEmailGateChange = useCallback(
+    (enabled: boolean) => {
+      setEmailGateDraft(enabled);
+      void saveClientAccess({ emailGateEnabled: enabled });
+    },
+    [saveClientAccess],
   );
 
   const onRegenerateAccessPin = useCallback(() => {
@@ -890,11 +952,24 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
     [flaggedFinalItems],
   );
 
-  /** True → show **Unlock finals**; false → show **Lock finals** (driven by GET folder + PATCH lock/unlock). */
-  const finalImagesLocked = useMemo(
-    () => (folder ? finalImagesLockedForClient(folder) : false),
-    [folder],
+  /** Count of per-final payment locks (for summary chip in finals tab). */
+  const lockedFinalCount = useMemo(
+    () => finalAssets.filter((f) => f.locked).length,
+    [finalAssets],
   );
+
+  const patchFinalInFolder = useCallback((updated: ApiFolderMedia) => {
+    const updatedId = updated.id ?? updated._id;
+    if (!updatedId) return;
+    setFolder((prev) => {
+      if (!prev) return prev;
+      const finals = (prev.finals ?? []).map((m) => {
+        const id = m.id ?? m._id;
+        return id === updatedId ? { ...m, ...updated } : m;
+      });
+      return { ...prev, finals };
+    });
+  }, []);
 
   const selectionRows = useMemo(
     () => (folder ? extractSelectionMediaList(folder).map(apiFolderMediaToDemoAsset) : []),
@@ -1024,6 +1099,24 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
     [folder, refreshFolder, showToast],
   );
 
+  const handleRenameAllSetsPill = useCallback(
+    async (label: string) => {
+      if (!folder) return;
+      setSetsBusy(true);
+      try {
+        await patchFolderSetsBarSettings(folder._id, { setsAllLabel: label });
+        await refreshFolder();
+        showToast("All tab renamed.", "success");
+      } catch (e) {
+        showToast(e instanceof Error ? e.message : "Could not rename All tab.", "error");
+        throw e;
+      } finally {
+        setSetsBusy(false);
+      }
+    },
+    [folder, refreshFolder, showToast],
+  );
+
   const handleDeleteGallerySet = useCallback(
     async (setId: string) => {
       if (!folder) return;
@@ -1043,6 +1136,26 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
         showToast("Set deleted.", "success");
       } catch (e) {
         showToast(e instanceof Error ? e.message : "Could not delete set.", "error");
+      } finally {
+        setSetsBusy(false);
+      }
+    },
+    [folder, gallerySets, refreshFolder, showToast],
+  );
+
+  const handleReorderGallerySets = useCallback(
+    async (orderedIds: string[]) => {
+      if (!folder) return;
+      const previousOrder = buildSetsBarOrder(gallerySets, folder.setsAllSortOrder);
+      if (orderedIds.join("|") === previousOrder.join("|")) return;
+
+      setSetsBusy(true);
+      try {
+        await reorderFolderGallerySets(folder._id, orderedIds);
+        await refreshFolder();
+      } catch (e) {
+        showToast(e instanceof Error ? e.message : "Could not reorder sets.", "error");
+        throw e;
       } finally {
         setSetsBusy(false);
       }
@@ -1376,43 +1489,75 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
     }
   }
 
-  async function onUnlockFinalDelivery() {
-    if (!folder || unlockingFinals || busy || lockingFinalDelivery) return;
-    setUnlockingFinals(true);
+  async function onUnlockFinal(finalId: string) {
+    if (!folder || lockFinalBusyId || busy) return;
+    if (
+      !window.confirm(
+        "Unlock this final for client download? Any outstanding balance will be cleared.",
+      )
+    ) {
+      return;
+    }
+    setLockFinalBusyId(finalId);
     try {
-      await unlockFolderFinalDelivery(folder._id);
-      await refreshFolder();
-      showToast("Finals unlocked for client download.", "success");
+      const updated = await patchFolderFinalLock(folder._id, finalId, { isLocked: false });
+      patchFinalInFolder(updated);
+      showToast("Final unlocked for client download.", "success");
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Could not unlock finals.", "error");
+      showToast(e instanceof Error ? e.message : "Could not unlock final.", "error");
     } finally {
-      setUnlockingFinals(false);
+      setLockFinalBusyId(null);
     }
   }
 
-  async function onLockFinalDelivery() {
-    if (!folder || lockingFinalDelivery || busy || unlockingFinals) return;
-    const raw = lockFinalDeliveryAmount.trim().replace(/,/g, "");
-    if (!raw || Number.isNaN(Number(raw))) {
-      showToast("Enter a valid outstanding amount in GHS.", "error");
+  function openLockFinalModal(finalId: string) {
+    const target = finalAssets.find((f) => f.id === finalId);
+    if (!target) return;
+    setLockFinalModal({
+      finalId,
+      amount:
+        target.outstandingBalanceGhs != null && target.outstandingBalanceGhs > 0
+          ? String(target.outstandingBalanceGhs)
+          : "",
+    });
+  }
+
+  async function onConfirmLockFinal() {
+    if (!folder || !lockFinalModal || lockFinalBusyId) return;
+    const target = finalAssets.find((f) => f.id === lockFinalModal.finalId);
+    const raw = lockFinalModal.amount.trim().replace(/,/g, "");
+    const hasStored =
+      target?.outstandingBalanceGhs != null && target.outstandingBalanceGhs > 0;
+    if (!raw && !hasStored) {
+      showToast("Enter a valid amount owing in GHS.", "error");
       return;
     }
-    const n = Number(raw);
-    if (n < 0) {
-      showToast("Amount cannot be negative.", "error");
-      return;
+    let amountOwing: number | undefined;
+    if (raw) {
+      if (Number.isNaN(Number(raw))) {
+        showToast("Enter a valid amount owing in GHS.", "error");
+        return;
+      }
+      const n = Number(raw);
+      if (n < 0) {
+        showToast("Amount cannot be negative.", "error");
+        return;
+      }
+      amountOwing = n;
     }
-    setLockingFinalDelivery(true);
+    setLockFinalBusyId(lockFinalModal.finalId);
     try {
-      await lockFolderFinalDelivery(folder._id, { outstandingAmountGHS: n });
-      await refreshFolder();
-      setLockFinalDeliveryOpen(false);
-      setLockFinalDeliveryAmount("");
-      showToast("Final delivery locked — client sees locked previews until paid.", "success");
+      const updated = await patchFolderFinalLock(folder._id, lockFinalModal.finalId, {
+        isLocked: true,
+        amountOwing,
+      });
+      patchFinalInFolder(updated);
+      setLockFinalModal(null);
+      showToast("Final locked — client sees preview only until paid.", "success");
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Could not lock finals.", "error");
+      showToast(e instanceof Error ? e.message : "Could not lock final.", "error");
     } finally {
-      setLockingFinalDelivery(false);
+      setLockFinalBusyId(null);
     }
   }
 
@@ -2659,14 +2804,19 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
           <GallerySetBar
             className="mt-3"
             sets={gallerySets}
+            allSetsLabel={folder?.setsAllLabel}
+            allSetsSortOrder={folder?.setsAllSortOrder}
             filter={mediaSetFilter}
             onFilterChange={setMediaSetFilter}
             items={setBarCountItems}
             onCreateSet={handleCreateGallerySet}
             onRenameSet={handleRenameGallerySet}
+            onRenameAllSets={handleRenameAllSetsPill}
             onDeleteSet={handleDeleteGallerySet}
+            onReorderSets={handleReorderGallerySets}
             busy={busy || setsBusy}
             countContext={setBarCountLabel || undefined}
+            showUploadHint={tab === "uploads"}
           />
         ) : null}
       </div>
@@ -2698,7 +2848,7 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
               shareUrl={shareUrl}
               linkCopied={linkCopied}
               passwordProtection={passwordProtectionDraft}
-              finalImagesLocked={finalImagesLocked}
+              finalImagesLocked={lockedFinalCount > 0}
               analytics={galleryAnalytics}
               statusBusy={busy}
               activationHint={galleryOnlineHint}
@@ -2735,19 +2885,6 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
               description="Upload raw files into the active set chosen above."
               count={rawAssets.length}
             />
-            {filteredRawAssets.length > 0 ? (
-              <FolderUploadBulkToolbar
-                selectAllRef={rawSelectAllRef}
-                selectedCount={selectedRawIds.size}
-                allSelected={rawAllSelected}
-                onSelectAll={setRawSelectAll}
-                onDeleteSelected={() => void onDeleteSelectedRaw()}
-                onDeleteAll={() => void onDeleteAllRaw()}
-                deletingKey={deletingKey}
-                mediaDeleteBlocked={mediaDeleteBlocked()}
-                deleteKeyPrefix="raw"
-              />
-            ) : null}
             <FolderUploadOptionToggle
               checked={rawUploadPreviewWatermark}
               onChange={(checked) => void onRawUploadWatermarkChange(checked)}
@@ -2771,6 +2908,20 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
               disabled={busy}
               onFiles={(files) => void onRawUpload(files)}
             />
+            {filteredRawAssets.length > 0 ? (
+              <FolderUploadBulkToolbar
+                selectAllRef={rawSelectAllRef}
+                selectedCount={selectedRawIds.size}
+                totalCount={filteredRawAssets.length}
+                allSelected={rawAllSelected}
+                onSelectAll={setRawSelectAll}
+                onDeleteSelected={() => void onDeleteSelectedRaw()}
+                onDeleteAll={() => void onDeleteAllRaw()}
+                deletingKey={deletingKey}
+                mediaDeleteBlocked={mediaDeleteBlocked()}
+                deleteKeyPrefix="raw"
+              />
+            ) : null}
             {rawAssets.length === 0 ? (
               <FolderUploadEmptyState
                 title="No uploads yet"
@@ -2908,17 +3059,11 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
                 description="Upload finished edits into the active set chosen above."
                 count={finalAssets.length}
               />
-                {finalAssets.length > 0 ? (
+                {finalAssets.length > 0 && lockedFinalCount > 0 ? (
                   <div className="mt-3 flex flex-wrap items-center gap-2">
-                    <span
-                      className={cn(
-                        "inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold tabular-nums",
-                        finalImagesLocked
-                          ? "bg-amber-100 text-amber-950 dark:bg-amber-950/50 dark:text-amber-100"
-                          : "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300",
-                      )}
-                    >
-                      {finalImagesLocked ? "Locked" : "Unlocked"}
+                    <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-semibold tabular-nums text-amber-950 dark:bg-amber-950/50 dark:text-amber-100">
+                      <Lock className="h-3 w-3" aria-hidden />
+                      {lockedFinalCount} locked
                     </span>
                     {flaggedFinalItems.length > 0 ? (
                       <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 px-2.5 py-1 text-[11px] font-semibold tabular-nums text-rose-800 dark:bg-rose-950/55 dark:text-rose-200">
@@ -2926,54 +3071,16 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
                         {flaggedFinalItems.length} flagged
                       </span>
                     ) : null}
-                    {finalImagesLocked ? (
-                      <button
-                        type="button"
-                        onClick={() => void onUnlockFinalDelivery()}
-                        disabled={
-                          unlockingFinals || lockingFinalDelivery || busy || mediaDeleteBlocked()
-                        }
-                        className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:opacity-50 dark:bg-emerald-600 dark:hover:bg-emerald-500"
-                      >
-                        {unlockingFinals ? (
-                          <InlineActionSkeleton />
-                        ) : (
-                          <>
-                            <Unlock className="h-3.5 w-3.5 shrink-0" aria-hidden />
-                            Unlock finals
-                          </>
-                        )}
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setLockFinalDeliveryAmount("");
-                          setLockFinalDeliveryOpen(true);
-                        }}
-                        disabled={lockingFinalDelivery || unlockingFinals || busy || mediaDeleteBlocked()}
-                        className="inline-flex items-center gap-2 rounded-lg bg-brand px-3 py-2 text-xs font-semibold text-white shadow-sm shadow-brand/25 transition hover:bg-brand-hover disabled:opacity-50 dark:hover:bg-brand-hover"
-                      >
-                        <Lock className="h-3.5 w-3.5 shrink-0" aria-hidden />
-                        Lock finals
-                      </button>
-                    )}
+                  </div>
+                ) : flaggedFinalItems.length > 0 ? (
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 px-2.5 py-1 text-[11px] font-semibold tabular-nums text-rose-800 dark:bg-rose-950/55 dark:text-rose-200">
+                      <Flag className="h-3 w-3" aria-hidden />
+                      {flaggedFinalItems.length} flagged
+                    </span>
                   </div>
                 ) : null}
             </div>
-            {filteredFinalAssets.length > 0 ? (
-              <FolderUploadBulkToolbar
-                selectAllRef={finalSelectAllRef}
-                selectedCount={selectedFinalIds.size}
-                allSelected={finalAllSelected}
-                onSelectAll={setFinalSelectAll}
-                onDeleteSelected={() => void onDeleteSelectedFinals()}
-                onDeleteAll={() => void onDeleteAllFinals()}
-                deletingKey={deletingKey}
-                mediaDeleteBlocked={mediaDeleteBlocked()}
-                deleteKeyPrefix="final"
-              />
-            ) : null}
             <FolderUploadOptionToggle
               checked={finalUploadWatermark}
               onChange={(checked) => void onFinalUploadWatermarkChange(checked)}
@@ -2997,6 +3104,20 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
               disabled={busy}
               onFiles={(files) => void openFinalUploadWizard(files)}
             />
+            {filteredFinalAssets.length > 0 ? (
+              <FolderUploadBulkToolbar
+                selectAllRef={finalSelectAllRef}
+                selectedCount={selectedFinalIds.size}
+                totalCount={filteredFinalAssets.length}
+                allSelected={finalAllSelected}
+                onSelectAll={setFinalSelectAll}
+                onDeleteSelected={() => void onDeleteSelectedFinals()}
+                onDeleteAll={() => void onDeleteAllFinals()}
+                deletingKey={deletingKey}
+                mediaDeleteBlocked={mediaDeleteBlocked()}
+                deleteKeyPrefix="final"
+              />
+            ) : null}
             {finalAssets.length === 0 ? (
               <FolderUploadEmptyState
                 title="No finals yet"
@@ -3015,6 +3136,7 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
                   mediaSrc: f.url,
                   isVideo: isFolderMediaVideo(f),
                   locked: f.locked,
+                  outstandingBalanceGhs: f.outstandingBalanceGhs,
                   flagged: flaggedFinalIdSet.has(f.id),
                 }))}
                 selectedIds={selectedFinalIds}
@@ -3025,6 +3147,9 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
                 }}
                 onDelete={(id) => void onDeleteFinalAsset(id)}
                 onSetCover={(id) => void onSetCoverFromMedia(id, "final")}
+                onLockFinal={openLockFinalModal}
+                onUnlockFinal={(id) => void onUnlockFinal(id)}
+                lockBusyId={lockFinalBusyId}
                 deletingKey={deletingKey}
                 settingCoverKey={settingCoverKey}
                 mediaDeleteBlocked={mediaDeleteBlocked()}
@@ -3082,6 +3207,10 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
             onCopyAccessPin={() => void onCopyAccessPin()}
             onRegenerateAccessPin={onRegenerateAccessPin}
             accessPinBusy={accessPinBusy}
+            emailGateEnabled={emailGateDraft}
+            onEmailGateChange={onEmailGateChange}
+            galleryAccessEmails={galleryAccessEmails}
+            emailGateBusy={emailGateBusy}
             coverBusy={coverBusy}
             hasCover={hasCover}
             onReplaceCover={() => coverFileInputRef.current?.click()}
@@ -3104,56 +3233,16 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
         {tab === "selection" || tab === "finals" ? feedbackSidebar : null}
       </div>
 
-      {lockFinalDeliveryOpen ? (
-        <div
-          className="fixed inset-0 z-[110] flex items-center justify-center bg-black/50 p-4 backdrop-blur-[2px]"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="lock-final-delivery-title"
-        >
-          <div className="w-full max-w-md rounded-2xl border border-zinc-200 bg-white p-6 shadow-xl dark:border-zinc-700 dark:bg-zinc-950">
-            <h2
-              id="lock-final-delivery-title"
-              className="text-lg font-semibold text-zinc-900 dark:text-zinc-50"
-            >
-              Lock final delivery
-            </h2>
-            <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
-              Preview-only for the client until this balance is paid.
-            </p>
-            <label className="mt-4 block text-xs font-medium text-zinc-700 dark:text-zinc-300">
-              Outstanding amount (GHS)
-              <FormInput
-                inputMode="decimal"
-                value={lockFinalDeliveryAmount}
-                onChange={(e) => setLockFinalDeliveryAmount(e.target.value)}
-                placeholder="e.g. 500"
-                className="mt-1"
-              />
-            </label>
-            <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-              <button
-                type="button"
-                className="rounded-xl border border-zinc-200 px-4 py-2.5 text-sm font-semibold text-zinc-800 transition hover:bg-zinc-50 dark:border-zinc-600 dark:text-zinc-100 dark:hover:bg-zinc-900"
-                disabled={lockingFinalDelivery}
-                onClick={() => {
-                  setLockFinalDeliveryOpen(false);
-                  setLockFinalDeliveryAmount("");
-                }}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                disabled={lockingFinalDelivery}
-                className="rounded-xl bg-brand px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-hover disabled:opacity-50"
-                onClick={() => void onLockFinalDelivery()}
-              >
-                {lockingFinalDelivery ? "Locking…" : "Lock finals"}
-              </button>
-            </div>
-          </div>
-        </div>
+      {lockFinalModal ? (
+        <LockFinalModal
+          state={lockFinalModal}
+          busy={lockFinalBusyId !== null}
+          onClose={() => setLockFinalModal(null)}
+          onAmountChange={(amount) =>
+            setLockFinalModal((current) => (current ? { ...current, amount } : current))
+          }
+          onConfirm={() => void onConfirmLockFinal()}
+        />
       ) : null}
 
       {finalWizardOpen ? (

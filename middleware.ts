@@ -1,13 +1,32 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { marketingSiteHost } from "@/lib/marketing/site-seo";
 import {
   isPhotographerAuthPath,
   parseTenantFromHostname,
   photographerAuthUrl,
 } from "@/lib/studio-url";
 
+function redirectWwwToApex(request: NextRequest, host: string): NextResponse | null {
+  const canonicalHost = marketingSiteHost();
+  if (!canonicalHost || canonicalHost === "localhost" || canonicalHost.includes(":")) {
+    return null;
+  }
+
+  const wwwHost = `www.${canonicalHost}`;
+  if (host !== wwwHost) return null;
+
+  const url = request.nextUrl.clone();
+  url.host = canonicalHost;
+  url.protocol = request.nextUrl.protocol === "http:" ? "http:" : "https:";
+  return NextResponse.redirect(url, 308);
+}
+
 export function middleware(request: NextRequest) {
   const host = request.headers.get("host") ?? "";
+  const wwwRedirect = redirectWwwToApex(request, host);
+  if (wwwRedirect) return wwwRedirect;
+
   const tenant = parseTenantFromHostname(host);
   if (!tenant) {
     return NextResponse.next();
