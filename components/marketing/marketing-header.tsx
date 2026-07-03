@@ -129,7 +129,7 @@ function MobileNavMenu({
   );
 }
 
-export function MarketingHeader() {
+export function MarketingHeader({ embedded = false }: { embedded?: boolean }) {
   const signedIn = usePhotographerSignedIn();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [navVisible, setNavVisible] = useState(true);
@@ -150,10 +150,11 @@ export function MarketingHeader() {
   useEffect(() => {
     const onScroll = () => {
       const y = window.scrollY;
-      const topBarEl = topBarRef.current;
-      const topBarBottom = topBarEl
-        ? topBarEl.offsetTop + topBarEl.offsetHeight - 96
-        : 80;
+      const topBarBottom = embedded
+        ? window.innerHeight * 0.82
+        : topBarRef.current
+          ? topBarRef.current.offsetTop + topBarRef.current.offsetHeight - 96
+          : 80;
       const nowInTopBar = y < topBarBottom;
 
       setInTopBar(nowInTopBar);
@@ -177,11 +178,37 @@ export function MarketingHeader() {
       window.removeEventListener("scroll", onScroll);
       window.removeEventListener("resize", onScroll);
     };
-  }, []);
+  }, [embedded]);
+
+  const logoRow = (
+    <div className="flex items-center justify-between gap-3">
+      <Link href="/" aria-label={`${APP_NAME} home`}>
+        <SiteLogo />
+      </Link>
+
+      <div className="flex items-center gap-1.5 sm:gap-2">
+        <MarketingSocialIconLinks />
+
+        <button
+          type="button"
+          onClick={() => setMobileOpen((v) => !v)}
+          aria-expanded={mobileOpen}
+          aria-controls={embedded ? "marketing-mobile-nav-embedded" : "marketing-mobile-nav-top"}
+          aria-label={mobileOpen ? "Close menu" : "Open menu"}
+          className={cn("md:hidden", mobileMenuButtonClassName)}
+        >
+          {mobileOpen ? (
+            <X className="h-4 w-4" aria-hidden />
+          ) : (
+            <Menu className="h-4 w-4" aria-hidden />
+          )}
+        </button>
+      </div>
+    </div>
+  );
 
   return (
     <>
-      {/* Sticky nav — same centered pill as homepage; hides on scroll-down past top bar. */}
       <div
         className={cn(
           "pointer-events-none fixed inset-x-0 top-0 z-40 transition-transform duration-300 ease-out",
@@ -246,44 +273,32 @@ export function MarketingHeader() {
         </div>
       </div>
 
-      {/* Logo + social row — scrolls with the page, like the homepage hero header. */}
-      <div
-        ref={topBarRef}
-        className={cn("relative z-30 pt-5 sm:pt-6 lg:pt-7", marketingHeaderInset)}
-      >
-        <div className="flex items-center justify-between gap-3">
-          <Link href="/" aria-label={`${APP_NAME} home`}>
-            <SiteLogo />
-          </Link>
-
-          <div className="flex items-center gap-1.5 sm:gap-2">
-            <MarketingSocialIconLinks />
-
-            <button
-              type="button"
-              onClick={() => setMobileOpen((v) => !v)}
-              aria-expanded={mobileOpen}
-              aria-controls="marketing-mobile-nav-top"
-              aria-label={mobileOpen ? "Close menu" : "Open menu"}
-              className={cn("md:hidden", mobileMenuButtonClassName)}
-            >
-              {mobileOpen ? (
-                <X className="h-4 w-4" aria-hidden />
-              ) : (
-                <Menu className="h-4 w-4" aria-hidden />
-              )}
-            </button>
-          </div>
+      {embedded ? (
+        <div className={cn("relative z-20 pt-5 sm:pt-6 lg:pt-7", marketingHeaderInset)}>
+          {logoRow}
+          <MobileNavMenu
+            id="marketing-mobile-nav-embedded"
+            open={mobileOpen && inTopBar}
+            signInHref={signInHref}
+            onNavigate={() => setMobileOpen(false)}
+            className="relative z-20 mt-3 md:hidden"
+          />
         </div>
-
-        <MobileNavMenu
-          id="marketing-mobile-nav-top"
-          open={mobileOpen && inTopBar}
-          signInHref={signInHref}
-          onNavigate={() => setMobileOpen(false)}
-          className="relative z-20 mt-3 md:hidden"
-        />
-      </div>
+      ) : (
+        <div
+          ref={topBarRef}
+          className={cn("relative z-30 pt-5 sm:pt-6 lg:pt-7", marketingHeaderInset)}
+        >
+          {logoRow}
+          <MobileNavMenu
+            id="marketing-mobile-nav-top"
+            open={mobileOpen && inTopBar}
+            signInHref={signInHref}
+            onNavigate={() => setMobileOpen(false)}
+            className="relative z-20 mt-3 md:hidden"
+          />
+        </div>
+      )}
     </>
   );
 }

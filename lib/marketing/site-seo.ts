@@ -120,8 +120,8 @@ export function buildRootSiteMetadata(): Metadata {
     openGraph: sharedOpenGraph(title, description),
     twitter: sharedTwitter(title, description),
     icons: {
-      icon: "/images/icon.png",
-      apple: "/images/icon.png",
+      icon: "/svgs/dashboard_logo.svg",
+      apple: "/svgs/dashboard_logo.svg",
     },
     ...(googleVerification
       ? {

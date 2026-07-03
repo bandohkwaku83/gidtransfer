@@ -3,7 +3,7 @@ import { buildMarketingPageMetadata } from "@/lib/marketing/site-seo";
 
 export const metadata: Metadata = buildMarketingPageMetadata(
   "Features",
-  "Gidtransfer features: client galleries, proofing, CRM, branding, delivery, and a commission-free print store for professional photographers.",
+  "Gidtransfer features for photographers: branded client gallery links, proofing, gallery workspace, studio tools, and delivery — built to win clients and save hours.",
   "/features",
 );
 
