@@ -244,7 +244,7 @@ export function photographerApexOrigin(host?: string): string {
         const apexHost =
           process.env.NEXT_PUBLIC_PHOTOGRAPHER_APP_HOST?.trim() ||
           process.env.NEXT_PUBLIC_SITE_HOST?.trim() ||
-          `app.${base}`;
+          base;
         hostname = apexHost.toLowerCase();
       }
     }
@@ -324,6 +324,17 @@ export function tenantAppUrl(
 /** Query param used once when moving session from apex host to `{slug}.localhost`. */
 export const AUTH_HANDOFF_PARAM = "_auth";
 
+/** Production tenant subdomains need wildcard DNS; local `.localhost` always routes. */
+function tenantSubdomainRoutingEnabled(): boolean {
+  const flag = process.env.NEXT_PUBLIC_STUDIO_SUBDOMAINS?.trim().toLowerCase();
+  if (flag === "1" || flag === "true" || flag === "yes") return true;
+  if (flag === "0" || flag === "false" || flag === "no") return false;
+  if (typeof window !== "undefined" && isLocalDevHostname(window.location.host)) {
+    return true;
+  }
+  return false;
+}
+
 export function redirectToTenantHostIfNeeded(
   slug: string,
   pathname: string,
@@ -332,6 +343,7 @@ export function redirectToTenantHostIfNeeded(
   clearSourceAuth?: () => void,
 ): boolean {
   if (typeof window === "undefined") return false;
+  if (!tenantSubdomainRoutingEnabled()) return false;
   if (!isPhotographerDashboardPath(pathname)) return false;
 
   const clean = normalizeStudioSlugInput(slug);
