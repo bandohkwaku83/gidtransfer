@@ -14,6 +14,8 @@ import {
   type GalleryDefaultsSettingsFields,
 } from "@/lib/gallery-defaults-api";
 import { authedFormUpload, authedJson, HttpError } from "@/lib/http";
+import { apiCacheKey, cachedApiCall, invalidateApiCache, invalidateApiCacheByTags } from "@/lib/api-cache";
+import { CACHE_TAGS } from "@/lib/cache-tags";
 import {
   DEFAULT_EMAIL_NOTIFICATIONS,
   normalizeEmailNotifications,
@@ -472,11 +474,16 @@ export function getSettingsDefaultCoverUrl(settings: ApiSettings): string | null
 }
 
 export async function fetchSettingsPayload(): Promise<SettingsPayload> {
-  return authedJson<SettingsPayload>(
-    "/api/settings",
-    { method: "GET" },
-    "Failed to load settings",
-    SettingsApiError,
+  return cachedApiCall(
+    apiCacheKey("GET", "/api/settings"),
+    () =>
+      authedJson<SettingsPayload>(
+        "/api/settings",
+        { method: "GET" },
+        "Failed to load settings",
+        SettingsApiError,
+      ),
+    { ttlMs: 120_000, tags: [CACHE_TAGS.settings] },
   );
 }
 
@@ -744,6 +751,8 @@ export async function updateSettings(input: UpdateSettingsInput): Promise<ApiSet
   }
 
   try {
+    invalidateApiCacheByTags([CACHE_TAGS.settings]);
+    invalidateApiCache("/api/settings");
     const payload = await fetchSettingsPayload();
     persistSettingsSession(payload);
     return settingsPayloadToFlat(payload);

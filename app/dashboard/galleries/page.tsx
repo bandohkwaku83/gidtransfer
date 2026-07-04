@@ -52,6 +52,8 @@ import {
 } from "@/lib/gallery-list-order";
 import { FilterChipSelect } from "@/components/ui/filter-chip-select";
 import { GalleryCardSkeleton, ListRefreshSkeleton } from "@/components/ui/skeletons";
+import { useDebouncedValue } from "@/lib/use-debounced-value";
+import { batchApiCalls } from "@/lib/http";
 import { cn } from "@/lib/utils";
 
 const STATUS_FILTERS: { key: GalleryStatusFilter; label: string }[] = [
@@ -141,40 +143,27 @@ export default function GalleriesPage() {
     [],
   );
 
-  const debouncedSearch = useMemo(() => query.trim(), [query]);
+  const debouncedSearch = useDebouncedValue(query.trim(), 250);
 
   useEffect(() => {
     const controller = new AbortController();
-    const handle = setTimeout(() => {
-      fetchFolders(debouncedSearch, statusFilter, controller.signal);
-    }, 250);
-    return () => {
-      clearTimeout(handle);
-      controller.abort();
-    };
+    void fetchFolders(debouncedSearch, statusFilter, controller.signal);
+    return () => controller.abort();
   }, [debouncedSearch, statusFilter, fetchFolders]);
 
   useEffect(() => {
     let cancelled = false;
-    listClients()
-      .then(({ clients }) => {
-        if (cancelled) return;
-        const map = new Map<string, string>();
-        for (const c of clients) map.set(c._id, c.name);
-        setClientNameById(map);
-        setFolders((prev) => enrichFolderClientNames(prev, map));
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    void getSettings().then((settings) => {
-      if (!cancelled) setStudioDefaultCoverUrl(getSettingsDefaultCoverUrl(settings));
-    });
+    void batchApiCalls([
+      () => listClients(),
+      () => getSettings(),
+    ]).then(([clientsRes, settings]) => {
+      if (cancelled) return;
+      const map = new Map<string, string>();
+      for (const c of clientsRes.clients) map.set(c._id, c.name);
+      setClientNameById(map);
+      setFolders((prev) => enrichFolderClientNames(prev, map));
+      setStudioDefaultCoverUrl(getSettingsDefaultCoverUrl(settings));
+    }).catch(() => {});
     return () => {
       cancelled = true;
     };
@@ -202,14 +191,16 @@ export default function GalleriesPage() {
     async (folder: ApiFolder) => {
       if (pendingDeleteId) return;
       setPendingDeleteId(folder._id);
+      const previousFolders = folders;
+      const previousOrder = galleryOrder;
+      setFolders((prev) => prev.filter((f) => f._id !== folder._id));
+      setGalleryOrder((order) => {
+        const next = order.filter((id) => id !== folder._id);
+        saveGalleryListOrder(next);
+        return next;
+      });
       try {
         const result = await deleteFolder(folder._id);
-        setFolders((prev) => prev.filter((f) => f._id !== folder._id));
-        setGalleryOrder((order) => {
-          const next = order.filter((id) => id !== folder._id);
-          saveGalleryListOrder(next);
-          return next;
-        });
         const deadline = formatRestoreBeforeLabel(result.restoreBefore);
         showToast(
           deadline
@@ -218,6 +209,9 @@ export default function GalleriesPage() {
           "success",
         );
       } catch (err) {
+        setFolders(previousFolders);
+        setGalleryOrder(previousOrder);
+        saveGalleryListOrder(previousOrder);
         showToast(
           err instanceof FoldersApiError
             ? err.message
@@ -230,7 +224,7 @@ export default function GalleriesPage() {
         setPendingDeleteId(null);
       }
     },
-    [pendingDeleteId, showToast],
+    [folders, galleryOrder, pendingDeleteId, showToast],
   );
 
   const handleReorder = useCallback((orderedIds: string[]) => {

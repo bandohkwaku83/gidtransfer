@@ -81,6 +81,8 @@ import {
   updateGallerySet,
 } from "@/lib/gallery-sets-api";
 import { loadClientNameById } from "@/lib/clients-api";
+import { apiCacheKey, cachedApiCall } from "@/lib/api-cache";
+import { invalidateGalleryCaches } from "@/lib/cache-tags";
 import { normalizeGalleryCoverColor } from "@/lib/gallery-cover-color";
 import { normalizeGalleryCoverFrame } from "@/lib/gallery-cover-frame";
 import { normalizeGalleryImageLayout } from "@/lib/gallery-image-layout";
@@ -374,32 +376,60 @@ export async function listFoldersWithCounts(params: {
   return { folders, counts: res.counts };
 }
 
-export async function getFolder(id: string): Promise<ApiFolder> {
-  try {
-    const [gallery, media, sets, clientNameById] = await Promise.all([
-      getGalleryDetail(id),
-      fetchGalleryMedia(id),
-      listGallerySets(id).catch(() => []),
-      loadClientNameById(),
-    ]);
-    return applyFolderPresentationOverride({
-      ...mapGalleryToApiFolder(gallery, clientNameById),
-      uploads: media.uploads,
-      selection: media.selection,
-      finals: media.finals,
-      flaggedFinals: media.flaggedFinals,
-      ...(media.selectionLocked !== undefined
-        ? { selectionLocked: media.selectionLocked }
-        : {}),
-      sets,
-    });
-  } catch (e) {
-    if (e instanceof FoldersApiError && e.status === 404) {
-      const demo = getDemoFolderApiModel(id);
-      if (demo) return demo;
-    }
-    throw e;
-  }
+export async function getFolder(id: string, options?: { force?: boolean }): Promise<ApiFolder> {
+  const cacheKey = apiCacheKey("GET", `/api/folders/composite/${encodeURIComponent(id)}`);
+  return cachedApiCall(
+    cacheKey,
+    async () => {
+      try {
+        const [gallery, media, sets, clientNameById] = await Promise.all([
+          getGalleryDetail(id),
+          fetchGalleryMedia(id),
+          listGallerySets(id).catch(() => []),
+          loadClientNameById(),
+        ]);
+        return applyFolderPresentationOverride({
+          ...mapGalleryToApiFolder(gallery, clientNameById),
+          uploads: media.uploads,
+          selection: media.selection,
+          finals: media.finals,
+          flaggedFinals: media.flaggedFinals,
+          ...(media.selectionLocked !== undefined
+            ? { selectionLocked: media.selectionLocked }
+            : {}),
+          sets,
+        });
+      } catch (e) {
+        if (e instanceof FoldersApiError && e.status === 404) {
+          const demo = getDemoFolderApiModel(id);
+          if (demo) return demo;
+        }
+        throw e;
+      }
+    },
+    {
+      ttlMs: 12_000,
+      tags: invalidateGalleryCaches(id),
+      force: options?.force,
+    },
+  );
+}
+
+/** Refresh only media lists — avoids reloading gallery metadata, sets, and client names. */
+export async function refreshFolderMedia(id: string): Promise<
+  Pick<
+    ApiFolder,
+    "uploads" | "selection" | "finals" | "flaggedFinals" | "selectionLocked"
+  >
+> {
+  const media = await fetchGalleryMedia(id);
+  return {
+    uploads: media.uploads,
+    selection: media.selection,
+    finals: media.finals,
+    flaggedFinals: media.flaggedFinals,
+    ...(media.selectionLocked !== undefined ? { selectionLocked: media.selectionLocked } : {}),
+  };
 }
 
 /** Metadata-only gallery writes omit uploads/finals — reload so the dashboard keeps media visible. */

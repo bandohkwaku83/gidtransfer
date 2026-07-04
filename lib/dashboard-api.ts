@@ -1,4 +1,6 @@
 import { sameOriginUploadsUrl } from "@/lib/api";
+import { apiCacheKey, cachedApiCall } from "@/lib/api-cache";
+import { CACHE_TAGS } from "@/lib/cache-tags";
 import { authedJson, HttpError } from "@/lib/http";
 import type { WeeklyBar } from "@/lib/dashboard-chart-data";
 
@@ -329,13 +331,19 @@ export async function fetchDashboard(
     recentLimit: String(recentLimit),
     activityDays: String(activityDays),
   });
+  const path = `/api/dashboard?${qs.toString()}`;
 
-  const raw = await authedJson<BackendDashboardResponse>(
-    `/api/dashboard?${qs.toString()}`,
-    { method: "GET" },
-    "Failed to load dashboard",
-    DashboardApiError,
+  return cachedApiCall(
+    apiCacheKey("GET", path),
+    async () => {
+      const raw = await authedJson<BackendDashboardResponse>(
+        path,
+        { method: "GET" },
+        "Failed to load dashboard",
+        DashboardApiError,
+      );
+      return mapDashboardResponse(raw);
+    },
+    { ttlMs: 30_000, tags: [CACHE_TAGS.dashboard] },
   );
-
-  return mapDashboardResponse(raw);
 }

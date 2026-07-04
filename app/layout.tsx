@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { Geist_Mono } from "next/font/google";
-import { AppAntdProviders } from "@/components/app-providers";
+import { AntdRootRegistry } from "@/components/antd-root-registry";
 import { AppBootstrap } from "@/components/app-bootstrap";
 import { ToastProvider } from "@/components/toast-provider";
 import { buildRootSiteMetadata } from "@/lib/marketing/site-seo";
@@ -25,11 +25,11 @@ export default function RootLayout({
       className={`${fontVariables} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
-        <AppAntdProviders>
+        <AntdRootRegistry>
           <ToastProvider>
             <AppBootstrap>{children}</AppBootstrap>
           </ToastProvider>
-        </AppAntdProviders>
+        </AntdRootRegistry>
       </body>
     </html>
   );

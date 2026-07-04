@@ -109,6 +109,7 @@ import {
   apiFolderStatusToUi,
   folderSelectionLimit,
   getFolder,
+  refreshFolderMedia,
   getFolderClientName,
   getFolderClientContact,
   getFolderCoverUrl,
@@ -571,8 +572,13 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
     }
   }, []);
 
-  const refreshFolder = useCallback(async () => {
-    const f = await getFolder(folderId);
+  const refreshFolder = useCallback(async (scope: "full" | "media" = "full") => {
+    if (scope === "media") {
+      const media = await refreshFolderMedia(folderId);
+      setFolder((prev) => (prev ? { ...prev, ...media } : prev));
+      return null;
+    }
+    const f = await getFolder(folderId, { force: true });
     setFolder(f);
     void loadGalleryAnalytics(folderId);
     return f;
@@ -1200,7 +1206,7 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
         } else if (itemId.startsWith("fin:")) {
           await patchFolderFinalFeedbackReply(folderId, itemId.slice(4), reply);
         }
-        await refreshFolder();
+        await refreshFolder("media");
         showToast(reply ? "Reply sent to client." : "Reply removed.", "success");
       } catch (e) {
         showToast(
@@ -1471,7 +1477,7 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
         uploadProgressHandler("final"),
         mergeFinalFormOpts(getDuplicateUploadPreference(), files, selectionMediaId),
       );
-      await refreshFolder();
+      await refreshFolder("media");
       showToast(
         delivery.clientHasPaidForFinals
           ? `${files.length} final(s) uploaded.`
@@ -1601,7 +1607,6 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
         rawUploadFormOptions(getDuplicateUploadPreference(), setId, effectiveRawUploadPreviewWatermark),
       );
       applyRawUploadComplete(uploadResult?.lastBody);
-      void refreshFolder();
       showToast(`${files.length} file(s) uploaded.`, "success");
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Upload failed.", "error");
@@ -1640,7 +1645,6 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
           rawUploadFormOptions("replace", resolveUploadSetId(), effectiveRawUploadPreviewWatermark),
         );
         applyRawUploadComplete(uploadResult?.lastBody);
-        void refreshFolder();
       } else {
         await uploadFolderFinalMedia(
           folder._id,
@@ -1648,7 +1652,7 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
           uploadProgressHandler("final"),
           mergeFinalFormOpts("replace", p.files, p.selectionMediaId),
         );
-        await refreshFolder();
+        await refreshFolder("media");
       }
       showToast(
         p.kind === "raw"
@@ -1712,7 +1716,7 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
         );
         applyRawUploadComplete(result?.lastBody);
         ignored = result?.ignoredDuplicatesCount ?? 0;
-        void refreshFolder();
+        void refreshFolder("media");
       } else {
         const result = await uploadFolderFinalMedia(
           folder._id,
@@ -1721,7 +1725,7 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
           mergeFinalFormOpts("ignore", filesToUpload, p.selectionMediaId),
         );
         ignored = result?.ignoredDuplicatesCount ?? 0;
-        await refreshFolder();
+        await refreshFolder("media");
       }
       if (skippedWithoutUpload > 0) {
         showToast(
@@ -2400,7 +2404,7 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
     setDeletingKey(`raw:${mediaId}`);
     try {
       const result = await deleteFolderRawMedia(folder._id, mediaId);
-      await refreshFolder();
+      await refreshFolder("media");
       setSelectedRawIds((prev) => {
         if (!prev.has(mediaId)) return prev;
         const next = new Set(prev);
@@ -2438,7 +2442,7 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
     setDeletingKey(`final:${mediaId}`);
     try {
       const result = await deleteFolderFinalMedia(folder._id, mediaId);
-      await refreshFolder();
+      await refreshFolder("media");
       setSelectedFinalIds((prev) => {
         if (!prev.has(mediaId)) return prev;
         const next = new Set(prev);
@@ -2476,7 +2480,7 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
     setDeletingKey("raw:all");
     try {
       const result = await deleteAllFolderRawMedia(folder._id);
-      await refreshFolder();
+      await refreshFolder("media");
       setSelectedRawIds(new Set());
       const deadline = formatRestoreBeforeLabel(result.restoreBefore);
       showToast(
@@ -2511,7 +2515,7 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
     setDeletingKey("final:all");
     try {
       const result = await deleteAllFolderFinalMedia(folder._id);
-      await refreshFolder();
+      await refreshFolder("media");
       setSelectedFinalIds(new Set());
       const deadline = formatRestoreBeforeLabel(result.restoreBefore);
       showToast(
@@ -2557,7 +2561,7 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
           if (r.restoreBefore) restoreBefore = r.restoreBefore;
         }
       }
-      await refreshFolder();
+      await refreshFolder("media");
       setSelectedRawIds(new Set());
       const deadline = formatRestoreBeforeLabel(restoreBefore);
       showToast(
@@ -2577,7 +2581,7 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
             : "Could not move selected files to trash.",
         "error",
       );
-      await refreshFolder().catch(() => {});
+      await refreshFolder("media").catch(() => {});
     } finally {
       setDeletingKey(null);
     }
@@ -2606,7 +2610,7 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
           if (r.restoreBefore) restoreBefore = r.restoreBefore;
         }
       }
-      await refreshFolder();
+      await refreshFolder("media");
       setSelectedFinalIds(new Set());
       const deadline = formatRestoreBeforeLabel(restoreBefore);
       showToast(
@@ -2626,7 +2630,7 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
             : "Could not move selected finals to trash.",
         "error",
       );
-      await refreshFolder().catch(() => {});
+      await refreshFolder("media").catch(() => {});
     } finally {
       setDeletingKey(null);
     }

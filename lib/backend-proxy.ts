@@ -23,6 +23,9 @@ export async function proxyApiToBackend(
     if (lower === "host" || lower === "connection") return;
     headers.set(key, value);
   });
+  if (!headers.has("accept-encoding")) {
+    headers.set("Accept-Encoding", "gzip, deflate, br");
+  }
 
   const method = request.method.toUpperCase();
   let body: ArrayBuffer | undefined;

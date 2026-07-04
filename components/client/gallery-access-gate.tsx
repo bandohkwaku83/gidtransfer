@@ -1,9 +1,8 @@
 "use client";
 
-import { Input } from "antd";
 import { Lock } from "lucide-react";
 import { useCallback, useState } from "react";
-import { cn } from "@/lib/utils";
+import { SignupOtpInput } from "@/components/auth/signup-otp-input";
 
 type GalleryAccessGateProps = {
   studioName?: string;
@@ -65,21 +64,18 @@ export function GalleryAccessGate({
           <p className="mt-1 text-center text-xs text-zinc-500 dark:text-zinc-500">{galleryTitle}</p>
         ) : null}
 
-        <div className="mt-6 flex justify-center">
-          <Input.OTP
+        <div className="mt-6">
+          <SignupOtpInput
             length={4}
             value={pin}
             disabled={submitting}
+            error={Boolean(error)}
+            autoFocus
             onChange={(value) => {
               setPin(value);
               setError(null);
-              if (value.length === 4) void submit(value);
             }}
-            className={cn(
-              "[&_.ant-input]:!h-9 [&_.ant-input]:!w-8 [&_.ant-input]:!rounded-lg [&_.ant-input]:!text-base [&_.ant-input]:!font-semibold",
-              error && "[&_.ant-input]:!border-red-400",
-            )}
-            aria-label="Gallery access code"
+            onComplete={(value) => void submit(value)}
           />
         </div>
 

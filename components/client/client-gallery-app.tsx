@@ -84,7 +84,11 @@ import { ClientGalleryAssetGrid } from "@/components/client/client-gallery-asset
 import { ClientGallerySetBar } from "@/components/client/client-gallery-set-bar";
 import { ClientPreviewWatermarkOverlay } from "@/components/client/preview-watermark-overlay";
 import { GalleryCoverHero } from "@/components/client/gallery-cover-hero";
-import { MediaLightbox, lightboxMediaClass } from "@/components/ui/media-lightbox";
+import { lightboxMediaClass } from "@/components/ui/media-lightbox";
+import {
+  LazyGalleryBlogClientSection,
+  LazyMediaLightbox,
+} from "@/lib/lazy-components";
 import { mergeGalleryAccessSettings } from "@/lib/gallery-access-merge";
 import {
   hasGalleryEmailAccess,
@@ -97,7 +101,6 @@ import {
   type GallerySetFilter,
   sortGallerySets,
 } from "@/lib/gallery-set-filter";
-import { GalleryBlogClientSection } from "@/components/gallery-blog/gallery-blog-client-section";
 import {
   ensureDemoGalleryBlogSeed,
   listPublishedGalleryBlogPostsForShare,
@@ -1647,7 +1650,7 @@ export function ClientGalleryApp({ publicKey }: { publicKey: PublicGalleryKey })
 
       <main className="mx-auto max-w-[1920px] bg-white px-4 py-8 pb-12 sm:px-5 dark:bg-zinc-950">
         {photoTab === "blog" && gallery ? (
-          <GalleryBlogClientSection
+          <LazyGalleryBlogClientSection
             folderId={gallery.folderId}
             publicKey={publicKey}
             assets={assets.map((a) => ({
@@ -1968,7 +1971,7 @@ export function ClientGalleryApp({ publicKey }: { publicKey: PublicGalleryKey })
       </footer>
 
       {lightboxId && lbAsset ? (
-        <MediaLightbox
+        <LazyMediaLightbox
           open
           onClose={closeAllPreviews}
           ariaLabel={`Preview — ${lbAsset.originalName}`}
@@ -2096,11 +2099,11 @@ export function ClientGalleryApp({ publicKey }: { publicKey: PublicGalleryKey })
               ) : null}
             </div>
           )}
-        </MediaLightbox>
+        </LazyMediaLightbox>
       ) : null}
 
       {finalLb ? (
-        <MediaLightbox
+        <LazyMediaLightbox
           open
           onClose={closeAllPreviews}
           ariaLabel={`Preview — ${finalLb.name}`}
@@ -2247,7 +2250,7 @@ export function ClientGalleryApp({ publicKey }: { publicKey: PublicGalleryKey })
               }}
             />
           )}
-        </MediaLightbox>
+        </LazyMediaLightbox>
       ) : null}
 
       {photoComment ? (
@@ -2517,7 +2520,7 @@ export function ClientGalleryApp({ publicKey }: { publicKey: PublicGalleryKey })
       ) : null}
 
       {coverLightboxOpen && gallery.coverImageUrl ? (
-        <MediaLightbox
+        <LazyMediaLightbox
           open
           onClose={closeAllPreviews}
           ariaLabel="Cover preview"
@@ -2541,7 +2544,7 @@ export function ClientGalleryApp({ publicKey }: { publicKey: PublicGalleryKey })
               if (gallery.rightsProtection) e.preventDefault();
             }}
           />
-        </MediaLightbox>
+        </LazyMediaLightbox>
       ) : null}
 
       {musicAllowed ? (

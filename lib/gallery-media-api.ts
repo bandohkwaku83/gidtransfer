@@ -178,6 +178,7 @@ export function upsertGalleryUploadRows(
 }
 
 const DERIVATIVES_POLL_MS = 2000;
+const DERIVATIVES_POLL_MAX_MS = 10_000;
 
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -207,16 +208,24 @@ export async function pollGalleryUploadDerivatives(
   const pending = new Set(photoIds.filter(Boolean));
   if (pending.size === 0) return;
 
+  let intervalMs = DERIVATIVES_POLL_MS;
+
   while (pending.size > 0) {
     if (signal?.aborted) return;
     try {
-      await sleep(DERIVATIVES_POLL_MS, signal);
+      await sleep(intervalMs, signal);
     } catch {
       return;
     }
     if (signal?.aborted) return;
+    if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+      continue;
+    }
+
     const res = await authedJson<{ photos?: ApiGalleryPhoto[] }>(
-      `${galleryPath(galleryId)}/uploads`,
+      `${galleryPath(galleryId)}/uploads?${new URLSearchParams({
+        ids: [...pending].join(","),
+      }).toString()}`,
       { method: "GET" },
       "Failed to refresh uploads",
       FoldersApiError,
@@ -228,6 +237,7 @@ export async function pollGalleryUploadDerivatives(
       pending.delete(photo.id);
       onPhotoReady(photo);
     }
+    intervalMs = Math.min(Math.round(intervalMs * 1.4), DERIVATIVES_POLL_MAX_MS);
   }
 }
 

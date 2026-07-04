@@ -1,4 +1,5 @@
 import { apiUrl } from "@/lib/api";
+import { recordApiMetric } from "@/lib/api-metrics";
 import { clearAuth, getAuthToken } from "@/lib/auth-demo";
 import { photographerAuthUrl, photographerSignOutUrl } from "@/lib/studio-url";
 
@@ -24,6 +25,12 @@ export class HttpError extends Error {
 
 /** Thrown when a protected API responds with 403 EMAIL_NOT_VERIFIED. */
 export class EmailNotVerifiedError extends HttpError {}
+
+const RETRYABLE_STATUSES = new Set([0, 408, 429, 502, 503, 504]);
+const MAX_RETRIES = 2;
+const RETRY_BASE_MS = 300;
+
+const inFlightGet = new Map<string, Promise<Response>>();
 
 /** Safe JSON parse — returns null on non-JSON / empty bodies. */
 export async function parseJson(res: Response): Promise<unknown> {
@@ -85,14 +92,66 @@ function isAuthSession401(body: unknown): boolean {
 export type AuthedFetchOptions = {
   /** When false, a 401 clears auth but does not hard-navigate to `/login`. Default true. */
   redirectOn401?: boolean;
+  /** Override retry count for transient failures. Default 2. */
+  retries?: number;
 };
+
+function requestDedupeKey(method: string, path: string): string {
+  return `${method.toUpperCase()}:${path}`;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function fetchWithRetry(
+  url: string,
+  init: RequestInit,
+  retries: number,
+): Promise<{ res: Response; attempts: number }> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    const started = typeof performance !== "undefined" ? performance.now() : Date.now();
+    try {
+      const res = await fetch(url, init);
+      recordApiMetric({
+        path: url.replace(/^https?:\/\/[^/]+/, ""),
+        method: (init.method ?? "GET").toUpperCase(),
+        durationMs: (typeof performance !== "undefined" ? performance.now() : Date.now()) - started,
+        status: res.status,
+        cached: false,
+        retries: attempt,
+      });
+      if (RETRYABLE_STATUSES.has(res.status) && attempt < retries) {
+        await sleep(RETRY_BASE_MS * 2 ** attempt);
+        continue;
+      }
+      return { res, attempts: attempt };
+    } catch (err) {
+      lastError = err;
+      recordApiMetric({
+        path: url.replace(/^https?:\/\/[^/]+/, ""),
+        method: (init.method ?? "GET").toUpperCase(),
+        durationMs: (typeof performance !== "undefined" ? performance.now() : Date.now()) - started,
+        status: 0,
+        cached: false,
+        retries: attempt,
+      });
+      if (attempt < retries) {
+        await sleep(RETRY_BASE_MS * 2 ** attempt);
+        continue;
+      }
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("Network request failed.");
+}
 
 /**
  * Authenticated fetch — attaches `Authorization: Bearer <token>`, sets a default
  * `Content-Type: application/json` when there is a body, and centralises 401 handling
  * (`clearAuth()` + browser navigation to `/login`) for session failures only.
  *
- * Caller is responsible for parsing the response and throwing typed errors.
+ * GET requests are deduplicated while in-flight. Transient upstream failures retry with backoff.
  */
 export async function authedFetch(
   path: string,
@@ -110,36 +169,55 @@ export async function authedFetch(
   ) {
     headers.set("Content-Type", "application/json");
   }
+  if (!headers.has("Accept")) {
+    headers.set("Accept", "application/json");
+  }
 
-  const res = await fetch(apiUrl(path), { ...init, headers });
+  const method = (init.method ?? "GET").toUpperCase();
+  const retries = options.retries ?? MAX_RETRIES;
+  const dedupeKey = requestDedupeKey(method, path);
 
-  if (res.status === 401) {
-    const errBody = await parseJson(res.clone());
-    const message = extractMessage(
-      errBody,
-      token
-        ? "Your session has expired. Please log in again."
-        : "Not signed in. Please log in again.",
-    );
-    const sessionFailure = isAuthSession401(errBody);
-    if (token && sessionFailure && options.redirectOn401 !== false) {
-      clearAuth();
-      if (
-        typeof window !== "undefined" &&
-        !window.location.pathname.startsWith("/login")
-      ) {
-        window.location.href = photographerSignOutUrl();
+  const execute = async (): Promise<Response> => {
+    const { res } = await fetchWithRetry(apiUrl(path), { ...init, headers, method }, retries);
+
+    if (res.status === 401) {
+      const errBody = await parseJson(res.clone());
+      const message = extractMessage(
+        errBody,
+        token
+          ? "Your session has expired. Please log in again."
+          : "Not signed in. Please log in again.",
+      );
+      const sessionFailure = isAuthSession401(errBody);
+      if (token && sessionFailure && options.redirectOn401 !== false) {
+        clearAuth();
+        if (
+          typeof window !== "undefined" &&
+          !window.location.pathname.startsWith("/login")
+        ) {
+          window.location.href = photographerSignOutUrl();
+        }
       }
+      throw new HttpError(message, 401, errBody);
     }
-    throw new HttpError(message, 401, errBody);
+
+    if (res.status === 403) {
+      const errBody = await parseJson(res.clone());
+      throwIfEmailNotVerified(403, errBody);
+    }
+
+    return res;
+  };
+
+  if (method === "GET") {
+    const pending = inFlightGet.get(dedupeKey);
+    if (pending) return pending;
+    const promise = execute().finally(() => inFlightGet.delete(dedupeKey));
+    inFlightGet.set(dedupeKey, promise);
+    return promise;
   }
 
-  if (res.status === 403) {
-    const errBody = await parseJson(res.clone());
-    throwIfEmailNotVerified(403, errBody);
-  }
-
-  return res;
+  return execute();
 }
 
 type HttpErrorCtor<E extends HttpError> = new (message: string, status: number, body: unknown) => E;
@@ -283,4 +361,11 @@ export async function authedFormUpload<T>(
 
     xhr.send(form);
   });
+}
+
+/** Run independent API calls in parallel with shared error isolation. */
+export async function batchApiCalls<T extends readonly unknown[] | []>(
+  calls: { [K in keyof T]: () => Promise<T[K]> },
+): Promise<T> {
+  return Promise.all(calls.map((call) => call())) as Promise<T>;
 }

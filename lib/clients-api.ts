@@ -1,4 +1,6 @@
 import { getAuthToken } from "@/lib/auth-demo";
+import { apiCacheKey, cachedApiCall, invalidateApiCache, invalidateApiCacheByTags } from "@/lib/api-cache";
+import { CACHE_TAGS } from "@/lib/cache-tags";
 import { authedJson, HttpError } from "@/lib/http";
 
 export type ApiClient = {
@@ -92,16 +94,27 @@ export async function listClients(search = ""): Promise<ListClientsResponse> {
   const path = q
     ? `/api/clients?search=${encodeURIComponent(q)}`
     : "/api/clients";
-  const res = await authedJson<{ count: number; clients: RawClient[] }>(
-    path,
-    { method: "GET" },
-    "Failed to load clients",
-    ApiError,
+  return cachedApiCall(
+    apiCacheKey("GET", path),
+    async () => {
+      const res = await authedJson<{ count: number; clients: RawClient[] }>(
+        path,
+        { method: "GET" },
+        "Failed to load clients",
+        ApiError,
+      );
+      const clients = (res.clients ?? [])
+        .map((raw) => mapClient(raw))
+        .filter((client): client is ApiClient => client != null);
+      return { count: res.count ?? clients.length, clients };
+    },
+    { ttlMs: 60_000, tags: [CACHE_TAGS.clients] },
   );
-  const clients = (res.clients ?? [])
-    .map((raw) => mapClient(raw))
-    .filter((client): client is ApiClient => client != null);
-  return { count: res.count ?? clients.length, clients };
+}
+
+function invalidateClientCaches(): void {
+  invalidateApiCacheByTags([CACHE_TAGS.clients, CACHE_TAGS.dashboard]);
+  invalidateApiCache("/api/clients");
 }
 
 export async function loadClientNameById(): Promise<Map<string, string>> {
@@ -147,6 +160,7 @@ export async function createClient(input: ClientInput): Promise<ApiClient> {
     "Failed to create client",
     ApiError,
   );
+  invalidateClientCaches();
   return requireMappedClient(res.client, "createClient");
 }
 
@@ -163,6 +177,7 @@ export async function updateClient(
     "Failed to update client",
     ApiError,
   );
+  invalidateClientCaches();
   return requireMappedClient(res.client, "updateClient");
 }
 
@@ -173,5 +188,6 @@ export async function deleteClient(id: string): Promise<ApiClient> {
     "Failed to delete client",
     ApiError,
   );
+  invalidateClientCaches();
   return requireMappedClient(res.client, "deleteClient");
 }

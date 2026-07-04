@@ -1,4 +1,6 @@
 import type { ApiClient } from "@/lib/clients-api";
+import { apiCacheKey, cachedApiCall, invalidateApiCache, invalidateApiCacheByTags } from "@/lib/api-cache";
+import { CACHE_TAGS, invalidateGalleryCaches } from "@/lib/cache-tags";
 import { authedJson } from "@/lib/http";
 import type { ApiFolder, ApiFolderShare } from "@/lib/folders/types";
 import { FoldersApiError } from "@/lib/folders/types";
@@ -728,6 +730,11 @@ function galleryPath(id: string) {
   return `/api/galleries/${encodeURIComponent(id)}`;
 }
 
+function invalidateGalleryListCaches(galleryId?: string): void {
+  invalidateApiCacheByTags(invalidateGalleryCaches(galleryId));
+  invalidateApiCache("/api/galleries");
+}
+
 export async function listGalleries(params: {
   status?: string;
   trash?: boolean;
@@ -742,23 +749,31 @@ export async function listGalleries(params: {
   const search = params.search?.trim();
   if (search) q.set("search", search);
 
-  const res = await authedJson<ListGalleriesResponse>(
-    `/api/galleries?${q.toString()}`,
-    { method: "GET" },
-    "Failed to load galleries",
-    FoldersApiError,
-  );
+  const path = `/api/galleries?${q.toString()}`;
 
-  return {
-    counts: {
-      all: res.counts?.all ?? res.galleries?.length ?? 0,
-      draft: res.counts?.draft ?? 0,
-      selecting: res.counts?.selecting ?? 0,
-      done: res.counts?.done ?? 0,
-      trash: res.counts?.trash ?? 0,
+  return cachedApiCall(
+    apiCacheKey("GET", path),
+    async () => {
+      const res = await authedJson<ListGalleriesResponse>(
+        path,
+        { method: "GET" },
+        "Failed to load galleries",
+        FoldersApiError,
+      );
+
+      return {
+        counts: {
+          all: res.counts?.all ?? res.galleries?.length ?? 0,
+          draft: res.counts?.draft ?? 0,
+          selecting: res.counts?.selecting ?? 0,
+          done: res.counts?.done ?? 0,
+          trash: res.counts?.trash ?? 0,
+        },
+        galleries: (res.galleries ?? []).map((gallery) => normalizeGalleryForClient(gallery)),
+      };
     },
-    galleries: (res.galleries ?? []).map((gallery) => normalizeGalleryForClient(gallery)),
-  };
+    { ttlMs: 20_000, tags: [CACHE_TAGS.galleries] },
+  );
 }
 
 export async function getGallery(id: string): Promise<ApiGallery> {
@@ -844,14 +859,16 @@ export async function createGallery(
     const form = new FormData();
     appendGalleryFormFields(form, { ...body, useDefaultCover: false });
     form.append("cover", coverFile);
-    return authedJson<{ message?: string; gallery: ApiGallery }>(
+    const result = await authedJson<{ message?: string; gallery: ApiGallery }>(
       "/api/galleries",
       { method: "POST", body: form },
       "Failed to create gallery",
       FoldersApiError,
     );
+    invalidateGalleryListCaches(result.gallery.id);
+    return result;
   }
-  return authedJson<{ message?: string; gallery: ApiGallery }>(
+  const result = await authedJson<{ message?: string; gallery: ApiGallery }>(
     "/api/galleries",
     {
       method: "POST",
@@ -860,6 +877,8 @@ export async function createGallery(
     "Failed to create gallery",
     FoldersApiError,
   );
+  invalidateGalleryListCaches(result.gallery.id);
+  return result;
 }
 
 export async function updateGallery(
@@ -875,14 +894,16 @@ export async function updateGallery(
     const form = new FormData();
     appendGalleryFormFields(form, { ...body, useDefaultCover: false });
     form.append("cover", coverFile);
-    return authedJson<{ message?: string; gallery: ApiGallery }>(
+    const result = await authedJson<{ message?: string; gallery: ApiGallery }>(
       galleryPath(id),
       { method: "PUT", body: form },
       "Failed to update gallery",
       FoldersApiError,
     );
+    invalidateGalleryListCaches(result.gallery.id);
+    return result;
   }
-  return authedJson<{ message?: string; gallery: ApiGallery }>(
+  const result = await authedJson<{ message?: string; gallery: ApiGallery }>(
     galleryPath(id),
     {
       method: "PUT",
@@ -891,33 +912,41 @@ export async function updateGallery(
     "Failed to update gallery",
     FoldersApiError,
   );
+  invalidateGalleryListCaches(id);
+  return result;
 }
 
 export async function deleteGallery(id: string): Promise<{ message?: string; gallery: ApiGallery }> {
-  return authedJson<{ message?: string; gallery: ApiGallery }>(
+  const result = await authedJson<{ message?: string; gallery: ApiGallery }>(
     galleryPath(id),
     { method: "DELETE" },
     "Failed to delete gallery",
     FoldersApiError,
   );
+  invalidateGalleryListCaches(id);
+  return result;
 }
 
 export async function restoreGallery(id: string): Promise<{ message?: string; gallery: ApiGallery }> {
-  return authedJson<{ message?: string; gallery: ApiGallery }>(
+  const result = await authedJson<{ message?: string; gallery: ApiGallery }>(
     `${galleryPath(id)}/restore`,
     { method: "PATCH" },
     "Failed to restore gallery",
     FoldersApiError,
   );
+  invalidateGalleryListCaches(id);
+  return result;
 }
 
 export async function completeGallery(id: string): Promise<{ message?: string; gallery: ApiGallery }> {
-  return authedJson<{ message?: string; gallery: ApiGallery }>(
+  const result = await authedJson<{ message?: string; gallery: ApiGallery }>(
     `${galleryPath(id)}/complete`,
     { method: "PATCH" },
     "Failed to mark gallery completed",
     FoldersApiError,
   );
+  invalidateGalleryListCaches(id);
+  return result;
 }
 
 export async function updateGalleryCoverFocalPoint(

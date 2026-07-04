@@ -1,7 +1,7 @@
 "use client";
 
 import { use } from "react";
-import { FolderDetailView } from "@/components/photographer/folder-detail-view";
+import { LazyFolderDetailView } from "@/lib/lazy-components";
 
 export default function FolderPage({
   params,
@@ -9,5 +9,5 @@ export default function FolderPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
-  return <FolderDetailView key={id} folderId={id} />;
+  return <LazyFolderDetailView key={id} folderId={id} />;
 }

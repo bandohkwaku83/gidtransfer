@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Bell, Loader2 } from "lucide-react";
 import { Dropdown } from "antd";
 import { useToast } from "@/components/toast-provider";
+import { startAdaptivePoll } from "@/lib/adaptive-poll";
 import { cn } from "@/lib/utils";
 import { ApiError } from "@/lib/clients-api";
 import {
@@ -46,8 +47,10 @@ export function NotificationsBell() {
 
   useEffect(() => {
     void refreshUnread();
-    const t = window.setInterval(() => void refreshUnread(), POLL_MS);
-    return () => window.clearInterval(t);
+    return startAdaptivePoll({
+      intervalMs: POLL_MS,
+      poll: refreshUnread,
+    });
   }, [refreshUnread]);
 
   useEffect(() => {

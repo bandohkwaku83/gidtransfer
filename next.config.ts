@@ -105,6 +105,7 @@ const nextConfig: NextConfig = {
   /** `/api/*` rewrites proxy multipart uploads; default 10MB truncates large batches. */
   experimental: {
     proxyClientMaxBodySize: "100mb",
+    optimizePackageImports: ["lucide-react", "antd", "@ant-design/icons"],
   },
   turbopack: {
     root: PROJECT_ROOT,

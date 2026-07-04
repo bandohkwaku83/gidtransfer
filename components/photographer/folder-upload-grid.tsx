@@ -6,6 +6,7 @@ import {
   useMemo,
   useRef,
   useState,
+  memo,
   type ComponentType,
   type RefObject,
 } from "react";
@@ -30,7 +31,7 @@ export type FolderUploadGridItem = {
   derivativesPending?: boolean;
 };
 
-function MediaThumb({
+const MediaThumb = memo(function MediaThumb({
   src,
   name,
   isVideo,
@@ -71,7 +72,7 @@ function MediaThumb({
       ) : null}
     </>
   );
-}
+});
 
 type UploadTileProps = {
   item: FolderUploadGridItem;
@@ -94,7 +95,7 @@ type UploadTileProps = {
   onTilePointerDown: (event: React.PointerEvent<HTMLElement>, item: FolderUploadGridItem) => void;
 };
 
-function UploadTile({
+const UploadTile = memo(function UploadTile({
   item,
   selected,
   deleting,
@@ -310,7 +311,7 @@ function UploadTile({
       </div>
     </article>
   );
-}
+});
 
 export function FolderUploadSectionHeader({
   icon: Icon,
