@@ -1,4 +1,4 @@
-import { API_BASE_URL, sameOriginUploadsUrl } from "@/lib/api";
+import { API_BASE_URL, resolveGridThumbUrl, sameOriginUploadsUrl } from "@/lib/api";
 import { loadProjectById } from "@/lib/demo-data";
 import type { DemoAsset, DemoFinalAsset, FolderStatus } from "@/lib/demo-data";
 import type { ApiFolder, ApiFolderMedia } from "@/lib/folders/types";
@@ -276,9 +276,11 @@ function apiEditStatusToUi(s?: string): "NONE" | "IN_PROGRESS" | "EDITED" {
   return "NONE";
 }
 
-/** Photographer dashboard grid — prefer thumb, fall back to full image while processing. */
-export function demoAssetGridSrc(asset: Pick<DemoAsset, "thumbUrl" | "url">): string {
-  return asset.thumbUrl?.trim() || asset.url?.trim() || "";
+/** Photographer dashboard grid — prefer gridUrl/thumbUrl, fall back to full image while processing. */
+export function demoAssetGridSrc(
+  asset: Pick<DemoAsset, "gridUrl" | "thumbUrl" | "url">,
+): string {
+  return asset.gridUrl?.trim() || asset.thumbUrl?.trim() || asset.url?.trim() || "";
 }
 
 /** Map API media row → in-app DemoAsset shape for folder detail UI. */
@@ -290,10 +292,10 @@ export function apiFolderMediaToDemoAsset(m: ApiFolderMedia): DemoAsset {
     `m-${Math.random().toString(36).slice(2, 10)}`;
   const originalName =
     m.originalName || m.originalFilename || m.filename || m.name || "Photo";
-  const smallThumb = m.thumbUrl || m.thumbnailUrl || "";
+  const smallThumb = m.gridUrl || m.thumbUrl || m.thumbnailUrl || "";
   const fullUrl = m.url || "";
   const largePreview = m.displayUrl || fullUrl || m.previewUrl || m.image || "";
-  const thumbResolved = smallThumb ? resolveCoverUrl(smallThumb) || smallThumb : "";
+  const thumbResolved = smallThumb ? resolveGridThumbUrl(smallThumb) || smallThumb : "";
   const largeResolved = largePreview ? resolveCoverUrl(largePreview) || largePreview : "";
   const resolvedUrl = fullUrl ? resolveCoverUrl(fullUrl) || fullUrl : largeResolved;
   const mimeType = (m.mimeType || m.contentType || m.content_type || "").toLowerCase();
@@ -332,6 +334,7 @@ export function apiFolderMediaToDemoAsset(m: ApiFolderMedia): DemoAsset {
         ? ((m as Record<string, unknown>).selected_at as string)
         : null),
     thumbUrl: isVideo ? mediaUrl : thumbResolved,
+    ...(thumbResolved && !isVideo ? { gridUrl: thumbResolved } : {}),
     url: isVideo ? mediaUrl : resolvedUrl,
     ...(previewUrl ? { previewUrl } : {}),
     ...(m.displayUrl ? { displayUrl: resolveCoverUrl(m.displayUrl) || m.displayUrl } : {}),

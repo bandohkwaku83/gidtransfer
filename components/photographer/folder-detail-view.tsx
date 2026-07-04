@@ -41,6 +41,7 @@ import {
   publicGallerySessionId,
   withGalleryImageCacheBust,
 } from "@/lib/share-gallery-api";
+import { GalleryViewMoreButton } from "@/components/client/share-gallery-bits";
 import { cn } from "@/lib/utils";
 import {
   getGalleriesMeta,
@@ -96,6 +97,7 @@ import {
   isLocalDemoFolderId,
 } from "@/lib/folders/helpers";
 import {
+  fetchGalleryUploadsPage,
   galleryPhotoToApiFolderMedia,
   galleryPhotosPendingDerivatives,
   pollGalleryUploadDerivatives,
@@ -348,6 +350,7 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
   /** Shared set filter for raw uploads, client selections, and finals. */
   const [mediaSetFilter, setMediaSetFilter] = useState<GallerySetFilter>("all");
   const [setsBusy, setSetsBusy] = useState(false);
+  const [loadingMoreUploads, setLoadingMoreUploads] = useState(false);
   const [activeFeedbackId, setActiveFeedbackId] = useState<string | null>(null);
   const [savingFeedbackId, setSavingFeedbackId] = useState<string | null>(null);
   const [linkCopied, setLinkCopied] = useState(false);
@@ -583,6 +586,28 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
     void loadGalleryAnalytics(folderId);
     return f;
   }, [folderId, loadGalleryAnalytics]);
+
+  const loadMoreUploads = useCallback(async () => {
+    const cursor = folder?.uploadsPagination?.nextCursor;
+    if (!folder || !cursor?.trim() || loadingMoreUploads || isLocalDemoFolderId(folderId)) return;
+    setLoadingMoreUploads(true);
+    try {
+      const page = await fetchGalleryUploadsPage(folderId, { view: "grid", cursor: cursor.trim() });
+      setFolder((prev) => {
+        if (!prev) return prev;
+        const merged = upsertGalleryUploadRows(prev.uploads ?? [], page.uploads);
+        return {
+          ...prev,
+          uploads: merged,
+          uploadsPagination: page.pagination,
+        };
+      });
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Could not load more uploads.", "error");
+    } finally {
+      setLoadingMoreUploads(false);
+    }
+  }, [folder, folderId, loadingMoreUploads, showToast]);
 
   const mergeRawUploadRows = useCallback(
     (rows: ReturnType<typeof galleryPhotoToApiFolderMedia>[]) => {
@@ -2937,30 +2962,43 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
                 description="Switch to All or another set, or upload files while this set is selected."
               />
             ) : (
-              <FolderUploadMediaGrid
-                items={filteredRawAssets.map((a) => ({
-                  id: a.id,
-                  name: a.originalName,
-                  mediaSrc: demoAssetGridSrc(a),
-                  isVideo: isFolderMediaVideo(a),
-                  derivativesPending: a.derivativesReady === false && !isFolderMediaVideo(a),
-                }))}
-                selectedIds={selectedRawIds}
-                onToggleSelected={toggleRawSelected}
-                onOpenPreview={(id) => {
-                  setLightboxId(id);
-                  setLightboxZoom(1);
-                }}
-                onDelete={(id) => void onDeleteRawAsset(id)}
-                onSetCover={(id) => void onSetCoverFromMedia(id, "raw")}
-                deletingKey={deletingKey}
-                settingCoverKey={settingCoverKey}
-                mediaDeleteBlocked={mediaDeleteBlocked()}
-                deleteKeyPrefix="raw"
-                reorderable
-                reorderDisabled={busy}
-                onReorder={onReorderRawMedia}
-              />
+              <>
+                <FolderUploadMediaGrid
+                  items={filteredRawAssets.map((a) => ({
+                    id: a.id,
+                    name: a.originalName,
+                    mediaSrc: demoAssetGridSrc(a),
+                    isVideo: isFolderMediaVideo(a),
+                    derivativesPending: a.derivativesReady === false && !isFolderMediaVideo(a),
+                  }))}
+                  selectedIds={selectedRawIds}
+                  onToggleSelected={toggleRawSelected}
+                  onOpenPreview={(id) => {
+                    setLightboxId(id);
+                    setLightboxZoom(1);
+                  }}
+                  onDelete={(id) => void onDeleteRawAsset(id)}
+                  onSetCover={(id) => void onSetCoverFromMedia(id, "raw")}
+                  deletingKey={deletingKey}
+                  settingCoverKey={settingCoverKey}
+                  mediaDeleteBlocked={mediaDeleteBlocked()}
+                  deleteKeyPrefix="raw"
+                  reorderable
+                  reorderDisabled={busy}
+                  onReorder={onReorderRawMedia}
+                />
+                {folder?.uploadsPagination?.hasMore ? (
+                  <GalleryViewMoreButton
+                    onClick={() => void loadMoreUploads()}
+                    remainingCount={0}
+                  />
+                ) : null}
+                {loadingMoreUploads ? (
+                  <p className="mt-2 text-center text-xs text-zinc-500 dark:text-zinc-400">
+                    Loading more…
+                  </p>
+                ) : null}
+              </>
             )}
           </div>
         ) : null}

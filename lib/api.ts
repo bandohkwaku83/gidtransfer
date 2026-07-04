@@ -65,6 +65,29 @@ export function sameOriginUploadsUrl(url: string): string {
 }
 
 /**
+ * Grid thumbnail URL from API (`thumbUrl` / `gridUrl`).
+ * Absolute CDN/S3 URLs are used as-is; only API-host `/uploads` paths are rewritten for the proxy.
+ */
+export function resolveGridThumbUrl(url?: string | null): string | undefined {
+  if (!url?.trim()) return undefined;
+  const raw = url.trim();
+  if (/^https?:\/\//i.test(raw)) {
+    try {
+      const parsed = new URL(raw);
+      const host = parsed.hostname.toLowerCase();
+      if (uploadsProxyHostSet().has(host) && parsed.pathname.startsWith("/uploads")) {
+        return `${parsed.pathname}${parsed.search}`;
+      }
+    } catch {
+      /* keep absolute URL */
+    }
+    return raw;
+  }
+  const normalized = sameOriginUploadsUrl(raw);
+  return normalized || undefined;
+}
+
+/**
  * Absolute URL for `og:image` on this site. Link-preview crawlers (WhatsApp, etc.) should
  * fetch the **app origin** (`/uploads/...` via Next proxy), not the API host, which often
  * blocks or fails for external user-agents.

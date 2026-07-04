@@ -23,6 +23,8 @@ export type DemoAsset = {
   photographerReply?: string;
   hasEdited: boolean;
   thumbUrl: string;
+  /** Grid-optimized thumbnail (GET uploads?view=grid). */
+  gridUrl?: string;
   /** Full-quality file URL — used as grid fallback while thumbnails process. */
   url?: string;
   /** ISO timestamp when the client selected/hearted this item. */

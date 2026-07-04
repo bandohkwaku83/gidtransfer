@@ -4,8 +4,8 @@ import {
   deleteGalleryFinal,
   deleteGalleryUpload,
   fetchGalleryMedia,
+  listAllGalleryUploads,
   listGalleryFinals,
-  listGalleryUploads,
   patchGalleryFinalReply,
   patchGalleryFinalLock,
   patchGalleryFinalsLock,
@@ -391,6 +391,7 @@ export async function getFolder(id: string, options?: { force?: boolean }): Prom
         return applyFolderPresentationOverride({
           ...mapGalleryToApiFolder(gallery, clientNameById),
           uploads: media.uploads,
+          uploadsPagination: media.uploadsPagination,
           selection: media.selection,
           finals: media.finals,
           flaggedFinals: media.flaggedFinals,
@@ -419,12 +420,13 @@ export async function getFolder(id: string, options?: { force?: boolean }): Prom
 export async function refreshFolderMedia(id: string): Promise<
   Pick<
     ApiFolder,
-    "uploads" | "selection" | "finals" | "flaggedFinals" | "selectionLocked"
+    "uploads" | "uploadsPagination" | "selection" | "finals" | "flaggedFinals" | "selectionLocked"
   >
 > {
   const media = await fetchGalleryMedia(id);
   return {
     uploads: media.uploads,
+    uploadsPagination: media.uploadsPagination,
     selection: media.selection,
     finals: media.finals,
     flaggedFinals: media.flaggedFinals,
@@ -799,7 +801,7 @@ export async function postFolderMediaDuplicatePreview(
 ): Promise<{ hasConflicts: boolean; conflictingFilenames?: string[] }> {
   const rows =
     input.kind === "raw"
-      ? await listGalleryUploads(folderId)
+      ? await listAllGalleryUploads(folderId)
       : await listGalleryFinals(folderId);
   const folder: ApiFolder = {
     _id: folderId,
@@ -1063,7 +1065,7 @@ export async function deleteFolderFinalMedia(
 }
 
 export async function deleteAllFolderRawMedia(folderId: string): Promise<BulkMediaSoftDeleteResult> {
-  const uploads = await listGalleryUploads(folderId);
+  const uploads = await listAllGalleryUploads(folderId);
   if (uploads.length === 0) {
     return emptyTrashMediaResult(new Date(Date.now() + 30 * 86400000).toISOString());
   }

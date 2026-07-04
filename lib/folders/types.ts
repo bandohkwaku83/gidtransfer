@@ -6,6 +6,11 @@ import { HttpError } from "@/lib/http";
 
 export type { DuplicateUploadAction } from "@/lib/upload-preferences";
 
+export type GalleryUploadsPagination = {
+  hasMore: boolean;
+  nextCursor?: string | null;
+};
+
 export type ApiFolderShare = {
   enabled?: boolean;
   code?: string;
@@ -51,6 +56,8 @@ export type ApiFolderMedia = {
   isVideo?: boolean;
   thumbUrl?: string;
   thumbnailUrl?: string;
+  /** Grid-optimized thumbnail from GET uploads?view=grid (often absolute CDN URL). */
+  gridUrl?: string;
   previewUrl?: string;
   lockedPreviewUrl?: string;
   locked_preview_url?: string;
@@ -145,6 +152,8 @@ export type ApiFolder = {
   selectionLimit?: number | null;
   /** Raw uploads (detail GET). */
   uploads?: ApiFolderMedia[];
+  /** When uploads were fetched with pagination, metadata for loading additional pages. */
+  uploadsPagination?: GalleryUploadsPagination;
   /** Client selection rows (detail GET). */
   selection?: ApiFolderMedia[];
   /** Delivered finals (detail GET). */

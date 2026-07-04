@@ -1,7 +1,7 @@
-import { sameOriginUploadsUrl } from "@/lib/api";
+import { resolveGridThumbUrl, sameOriginUploadsUrl } from "@/lib/api";
 import { s3UploadGalleryFinals, s3UploadGalleryPhotos } from "@/lib/gallery-upload-s3";
 import { authedJson } from "@/lib/http";
-import type { ApiFolderMedia } from "@/lib/folders/types";
+import type { ApiFolderMedia, GalleryUploadsPagination } from "@/lib/folders/types";
 import { FoldersApiError } from "@/lib/folders/types";
 import type { DuplicateUploadAction } from "@/lib/upload-preferences";
 
@@ -12,6 +12,8 @@ export type ApiGalleryPhoto = {
   url: string;
   /** Unwatermarked thumbnail (`*-thumb.jpg`). */
   thumbUrl?: string;
+  /** Grid-optimized thumbnail (GET uploads?view=grid). */
+  gridUrl?: string;
   /** Watermarked client preview (`*-preview-wm.jpg`) when generated. */
   displayUrl?: string;
   mimeType?: string;
@@ -49,11 +51,24 @@ export type GalleryUploadPhotosResult = {
 
 export type GalleryMediaBundle = {
   uploads: ApiFolderMedia[];
+  uploadsPagination?: GalleryUploadsPagination;
   selection: ApiFolderMedia[];
   finals: ApiFolderMedia[];
   flaggedFinals: ApiFolderMedia[];
   selectionLocked?: boolean;
   selectionSubmittedAt?: string | null;
+};
+
+export type GalleryUploadsListOptions = {
+  view?: "grid" | "full";
+  cursor?: string;
+  limit?: number;
+  ids?: string[];
+};
+
+export type GalleryUploadsListResult = {
+  uploads: ApiFolderMedia[];
+  pagination: GalleryUploadsPagination;
 };
 
 function galleryPath(id: string) {
@@ -75,16 +90,19 @@ function resolveMediaUrl(url?: string | null): string | undefined {
 }
 
 export function galleryPhotoToApiFolderMedia(photo: ApiGalleryPhoto): ApiFolderMedia {
+  const row = photo as ApiGalleryPhoto & { grid_url?: string; thumb_url?: string };
   const url = resolveMediaUrl(photo.url);
   const displayUrl = resolveMediaUrl(photo.displayUrl);
-  const thumbUrl = resolveMediaUrl(photo.thumbUrl);
+  const gridThumb = resolveGridThumbUrl(
+    row.gridUrl || row.grid_url || row.thumbUrl || row.thumb_url,
+  );
   const mimeType = photo.mimeType || photo.contentType || "";
   const isVideo =
     photo.isVideo === true ||
     mimeType.toLowerCase().startsWith("video/") ||
     /\.(mp4|mov|webm|m4v|avi|mkv|ogv)$/i.test(photo.originalFilename) ||
     /\.(mp4|mov|webm|m4v|avi|mkv|ogv)(?:[?#].*)?$/i.test(url ?? "");
-  const resolvedThumb = isVideo ? undefined : thumbUrl;
+  const resolvedThumb = isVideo ? undefined : gridThumb;
   const previewUrl =
     isVideo
       ? url
@@ -101,6 +119,7 @@ export function galleryPhotoToApiFolderMedia(photo: ApiGalleryPhoto): ApiFolderM
     url,
     ...(displayUrl ? { displayUrl } : {}),
     thumbUrl: resolvedThumb,
+    ...(resolvedThumb ? { gridUrl: resolvedThumb } : {}),
     ...(previewUrl ? { previewUrl } : {}),
     mimeType,
     isVideo,
@@ -123,11 +142,11 @@ export function galleryPhotoToApiFolderMedia(photo: ApiGalleryPhoto): ApiFolderM
   };
 }
 
-/** Photographer dashboard grid — prefer thumb, fall back to full image while processing. */
+/** Photographer dashboard grid — prefer gridUrl/thumbUrl, fall back to full image while processing. */
 export function folderUploadGridSrc(
-  media: Pick<ApiFolderMedia, "thumbUrl" | "url" | "thumbnailUrl">,
+  media: Pick<ApiFolderMedia, "gridUrl" | "thumbUrl" | "url" | "thumbnailUrl">,
 ): string {
-  const thumb = (media.thumbUrl || media.thumbnailUrl || "").trim();
+  const thumb = (media.gridUrl || media.thumbUrl || media.thumbnailUrl || "").trim();
   const full = (media.url || "").trim();
   return thumb || full;
 }
@@ -314,14 +333,66 @@ export function parseRestoreBefore(body: unknown): string {
   return new Date(Date.now() + 30 * 86400000).toISOString();
 }
 
-export async function listGalleryUploads(galleryId: string): Promise<ApiFolderMedia[]> {
-  const res = await authedJson<{ photos?: ApiGalleryPhoto[] }>(
-    `${galleryPath(galleryId)}/uploads`,
+function normalizeUploadsPagination(body: unknown): GalleryUploadsPagination {
+  if (!body || typeof body !== "object") return { hasMore: false, nextCursor: null };
+  const root = body as Record<string, unknown>;
+  const raw = root.pagination;
+  if (!raw || typeof raw !== "object") return { hasMore: false, nextCursor: null };
+  const pg = raw as Record<string, unknown>;
+  const nextCursor =
+    (typeof pg.nextCursor === "string" && pg.nextCursor.trim()) ||
+    (typeof pg.next_cursor === "string" && pg.next_cursor.trim()) ||
+    null;
+  return {
+    hasMore: pg.hasMore === true || pg.has_more === true,
+    nextCursor,
+  };
+}
+
+function buildUploadsQuery(options: GalleryUploadsListOptions = {}): string {
+  const qs = new URLSearchParams();
+  if (options.view) qs.set("view", options.view);
+  if (options.cursor?.trim()) qs.set("cursor", options.cursor.trim());
+  if (options.limit != null && options.limit > 0) qs.set("limit", String(options.limit));
+  if (options.ids?.length) qs.set("ids", options.ids.filter(Boolean).join(","));
+  const query = qs.toString();
+  return query ? `?${query}` : "";
+}
+
+/** Single page from GET /api/galleries/:id/uploads */
+export async function fetchGalleryUploadsPage(
+  galleryId: string,
+  options: GalleryUploadsListOptions = {},
+): Promise<GalleryUploadsListResult> {
+  const res = await authedJson<Record<string, unknown>>(
+    `${galleryPath(galleryId)}/uploads${buildUploadsQuery(options)}`,
     { method: "GET" },
     "Failed to load uploads",
     FoldersApiError,
   );
-  return normalizePhotoList(res, ["photos"]).map(galleryPhotoToApiFolderMedia);
+  return {
+    uploads: normalizePhotoList(res, ["photos"]).map(galleryPhotoToApiFolderMedia),
+    pagination: normalizeUploadsPagination(res),
+  };
+}
+
+/** Fetch every uploads page (grid view) — for bulk operations that need all filenames/ids. */
+export async function listAllGalleryUploads(galleryId: string): Promise<ApiFolderMedia[]> {
+  const all: ApiFolderMedia[] = [];
+  let cursor: string | undefined;
+  for (;;) {
+    const page = await fetchGalleryUploadsPage(galleryId, { view: "grid", cursor });
+    all.push(...page.uploads);
+    if (!page.pagination.hasMore || !page.pagination.nextCursor) break;
+    cursor = page.pagination.nextCursor;
+  }
+  return all;
+}
+
+/** First page of grid uploads (photo grid default). */
+export async function listGalleryUploads(galleryId: string): Promise<ApiFolderMedia[]> {
+  const page = await fetchGalleryUploadsPage(galleryId, { view: "grid" });
+  return page.uploads;
 }
 
 export async function listGallerySelections(galleryId: string): Promise<ApiFolderMedia[]> {
@@ -383,8 +454,8 @@ export async function listGalleryFlaggedFinals(galleryId: string): Promise<ApiFo
 }
 
 export async function fetchGalleryMedia(galleryId: string): Promise<GalleryMediaBundle> {
-  const [uploads, selectionBundle, finals, flaggedFromEndpoint] = await Promise.all([
-    listGalleryUploads(galleryId),
+  const [uploadsPage, selectionBundle, finals, flaggedFromEndpoint] = await Promise.all([
+    fetchGalleryUploadsPage(galleryId, { view: "grid" }),
     fetchGallerySelections(galleryId),
     listGalleryFinals(galleryId),
     listGalleryFlaggedFinals(galleryId).catch(() => [] as ApiFolderMedia[]),
@@ -394,7 +465,8 @@ export async function fetchGalleryMedia(galleryId: string): Promise<GalleryMedia
     flaggedFromEndpoint.length > 0 ? flaggedFromEndpoint : selectionBundle.flaggedFinals;
 
   return {
-    uploads,
+    uploads: uploadsPage.uploads,
+    uploadsPagination: uploadsPage.pagination,
     selection: selectionBundle.photos,
     finals,
     flaggedFinals,
