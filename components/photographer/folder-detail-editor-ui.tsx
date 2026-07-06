@@ -1059,10 +1059,8 @@ export function CustomizeGallerySidebar({
   onCoverTextColorChange,
   coverButtonColorDraft,
   onCoverButtonColorChange,
-  savingCoverFrame,
   previewLayout,
   onPreviewLayoutChange,
-  savingImageLayout = false,
   titleFont,
   bodyFont,
   onTitleFontChange,
@@ -1112,10 +1110,8 @@ export function CustomizeGallerySidebar({
   onCoverTextColorChange: (hex: string) => void;
   coverButtonColorDraft: string;
   onCoverButtonColorChange: (hex: string) => void;
-  savingCoverFrame: boolean;
   previewLayout: PreviewLayout;
   onPreviewLayoutChange: (layout: PreviewLayout) => void;
-  savingImageLayout?: boolean;
   titleFont: string;
   bodyFont: string;
   onTitleFontChange: (font: string) => void;
@@ -1272,14 +1268,12 @@ export function CustomizeGallerySidebar({
         <CoverColorPicker
           value={coverColorDraft}
           onChange={onCoverColorChange}
-          disabled={savingCoverFrame}
           colorPresets={coverColorPresets}
         />
         <div className="grid gap-3 sm:grid-cols-2">
           <CoverColorPicker
             value={coverTextColorDraft}
             onChange={onCoverTextColorChange}
-            disabled={savingCoverFrame}
             colorPresets={GALLERY_COVER_ACCENT_PRESETS}
             label="Title text color"
             hint="Color of the gallery name on the cover hero."
@@ -1288,7 +1282,6 @@ export function CustomizeGallerySidebar({
           <CoverColorPicker
             value={coverButtonColorDraft}
             onChange={onCoverButtonColorChange}
-            disabled={savingCoverFrame}
             colorPresets={GALLERY_COVER_ACCENT_PRESETS}
             label="Button color"
             hint="Border and text on the “View gallery” button."
@@ -1299,7 +1292,6 @@ export function CustomizeGallerySidebar({
           value={coverFrameDraft}
           coverColor={coverColorDraft}
           onChange={onCoverFrameChange}
-          disabled={savingCoverFrame}
           coverFrames={coverFrameOptions}
           className="mt-3"
         />
@@ -1315,7 +1307,6 @@ export function CustomizeGallerySidebar({
           <GalleryLayoutStylePicker
             value={previewLayout}
             onChange={onPreviewLayoutChange}
-            disabled={savingImageLayout}
             gridLayouts={gridLayoutOptions}
           />
         </div>

@@ -383,6 +383,11 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
   const coverFileInputRef = useRef<HTMLInputElement>(null);
   const derivativesPollAbortRef = useRef<AbortController | null>(null);
   const derivativesBootstrappedRef = useRef<string | null>(null);
+  /** Hydrate design drafts once per folder load — not on every metadata PATCH. */
+  const folderDesignHydratedRef = useRef<string | null>(null);
+  const coverStyleSaveGenRef = useRef(0);
+  const imageLayoutSaveGenRef = useRef(0);
+  const designFontsSaveGenRef = useRef(0);
 
   const [focalEditOpen, setFocalEditOpen] = useState(false);
   const [focalDraft, setFocalDraft] = useState({ x: 50, y: 50 });
@@ -391,9 +396,6 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
   const [coverTextColorDraft, setCoverTextColorDraft] = useState("#ffffff");
   const [coverButtonColorDraft, setCoverButtonColorDraft] = useState("#ffffff");
   const [savingFocal, setSavingFocal] = useState(false);
-  const [savingCoverFrame, setSavingCoverFrame] = useState(false);
-  const [savingImageLayout, setSavingImageLayout] = useState(false);
-  const [savingDesignFonts, setSavingDesignFonts] = useState(false);
   const [accessPinBusy, setAccessPinBusy] = useState(false);
   const [emailGateBusy, setEmailGateBusy] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
@@ -711,6 +713,7 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
 
   useEffect(() => {
     setFocalEditOpen(false);
+    folderDesignHydratedRef.current = null;
   }, [folderId]);
 
   useEffect(() => {
@@ -720,24 +723,29 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
     }
     const limit = folderSelectionLimit(folder);
     setSelectionLimitDraft(limit != null ? String(limit) : "");
-    setCoverFrameDraft(normalizeGalleryCoverFrame(folder.coverFrame));
-    const nextCoverColor = normalizeGalleryCoverColor(folder.coverColor);
-    setCoverColorDraft(nextCoverColor);
-    setCoverTextColorDraft(
-      folder.coverTextColor?.trim()
-        ? normalizeGalleryCoverColor(folder.coverTextColor)
-        : resolveGalleryCoverTextColor(nextCoverColor),
-    );
-    setCoverButtonColorDraft(
-      folder.coverButtonColor?.trim()
-        ? normalizeGalleryCoverColor(folder.coverButtonColor)
-        : resolveGalleryCoverButtonColor(nextCoverColor),
-    );
-    setImageLayoutDraft(
-      normalizeGalleryImageLayout(folder.imageLayout ?? "masonry"),
-    );
-    setTitleFontDraft(folder.titleFont?.trim() || "Playfair Display");
-    setBodyFontDraft(folder.bodyFont?.trim() || "Inter");
+
+    if (folderDesignHydratedRef.current !== folder._id) {
+      folderDesignHydratedRef.current = folder._id;
+      setCoverFrameDraft(normalizeGalleryCoverFrame(folder.coverFrame));
+      const nextCoverColor = normalizeGalleryCoverColor(folder.coverColor);
+      setCoverColorDraft(nextCoverColor);
+      setCoverTextColorDraft(
+        folder.coverTextColor?.trim()
+          ? normalizeGalleryCoverColor(folder.coverTextColor)
+          : resolveGalleryCoverTextColor(nextCoverColor),
+      );
+      setCoverButtonColorDraft(
+        folder.coverButtonColor?.trim()
+          ? normalizeGalleryCoverColor(folder.coverButtonColor)
+          : resolveGalleryCoverButtonColor(nextCoverColor),
+      );
+      setImageLayoutDraft(
+        normalizeGalleryImageLayout(folder.imageLayout ?? "masonry"),
+      );
+      setTitleFontDraft(folder.titleFont?.trim() || "Playfair Display");
+      setBodyFontDraft(folder.bodyFont?.trim() || "Inter");
+    }
+
     if (folder.allowDownloads !== undefined) {
       setAllowDownloadsDraft(folder.allowDownloads);
     }
@@ -1937,7 +1945,7 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
       const updated = await updateFolder(folder._id, {
         coverFocalX: focalDraft.x,
         coverFocalY: focalDraft.y,
-      });
+      }, folder);
       setFolder(updated);
       showToast("Cover framing saved.", "success");
       setFocalEditOpen(false);
@@ -1962,24 +1970,30 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
   }
 
   const saveCoverFrame = useCallback(async (options?: { silent?: boolean }) => {
-    if (!folder || savingCoverFrame) return;
+    if (!folder) return;
+    const saveGen = ++coverStyleSaveGenRef.current;
     const nextFrame = normalizeGalleryCoverFrame(coverFrameDraft);
     const nextColor = normalizeGalleryCoverColor(coverColorDraft);
     const nextTextColor = normalizeGalleryCoverColor(coverTextColorDraft);
     const nextButtonColor = normalizeGalleryCoverColor(coverButtonColorDraft);
-    setSavingCoverFrame(true);
     try {
-      const updated = await patchFolderDesignSettings(folder._id, {
-        coverFrame: nextFrame,
-        coverColor: nextColor,
-        coverTextColor: nextTextColor,
-        coverButtonColor: nextButtonColor,
-      });
+      const updated = await patchFolderDesignSettings(
+        folder._id,
+        {
+          coverFrame: nextFrame,
+          coverColor: nextColor,
+          coverTextColor: nextTextColor,
+          coverButtonColor: nextButtonColor,
+        },
+        folder,
+      );
+      if (saveGen !== coverStyleSaveGenRef.current) return;
       setFolder(updated);
       if (!options?.silent) {
         showToast("Client cover design saved.", "success");
       }
     } catch (e) {
+      if (saveGen !== coverStyleSaveGenRef.current) return;
       showToast(
         e instanceof FoldersApiError
           ? e.message
@@ -1988,10 +2002,8 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
             : "Could not save cover design.",
         "error",
       );
-    } finally {
-      setSavingCoverFrame(false);
     }
-  }, [folder, savingCoverFrame, coverFrameDraft, coverColorDraft, coverTextColorDraft, coverButtonColorDraft, showToast]);
+  }, [folder, coverFrameDraft, coverColorDraft, coverTextColorDraft, coverButtonColorDraft, showToast]);
 
   const coverStyleDirtyForSave = useMemo(() => {
     if (!folder) return false;
@@ -2012,7 +2024,7 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
   }, [folder, coverFrameDraft, coverColorDraft, coverTextColorDraft, coverButtonColorDraft]);
 
   useEffect(() => {
-    if (!folder || !coverStyleDirtyForSave || savingCoverFrame || focalEditOpen) return;
+    if (!folder || !coverStyleDirtyForSave || focalEditOpen) return;
     const timer = window.setTimeout(() => {
       void saveCoverFrame({ silent: true });
     }, 700);
@@ -2020,24 +2032,27 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
   }, [
     folder,
     coverStyleDirtyForSave,
-    savingCoverFrame,
     focalEditOpen,
     saveCoverFrame,
   ]);
 
   const saveImageLayout = useCallback(async (options?: { silent?: boolean }) => {
-    if (!folder || savingImageLayout) return;
+    if (!folder) return;
+    const saveGen = ++imageLayoutSaveGenRef.current;
     const nextLayout = normalizeGalleryImageLayout(imageLayoutDraft);
-    setSavingImageLayout(true);
     try {
-      const updated = await patchFolderDesignSettings(folder._id, {
-        imageLayout: nextLayout,
-      });
+      const updated = await patchFolderDesignSettings(
+        folder._id,
+        { imageLayout: nextLayout },
+        folder,
+      );
+      if (saveGen !== imageLayoutSaveGenRef.current) return;
       setFolder(updated);
       if (!options?.silent) {
         showToast("Client grid layout saved.", "success");
       }
     } catch (e) {
+      if (saveGen !== imageLayoutSaveGenRef.current) return;
       showToast(
         e instanceof FoldersApiError
           ? e.message
@@ -2046,10 +2061,8 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
             : "Could not save grid layout.",
         "error",
       );
-    } finally {
-      setSavingImageLayout(false);
     }
-  }, [folder, savingImageLayout, imageLayoutDraft, showToast]);
+  }, [folder, imageLayoutDraft, showToast]);
 
   const imageLayoutDirtyForSave = useMemo(() => {
     if (!folder) return false;
@@ -2058,7 +2071,7 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
   }, [folder, imageLayoutDraft]);
 
   useEffect(() => {
-    if (!folder || !imageLayoutDirtyForSave || savingImageLayout || focalEditOpen) return;
+    if (!folder || !imageLayoutDirtyForSave || focalEditOpen) return;
     const timer = window.setTimeout(() => {
       void saveImageLayout({ silent: true });
     }, 700);
@@ -2066,30 +2079,32 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
   }, [
     folder,
     imageLayoutDirtyForSave,
-    savingImageLayout,
     focalEditOpen,
     saveImageLayout,
   ]);
 
   const saveDesignFonts = useCallback(async (options?: { silent?: boolean }) => {
-    if (!folder || savingDesignFonts) return;
+    if (!folder) return;
     const nextTitle = titleFontDraft.trim() || "Playfair Display";
     const nextBody = bodyFontDraft.trim() || "Inter";
     const activeTitle = folder.titleFont?.trim() || "Playfair Display";
     const activeBody = folder.bodyFont?.trim() || "Inter";
     if (nextTitle === activeTitle && nextBody === activeBody) return;
 
-    setSavingDesignFonts(true);
+    const saveGen = ++designFontsSaveGenRef.current;
     try {
-      const updated = await patchFolderDesignSettings(folder._id, {
-        titleFont: nextTitle,
-        bodyFont: nextBody,
-      });
+      const updated = await patchFolderDesignSettings(
+        folder._id,
+        { titleFont: nextTitle, bodyFont: nextBody },
+        folder,
+      );
+      if (saveGen !== designFontsSaveGenRef.current) return;
       setFolder(updated);
       if (!options?.silent) {
         showToast("Typography saved.", "success");
       }
     } catch (e) {
+      if (saveGen !== designFontsSaveGenRef.current) return;
       showToast(
         e instanceof FoldersApiError
           ? e.message
@@ -2098,10 +2113,8 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
             : "Could not save typography.",
         "error",
       );
-    } finally {
-      setSavingDesignFonts(false);
     }
-  }, [folder, savingDesignFonts, titleFontDraft, bodyFontDraft, showToast]);
+  }, [folder, titleFontDraft, bodyFontDraft, showToast]);
 
   const designFontsDirtyForSave = useMemo(() => {
     if (!folder) return false;
@@ -2113,7 +2126,7 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
   }, [folder, titleFontDraft, bodyFontDraft]);
 
   useEffect(() => {
-    if (!folder || !designFontsDirtyForSave || savingDesignFonts || focalEditOpen) return;
+    if (!folder || !designFontsDirtyForSave || focalEditOpen) return;
     const timer = window.setTimeout(() => {
       void saveDesignFonts({ silent: true });
     }, 700);
@@ -2121,7 +2134,6 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
   }, [
     folder,
     designFontsDirtyForSave,
-    savingDesignFonts,
     focalEditOpen,
     saveDesignFonts,
   ]);
@@ -2147,7 +2159,7 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
         useDefaultCover: false,
         coverFocalX: 50,
         coverFocalY: 50,
-      });
+      }, folder);
       setFolder(updated);
       setFocalDraft(parseFolderCoverFocal(updated));
       setCoverCacheBust(String(Date.now()));
@@ -2191,7 +2203,7 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
           useDefaultCover: false,
           coverFocalX: 50,
           coverFocalY: 50,
-        });
+        }, folder);
         setFolder(updated);
         setFocalDraft(parseFolderCoverFocal(updated));
         setCoverCacheBust(String(Date.now()));
@@ -2232,7 +2244,7 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
         useDefaultCover: false,
         coverFocalX: 50,
         coverFocalY: 50,
-      });
+      }, folder);
       setFolder(updated);
       setFocalDraft(parseFolderCoverFocal(updated));
       setCoverCacheBust(String(Date.now()));
@@ -2303,7 +2315,7 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
     if (!folder || musicBusy) return;
     setMusicBusy(true);
     try {
-      const updated = await updateFolder(folder._id, { backgroundMusicEnabled: next });
+      const updated = await updateFolder(folder._id, { backgroundMusicEnabled: next }, folder);
       setFolder(updated);
     } catch (e) {
       showToast(
@@ -3223,10 +3235,8 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
             onCoverTextColorChange={setCoverTextColorDraft}
             coverButtonColorDraft={coverButtonColorDraft}
             onCoverButtonColorChange={setCoverButtonColorDraft}
-            savingCoverFrame={savingCoverFrame}
             previewLayout={imageLayoutDraft}
             onPreviewLayoutChange={setImageLayoutDraft}
-            savingImageLayout={savingImageLayout}
             titleFont={titleFontDraft}
             bodyFont={bodyFontDraft}
             onTitleFontChange={setTitleFontDraft}

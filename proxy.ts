@@ -22,7 +22,7 @@ function redirectWwwToApex(request: NextRequest, host: string): NextResponse | n
   return NextResponse.redirect(url, 308);
 }
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const host = request.headers.get("host") ?? "";
   const wwwRedirect = redirectWwwToApex(request, host);
   if (wwwRedirect) return wwwRedirect;

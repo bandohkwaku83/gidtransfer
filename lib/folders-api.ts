@@ -154,6 +154,33 @@ function applyFolderPresentationOverride(folder: ApiFolder): ApiFolder {
   };
 }
 
+/** Apply gallery PATCH metadata onto an in-memory folder without refetching uploads/finals. */
+export function mergeGalleryPatchIntoFolder(
+  existing: ApiFolder,
+  gallery: import("@/lib/galleries-api").ApiGallery,
+): ApiFolder {
+  const mapped = applyFolderPresentationOverride(mapGalleryToApiFolder(gallery));
+  const {
+    uploads: _uploads,
+    uploadsPagination: _uploadsPagination,
+    selection: _selection,
+    finals: _finals,
+    flaggedFinals: _flaggedFinals,
+    sets: _sets,
+    ...metadata
+  } = mapped;
+  return {
+    ...existing,
+    ...metadata,
+    uploads: existing.uploads,
+    uploadsPagination: existing.uploadsPagination,
+    selection: existing.selection,
+    finals: existing.finals,
+    flaggedFinals: existing.flaggedFinals,
+    sets: existing.sets,
+  };
+}
+
 export type ShareLinkExpiryPreset = {
   id: string;
   label: string;
@@ -529,7 +556,11 @@ export async function createFolder(input: CreateFolderInput): Promise<ApiFolder>
   return mapGalleryToApiFolder(result, clientNameById);
 }
 
-export async function updateFolder(id: string, input: UpdateFolderInput): Promise<ApiFolder> {
+export async function updateFolder(
+  id: string,
+  input: UpdateFolderInput,
+  existingFolder?: ApiFolder,
+): Promise<ApiFolder> {
   const body: import("@/lib/galleries-api").UpdateGalleryBody = {};
   if (input.eventName !== undefined) body.name = input.eventName.trim();
   if (input.eventDate !== undefined) body.eventDate = input.eventDate.slice(0, 10);
@@ -594,7 +625,11 @@ export async function updateFolder(id: string, input: UpdateFolderInput): Promis
   }
 
   if (!gallery) {
-    return getFolder(id);
+    return existingFolder ?? getFolder(id);
+  }
+
+  if (existingFolder && existingFolder._id === id) {
+    return mergeGalleryPatchIntoFolder(existingFolder, gallery);
   }
 
   return reloadFolderAfterGalleryPatch(id);
@@ -715,6 +750,7 @@ export async function patchFolderFinalSettings(
 export async function patchFolderDesignSettings(
   folderId: string,
   input: import("@/lib/galleries-api").GalleryDesignSettingsInput,
+  existingFolder?: ApiFolder,
 ): Promise<ApiFolder> {
   if (isLocalDemoFolderId(folderId)) {
     await delay();
@@ -747,10 +783,13 @@ export async function patchFolderDesignSettings(
     };
   }
 
-  await updateGalleryDesignSettings(
+  const { gallery } = await updateGalleryDesignSettings(
     folderId,
     galleryDesignInputToApiBody(input),
   );
+  if (existingFolder && existingFolder._id === folderId) {
+    return mergeGalleryPatchIntoFolder(existingFolder, gallery);
+  }
   return reloadFolderAfterGalleryPatch(folderId);
 }
 

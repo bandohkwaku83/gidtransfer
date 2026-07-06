@@ -1053,7 +1053,7 @@ export async function updateGalleryDesignSettings(
   id: string,
   body: GalleryDesignSettingsBody,
 ): Promise<{ message?: string; gallery: ApiGallery }> {
-  return authedJson<{ message?: string; gallery: ApiGallery }>(
+  const result = await authedJson<{ message?: string; gallery: ApiGallery }>(
     `${galleryPath(id)}/design-settings`,
     {
       method: "PATCH",
@@ -1062,6 +1062,8 @@ export async function updateGalleryDesignSettings(
     "Failed to update gallery design",
     FoldersApiError,
   );
+  invalidateGalleryListCaches(result.gallery.id);
+  return result;
 }
 
 export async function updateGalleryClientAccess(
