@@ -59,6 +59,9 @@ export function sameOriginUploadsUrl(url: string): string {
   }
   const host = parsed.hostname.toLowerCase();
   if (uploadsProxyHostSet().has(host) && parsed.pathname.startsWith("/uploads")) {
+    // Gallery covers are frequently served only by the backend host.
+    // Rewriting them to same-origin `/uploads/*` can yield 404s in production.
+    if (parsed.pathname.startsWith("/uploads/gallery-covers/")) return raw;
     return `${parsed.pathname}${parsed.search}`;
   }
   return raw;
@@ -76,6 +79,7 @@ export function resolveGridThumbUrl(url?: string | null): string | undefined {
       const parsed = new URL(raw);
       const host = parsed.hostname.toLowerCase();
       if (uploadsProxyHostSet().has(host) && parsed.pathname.startsWith("/uploads")) {
+        if (parsed.pathname.startsWith("/uploads/gallery-covers/")) return raw;
         return `${parsed.pathname}${parsed.search}`;
       }
     } catch {
