@@ -61,7 +61,7 @@ const whyChooseGido = {
 
 const aboutSectionImages = [
   {
-    src: "https://images.unsplash.com/photo-1492691527719-9d1e07e534b0?auto=format&fit=crop&w=900&q=80",
+    src: "/images/login_image.png",
     alt: "Photographer reviewing images on a laptop",
     withPlay: true,
   },
