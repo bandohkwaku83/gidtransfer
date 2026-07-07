@@ -40,8 +40,11 @@ export type PresignedUpload = UploadFileMeta & {
 /** Backend presign limit — chunk larger picks before calling presign. */
 export const MAX_PRESIGN_BATCH_FILES = 700;
 
+/** Smaller pipeline chunks keep progress smooth and photos appearing incrementally. */
+export const UPLOAD_PIPELINE_CHUNK_SIZE = 50;
+
 /** Parallel S3 PUTs — avoids overwhelming the browser tab on huge batches. */
-const MAX_S3_CONCURRENCY = 5;
+const MAX_S3_CONCURRENCY = 8;
 
 function galleryPath(id: string) {
   return `/api/galleries/${encodeURIComponent(id)}`;
@@ -269,6 +272,7 @@ async function uploadFilesToS3(
         await putToS3(files[index]!, uploads[index]!, (pct) =>
           onFileProgress?.(index, pct),
         );
+        onFileProgress?.(index, 100);
       } catch (err) {
         if (!firstError) {
           firstError = err instanceof Error ? err : new Error(String(err));
@@ -384,10 +388,53 @@ async function completeGalleryFinals(
   );
 }
 
+export type S3GalleryUploadPhase = "presigning" | "uploading" | "finalizing";
+
 export type S3GalleryUploadProgress = {
+  /** @deprecated Use filesUploaded — kept for callers that still read fileIndex. */
   fileIndex: number;
+  /** @deprecated Use filesTotal — kept for callers that still read fileCount. */
   fileCount: number;
+  filesUploaded: number;
+  filesTotal: number;
+  batchIndex: number;
+  batchCount: number;
+  phase?: S3GalleryUploadPhase;
 };
+
+function uploadBatchFilesUploaded(
+  batches: File[][],
+  batchIndex: number,
+  fileProgress: number[],
+): number {
+  const filesBeforeBatch = batches.slice(0, batchIndex).reduce((n, b) => n + b.length, 0);
+  const completedInBatch = fileProgress.filter((pct) => pct >= 100).length;
+  return filesBeforeBatch + completedInBatch;
+}
+
+function uploadProgressMeta(
+  allFiles: File[],
+  batches: File[][],
+  batchIndex: number,
+  fileProgress: number[],
+  phase: S3GalleryUploadPhase,
+): S3GalleryUploadProgress {
+  const filesUploaded = uploadBatchFilesUploaded(batches, batchIndex, fileProgress);
+  const filesTotal = allFiles.length;
+  const activeSlot = Math.min(
+    filesTotal,
+    filesUploaded + (filesUploaded < filesTotal ? 1 : 0),
+  );
+  return {
+    fileIndex: activeSlot,
+    fileCount: filesTotal,
+    filesUploaded,
+    filesTotal,
+    batchIndex: batchIndex + 1,
+    batchCount: batches.length,
+    phase,
+  };
+}
 
 function scaleS3UploadProgress(
   allFiles: File[],
@@ -400,6 +447,7 @@ function scaleS3UploadProgress(
     lengthComputable: boolean,
     batch?: S3GalleryUploadProgress,
   ) => void,
+  phase: S3GalleryUploadPhase = "uploading",
 ) {
   if (!onProgress) return;
 
@@ -411,12 +459,39 @@ function scaleS3UploadProgress(
     const file = batches[batchIndex]![i];
     return sum + (file ? (file.size * pct) / 100 : 0);
   }, 0);
-  const filesBeforeBatch = batches.slice(0, batchIndex).reduce((n, b) => n + b.length, 0);
 
-  onProgress(batchStart + batchLoaded, allBytes, true, {
-    fileIndex: Math.min(allFiles.length, filesBeforeBatch + 1),
-    fileCount: allFiles.length,
-  });
+  onProgress(batchStart + batchLoaded, allBytes, true, uploadProgressMeta(
+    allFiles,
+    batches,
+    batchIndex,
+    fileProgress,
+    phase,
+  ));
+}
+
+function emitPresigningProgress(
+  allFiles: File[],
+  batches: File[][],
+  batchIndex: number,
+  onProgress?: (
+    loaded: number,
+    total: number,
+    lengthComputable: boolean,
+    batch?: S3GalleryUploadProgress,
+  ) => void,
+) {
+  if (!onProgress) return;
+  const allBytes = allFiles.reduce((sum, f) => sum + f.size, 0);
+  const bytesBeforeBatch = batches
+    .slice(0, batchIndex)
+    .reduce((sum, batch) => sum + batch.reduce((n, f) => n + f.size, 0), 0);
+  onProgress(bytesBeforeBatch, allBytes, allBytes > 0, uploadProgressMeta(
+    allFiles,
+    batches,
+    batchIndex,
+    [],
+    "presigning",
+  ));
 }
 
 /** Presign → S3 PUT → complete for gallery raw uploads. */
@@ -433,9 +508,11 @@ export async function s3UploadGalleryPhotos(
       lengthComputable: boolean,
       batch?: S3GalleryUploadProgress,
     ) => void;
+    onBatchComplete?: (result: S3GalleryUploadPhotosResult) => void;
   },
 ): Promise<S3GalleryUploadPhotosResult> {
-  const batches = chunkFiles(files, MAX_PRESIGN_BATCH_FILES);
+  const chunkSize = Math.min(UPLOAD_PIPELINE_CHUNK_SIZE, MAX_PRESIGN_BATCH_FILES);
+  const batches = chunkFiles(files, chunkSize);
   const merged: S3GalleryUploadPhotosResult = {
     created: [],
     replaced: [],
@@ -446,6 +523,8 @@ export async function s3UploadGalleryPhotos(
     const batch = batches[batchIndex]!;
     const fileProgress = new Array(batch.length).fill(0);
 
+    emitPresigningProgress(files, batches, batchIndex, options?.onProgress);
+
     const uploads = await presignGalleryUploads(galleryId, batch);
     if (uploads.length !== batch.length) {
       throw new FoldersApiError("Upload preparation returned an unexpected file count.", 500, null);
@@ -455,6 +534,15 @@ export async function s3UploadGalleryPhotos(
       fileProgress[fileIndex] = pct;
       scaleS3UploadProgress(files, batches, batchIndex, fileProgress, options?.onProgress);
     });
+
+    scaleS3UploadProgress(
+      files,
+      batches,
+      batchIndex,
+      fileProgress.map(() => 100),
+      options?.onProgress,
+      "finalizing",
+    );
 
     const res = await completeGalleryUploads(galleryId, uploads, {
       onConflict: options?.onConflict,
@@ -469,11 +557,7 @@ export async function s3UploadGalleryPhotos(
       merged.conflicts = [...(merged.conflicts ?? []), ...res.conflicts];
     }
 
-    const filesCompleted = batches.slice(0, batchIndex + 1).reduce((n, b) => n + b.length, 0);
-    options?.onProgress?.(filesCompleted, files.length, true, {
-      fileIndex: filesCompleted,
-      fileCount: files.length,
-    });
+    options?.onBatchComplete?.(res);
   }
 
   return merged;
@@ -495,9 +579,15 @@ export async function s3UploadGalleryFinals(
       lengthComputable: boolean,
       batch?: S3GalleryUploadProgress,
     ) => void;
+    onBatchComplete?: (result: {
+      message?: string;
+      created?: S3GalleryPhoto[];
+      skipped?: string[];
+    }) => void;
   },
 ): Promise<{ message?: string; created?: S3GalleryPhoto[]; skipped?: string[] }> {
-  const batches = chunkFiles(files, MAX_PRESIGN_BATCH_FILES);
+  const chunkSize = Math.min(UPLOAD_PIPELINE_CHUNK_SIZE, MAX_PRESIGN_BATCH_FILES);
+  const batches = chunkFiles(files, chunkSize);
   const created: S3GalleryPhoto[] = [];
   const skipped: string[] = [];
   let lastMessage: string | undefined;
@@ -505,6 +595,8 @@ export async function s3UploadGalleryFinals(
   for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
     const batch = batches[batchIndex]!;
     const fileProgress = new Array(batch.length).fill(0);
+
+    emitPresigningProgress(files, batches, batchIndex, options?.onProgress);
 
     const uploads = await presignGalleryFinals(galleryId, batch);
     if (uploads.length !== batch.length) {
@@ -515,6 +607,15 @@ export async function s3UploadGalleryFinals(
       fileProgress[fileIndex] = pct;
       scaleS3UploadProgress(files, batches, batchIndex, fileProgress, options?.onProgress);
     });
+
+    scaleS3UploadProgress(
+      files,
+      batches,
+      batchIndex,
+      fileProgress.map(() => 100),
+      options?.onProgress,
+      "finalizing",
+    );
 
     const res = await completeGalleryFinals(galleryId, uploads, {
       clientPaid: options?.clientPaid,
@@ -528,11 +629,7 @@ export async function s3UploadGalleryFinals(
     if (Array.isArray(res.created)) created.push(...res.created);
     if (Array.isArray(res.skipped)) skipped.push(...res.skipped);
 
-    const filesCompleted = batches.slice(0, batchIndex + 1).reduce((n, b) => n + b.length, 0);
-    options?.onProgress?.(filesCompleted, files.length, true, {
-      fileIndex: filesCompleted,
-      fileCount: files.length,
-    });
+    options?.onBatchComplete?.(res);
   }
 
   return { message: lastMessage, created, skipped };

@@ -102,6 +102,7 @@ import {
   galleryPhotosPendingDerivatives,
   pollGalleryUploadDerivatives,
   upsertGalleryUploadRows,
+  type ApiGalleryPhoto,
   type GalleryUploadPhotosResult,
 } from "@/lib/gallery-media-api";
 import {
@@ -357,12 +358,17 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
   const [busy, setBusy] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<{
     kind: "raw" | "final";
-    phase: "preparing" | "uploading";
+    phase: "preparing" | "presigning" | "uploading" | "finalizing";
     computable: boolean;
     percent: number;
-    fileIndex?: number;
-    fileCount?: number;
+    filesUploaded?: number;
+    filesTotal?: number;
+    filesInGallery?: number;
+    batchIndex?: number;
+    batchCount?: number;
   } | null>(null);
+  const uploadProgressThrottleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingUploadProgressRef = useRef<NonNullable<typeof uploadProgress>>(null);
   const [expiryPresets, setExpiryPresets] = useState<ShareLinkExpiryPreset[]>([]);
   const [galleriesMeta, setGalleriesMeta] = useState<GalleriesMetaResponse | null>(null);
   const [linkExpiry, setLinkExpiry] = useState("30d");
@@ -624,6 +630,19 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
     [],
   );
 
+  const mergeFinalUploadRows = useCallback(
+    (rows: ReturnType<typeof galleryPhotoToApiFolderMedia>[]) => {
+      setFolder((prev) => {
+        if (!prev || rows.length === 0) return prev;
+        return {
+          ...prev,
+          finals: upsertGalleryUploadRows(extractFinalMediaList(prev), rows),
+        };
+      });
+    },
+    [],
+  );
+
   const startDerivativesPolling = useCallback(
     (photoIds: string[]) => {
       if (photoIds.length === 0 || isLocalDemoFolderId(folderId)) return;
@@ -643,15 +662,28 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
   );
 
   const applyRawUploadComplete = useCallback(
-    (body: unknown) => {
-      if (!body || typeof body !== "object") return;
+    (body: unknown): number => {
+      if (!body || typeof body !== "object") return 0;
       const result = body as GalleryUploadPhotosResult;
       const photos = [...(result.created ?? []), ...(result.replaced ?? [])];
-      if (photos.length === 0) return;
+      if (photos.length === 0) return 0;
       mergeRawUploadRows(photos.map(galleryPhotoToApiFolderMedia));
       startDerivativesPolling(galleryPhotosPendingDerivatives(photos));
+      return photos.length;
     },
     [mergeRawUploadRows, startDerivativesPolling],
+  );
+
+  const applyFinalUploadBatchComplete = useCallback(
+    (body: unknown): number => {
+      if (!body || typeof body !== "object") return 0;
+      const result = body as { created?: ApiGalleryPhoto[] };
+      const photos = result.created ?? [];
+      if (photos.length === 0) return 0;
+      mergeFinalUploadRows(photos.map(galleryPhotoToApiFolderMedia));
+      return photos.length;
+    },
+    [mergeFinalUploadRows],
   );
 
   useEffect(() => () => derivativesPollAbortRef.current?.abort(), []);
@@ -1405,36 +1437,137 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
     if (el) el.indeterminate = finalSomeSelected;
   }, [finalSomeSelected]);
 
+  const uploadProgressRef = useRef(uploadProgress);
+  useEffect(() => {
+    uploadProgressRef.current = uploadProgress;
+  }, [uploadProgress]);
+
+  const commitUploadProgress = useCallback(
+    (
+      next:
+        | NonNullable<typeof uploadProgress>
+        | null
+        | ((prev: NonNullable<typeof uploadProgress> | null) => NonNullable<typeof uploadProgress> | null),
+      immediate = false,
+    ) => {
+      const resolved =
+        typeof next === "function" ? next(uploadProgressRef.current) : next;
+
+      if (uploadProgressThrottleRef.current) {
+        clearTimeout(uploadProgressThrottleRef.current);
+        uploadProgressThrottleRef.current = null;
+      }
+      if (resolved === null) {
+        pendingUploadProgressRef.current = null;
+        setUploadProgress(null);
+        return;
+      }
+      pendingUploadProgressRef.current = resolved;
+      if (immediate) {
+        setUploadProgress(resolved);
+        return;
+      }
+      if (!uploadProgressThrottleRef.current) {
+        setUploadProgress(resolved);
+        uploadProgressThrottleRef.current = setTimeout(() => {
+          uploadProgressThrottleRef.current = null;
+          const latest = pendingUploadProgressRef.current;
+          if (latest) setUploadProgress(latest);
+        }, 80);
+      }
+    },
+    [],
+  );
+
+  useEffect(
+    () => () => {
+      if (uploadProgressThrottleRef.current) {
+        clearTimeout(uploadProgressThrottleRef.current);
+      }
+    },
+    [],
+  );
+
+  const noteUploadBatchInGallery = useCallback((added: number) => {
+    if (added <= 0) return;
+    setUploadProgress((prev) =>
+      prev ? { ...prev, filesInGallery: (prev.filesInGallery ?? 0) + added } : prev,
+    );
+  }, []);
+
   const uploadProgressHandler = useCallback(
     (kind: "raw" | "final") =>
       (
         loaded: number,
         total: number,
         lengthComputable: boolean,
-        batch?: { fileIndex: number; fileCount: number },
+        batch?: {
+          fileIndex: number;
+          fileCount: number;
+          filesUploaded: number;
+          filesTotal: number;
+          batchIndex: number;
+          batchCount: number;
+          phase?: "presigning" | "uploading" | "finalizing";
+        },
       ) => {
+        const progressPhase = batch?.phase ?? "uploading";
+        const immediate =
+          progressPhase === "finalizing" || progressPhase === "presigning";
+
+        if (progressPhase === "finalizing" || progressPhase === "presigning") {
+          commitUploadProgress(
+            (prev) => ({
+              kind,
+              phase: progressPhase,
+              computable: false,
+              percent: 0,
+              filesUploaded: batch?.filesUploaded ?? prev?.filesUploaded,
+              filesTotal: batch?.filesTotal ?? prev?.filesTotal,
+              filesInGallery: prev?.filesInGallery,
+              batchIndex: batch?.batchIndex ?? prev?.batchIndex,
+              batchCount: batch?.batchCount ?? prev?.batchCount,
+            }),
+            immediate,
+          );
+          return;
+        }
+
         const canCompute = lengthComputable && total > 0;
-        /** Until at least one byte is reported, keep indeterminate — avoids an empty 0% bar. */
         const showDeterminate = canCompute && loaded > 0;
         const rounded = canCompute
           ? Math.min(100, Math.round((100 * loaded) / total))
           : 0;
         const percent =
           showDeterminate && rounded < 1 ? 1 : showDeterminate ? rounded : 0;
-        setUploadProgress((prev) => ({
+
+        commitUploadProgress((prev) => ({
           kind,
           phase: "uploading",
           computable: showDeterminate,
           percent,
-          fileIndex:
-            batch?.fileIndex ??
-            (prev?.phase === "uploading" && prev.fileIndex !== undefined ? prev.fileIndex : undefined),
-          fileCount:
-            batch?.fileCount ??
-            (prev?.phase === "uploading" && prev.fileCount !== undefined ? prev.fileCount : undefined),
+          filesUploaded: batch?.filesUploaded ?? prev?.filesUploaded,
+          filesTotal: batch?.filesTotal ?? prev?.filesTotal,
+          filesInGallery: prev?.filesInGallery,
+          batchIndex: batch?.batchIndex ?? prev?.batchIndex,
+          batchCount: batch?.batchCount ?? prev?.batchCount,
         }));
       },
-    [],
+    [commitUploadProgress],
+  );
+
+  const rawUploadBatchCompleteHandler = useCallback(
+    (body: unknown) => {
+      noteUploadBatchInGallery(applyRawUploadComplete(body));
+    },
+    [applyRawUploadComplete, noteUploadBatchInGallery],
+  );
+
+  const finalUploadBatchCompleteHandler = useCallback(
+    (body: unknown) => {
+      noteUploadBatchInGallery(applyFinalUploadBatchComplete(body));
+    },
+    [applyFinalUploadBatchComplete, noteUploadBatchInGallery],
   );
 
   const mergeFinalFormOpts = useCallback(
@@ -1469,7 +1602,13 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
     if (!folder || files.length === 0) return;
     pendingFinalDeliveryRef.current = delivery;
     setBusy(true);
-    setUploadProgress({ kind: "final", phase: "preparing", computable: false, percent: 0 });
+    setUploadProgress({
+      kind: "final",
+      phase: "preparing",
+      computable: false,
+      percent: 0,
+      filesTotal: files.length,
+    });
     let awaitingConflictChoice = false;
     const selectionMediaId: string | undefined = undefined;
     try {
@@ -1501,14 +1640,16 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
         phase: "uploading",
         computable: false,
         percent: 0,
-        fileIndex: 1,
-        fileCount: files.length,
+        filesUploaded: 0,
+        filesTotal: files.length,
+        filesInGallery: 0,
       });
       await uploadFolderFinalMedia(
         folder._id,
         files,
         uploadProgressHandler("final"),
         mergeFinalFormOpts(getDuplicateUploadPreference(), files, selectionMediaId),
+        { onBatchComplete: finalUploadBatchCompleteHandler },
       );
       await refreshFolder("media");
       showToast(
@@ -1520,7 +1661,7 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Upload failed.", "error");
     } finally {
-      setUploadProgress(null);
+      commitUploadProgress(null);
       if (!awaitingConflictChoice) {
         setBusy(false);
         pendingFinalDeliveryRef.current = null;
@@ -1604,7 +1745,13 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
     if (!folder || busy || files.length === 0) return;
     const setId = resolveUploadSetId();
     setBusy(true);
-    setUploadProgress({ kind: "raw", phase: "preparing", computable: false, percent: 0 });
+    setUploadProgress({
+      kind: "raw",
+      phase: "preparing",
+      computable: false,
+      percent: 0,
+      filesTotal: files.length,
+    });
     let awaitingConflictChoice = false;
     try {
       const dupPreview = await postFolderMediaDuplicatePreview(folder._id, {
@@ -1630,21 +1777,22 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
         phase: "uploading",
         computable: false,
         percent: 0,
-        fileIndex: 1,
-        fileCount: files.length,
+        filesUploaded: 0,
+        filesTotal: files.length,
+        filesInGallery: 0,
       });
-      const uploadResult = await uploadFolderRawMedia(
+      await uploadFolderRawMedia(
         folder._id,
         files,
         uploadProgressHandler("raw"),
         rawUploadFormOptions(getDuplicateUploadPreference(), setId, effectiveRawUploadPreviewWatermark),
+        { onBatchComplete: rawUploadBatchCompleteHandler },
       );
-      applyRawUploadComplete(uploadResult?.lastBody);
       showToast(`${files.length} file(s) uploaded.`, "success");
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Upload failed.", "error");
     } finally {
-      setUploadProgress(null);
+      commitUploadProgress(null);
       if (!awaitingConflictChoice) setBusy(false);
     }
   }
@@ -1666,24 +1814,26 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
       phase: "uploading",
       computable: false,
       percent: 0,
-      fileIndex: 1,
-      fileCount: p.files.length,
+      filesUploaded: 0,
+      filesTotal: p.files.length,
+      filesInGallery: 0,
     });
     try {
       if (p.kind === "raw") {
-        const uploadResult = await uploadFolderRawMedia(
+        await uploadFolderRawMedia(
           folder._id,
           p.files,
           uploadProgressHandler("raw"),
           rawUploadFormOptions("replace", resolveUploadSetId(), effectiveRawUploadPreviewWatermark),
+          { onBatchComplete: rawUploadBatchCompleteHandler },
         );
-        applyRawUploadComplete(uploadResult?.lastBody);
       } else {
         await uploadFolderFinalMedia(
           folder._id,
           p.files,
           uploadProgressHandler("final"),
           mergeFinalFormOpts("replace", p.files, p.selectionMediaId),
+          { onBatchComplete: finalUploadBatchCompleteHandler },
         );
         await refreshFolder("media");
       }
@@ -1696,7 +1846,7 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Upload failed.", "error");
     } finally {
-      setUploadProgress(null);
+      commitUploadProgress(null);
       setBusy(false);
       pendingFinalDeliveryRef.current = null;
     }
@@ -1735,8 +1885,9 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
       phase: "uploading",
       computable: false,
       percent: 0,
-      fileIndex: 1,
-      fileCount: filesToUpload.length,
+      filesUploaded: 0,
+      filesTotal: filesToUpload.length,
+      filesInGallery: 0,
     });
     try {
       let ignored = 0;
@@ -1746,8 +1897,8 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
           filesToUpload,
           uploadProgressHandler("raw"),
           rawUploadFormOptions("ignore", resolveUploadSetId(), effectiveRawUploadPreviewWatermark),
+          { onBatchComplete: rawUploadBatchCompleteHandler },
         );
-        applyRawUploadComplete(result?.lastBody);
         ignored = result?.ignoredDuplicatesCount ?? 0;
         void refreshFolder("media");
       } else {
@@ -1756,6 +1907,7 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
           filesToUpload,
           uploadProgressHandler("final"),
           mergeFinalFormOpts("ignore", filesToUpload, p.selectionMediaId),
+          { onBatchComplete: finalUploadBatchCompleteHandler },
         );
         ignored = result?.ignoredDuplicatesCount ?? 0;
         await refreshFolder("media");
@@ -1786,7 +1938,7 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Upload failed.", "error");
     } finally {
-      setUploadProgress(null);
+      commitUploadProgress(null);
       setBusy(false);
       pendingFinalDeliveryRef.current = null;
     }
@@ -2868,8 +3020,11 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
           phase={uploadProgress.phase}
           computable={uploadProgress.computable}
           percent={uploadProgress.percent}
-          fileIndex={uploadProgress.fileIndex}
-          fileCount={uploadProgress.fileCount}
+          filesUploaded={uploadProgress.filesUploaded}
+          filesTotal={uploadProgress.filesTotal}
+          filesInGallery={uploadProgress.filesInGallery}
+          batchIndex={uploadProgress.batchIndex}
+          batchCount={uploadProgress.batchCount}
         />
       ) : null}
 

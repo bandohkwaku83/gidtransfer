@@ -82,6 +82,21 @@ function duplicateActionToOnConflict(action?: DuplicateUploadAction): "skip" | "
 export type GalleryUploadBatchProgress = {
   fileIndex: number;
   fileCount: number;
+  filesUploaded: number;
+  filesTotal: number;
+  batchIndex: number;
+  batchCount: number;
+  phase?: "presigning" | "uploading" | "finalizing";
+};
+
+export type GalleryUploadCallbacks = {
+  onProgress?: (
+    loaded: number,
+    total: number,
+    lengthComputable: boolean,
+    batch?: GalleryUploadBatchProgress,
+  ) => void;
+  onBatchComplete?: (result: GalleryUploadPhotosResult) => void;
 };
 
 function resolveMediaUrl(url?: string | null): string | undefined {
@@ -488,6 +503,7 @@ export async function uploadGalleryPhotos(
       lengthComputable: boolean,
       batch?: GalleryUploadBatchProgress,
     ) => void;
+    onBatchComplete?: (result: GalleryUploadPhotosResult) => void;
   },
 ): Promise<GalleryUploadPhotosResult & { ignoredDuplicatesCount: number }> {
   if (files.length === 0) {
@@ -499,6 +515,7 @@ export async function uploadGalleryPhotos(
     setId: options?.setId,
     applyPreviewWatermark: options?.applyPreviewWatermark,
     onProgress: options?.onProgress,
+    onBatchComplete: options?.onBatchComplete,
   });
 
   const ignoredDuplicatesCount = Array.isArray(merged.skipped) ? merged.skipped.length : 0;
@@ -520,6 +537,11 @@ export async function uploadGalleryFinals(
       lengthComputable: boolean,
       batch?: GalleryUploadBatchProgress,
     ) => void;
+    onBatchComplete?: (result: {
+      message?: string;
+      created?: ApiGalleryPhoto[];
+      skipped?: string[];
+    }) => void;
   },
 ): Promise<{ message?: string; created?: ApiGalleryPhoto[]; ignoredDuplicatesCount: number }> {
   if (files.length === 0) {
@@ -533,6 +555,7 @@ export async function uploadGalleryFinals(
     setId: options?.setId,
     applyWatermark: options?.applyWatermark,
     onProgress: options?.onProgress,
+    onBatchComplete: options?.onBatchComplete,
   });
 
   const ignoredDuplicatesCount = Array.isArray(result.skipped) ? result.skipped.length : 0;

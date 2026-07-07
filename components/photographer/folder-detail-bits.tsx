@@ -35,70 +35,99 @@ export function statusStyles(s: FolderStatus): string {
   }
 }
 
+export function formatUploadCount(count: number): string {
+  return count.toLocaleString();
+}
+
 /** Sticky banner shown while a raw/final upload is in-flight in the folder detail view. */
 export function UploadProgressBanner({
   kind,
   phase,
   computable,
   percent,
-  fileIndex,
-  fileCount,
+  filesUploaded,
+  filesTotal,
+  filesInGallery,
+  batchIndex,
+  batchCount,
 }: {
   kind: "raw" | "final";
-  phase: "preparing" | "uploading";
+  phase: "preparing" | "presigning" | "uploading" | "finalizing";
   computable: boolean;
   percent: number;
-  fileIndex?: number;
-  fileCount?: number;
+  filesUploaded?: number;
+  filesTotal?: number;
+  filesInGallery?: number;
+  batchIndex?: number;
+  batchCount?: number;
 }) {
+  const mediaLabel = kind === "raw" ? "photos" : "finals";
+  const showBatchDetail = batchCount != null && batchCount > 1;
   const label =
     phase === "preparing"
-      ? "Preparing upload…"
-      : kind === "raw"
-        ? "Uploading raw photos…"
-        : "Uploading finals…";
-  const batchLabel =
-    phase === "uploading" &&
-    fileCount != null &&
-    fileCount > 0 &&
-    fileIndex != null &&
-    fileIndex > 0
-      ? `${fileIndex} of ${fileCount}`
+      ? `Preparing ${filesTotal ? `${formatUploadCount(filesTotal)} ` : ""}${mediaLabel}…`
+      : phase === "presigning"
+        ? showBatchDetail
+          ? `Preparing batch ${batchIndex} of ${batchCount}…`
+          : "Preparing upload…"
+        : phase === "finalizing"
+          ? kind === "raw"
+            ? "Saving photos to gallery…"
+            : "Saving finals to gallery…"
+          : kind === "raw"
+            ? "Uploading raw photos…"
+            : "Uploading finals…";
+
+  const countDone = Math.max(filesUploaded ?? 0, filesInGallery ?? 0);
+  const countLabel =
+    filesTotal != null && filesTotal > 0
+      ? `${formatUploadCount(Math.min(countDone, filesTotal))} of ${formatUploadCount(filesTotal)} ${mediaLabel}`
       : null;
+
+  const galleryLabel =
+    filesInGallery != null && filesInGallery > 0
+      ? `${formatUploadCount(filesInGallery)} in gallery`
+      : null;
+
+  const showDeterminateBar = phase === "uploading" && computable;
+  const statusLabel =
+    phase === "preparing"
+      ? "Checking…"
+      : phase === "presigning"
+        ? "Preparing…"
+        : phase === "finalizing"
+          ? "Saving…"
+          : computable
+            ? `${percent}%`
+            : "Sending…";
+
   return (
     <div
       role="status"
       aria-live="polite"
       className="overflow-hidden rounded-2xl border border-brand/25 bg-brand-soft/95 p-4 shadow-sm dark:border-brand/35 dark:bg-brand/20"
     >
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-2 text-sm font-medium text-brand-ink dark:text-zinc-100">
-          <InlineStatusSkeleton size={16} />
-          <span className="truncate">{label}</span>
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          {batchLabel ? (
-            <span className="tabular-nums text-xs font-semibold text-brand-ink/90 dark:text-brand-on-dark/95">
-              {batchLabel}
-            </span>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 space-y-1">
+          <div className="flex min-w-0 items-center gap-2 text-sm font-medium text-brand-ink dark:text-zinc-100">
+            <InlineStatusSkeleton size={16} />
+            <span className="truncate">{label}</span>
+          </div>
+          {countLabel ? (
+            <p className="pl-6 text-xs text-brand-ink/80 dark:text-brand-on-dark/85">{countLabel}</p>
           ) : null}
-          {phase === "preparing" ? (
-            <span className="shrink-0 text-xs font-medium text-brand-ink/85 dark:text-brand-on-dark/90">
-              Checking…
-            </span>
-          ) : computable ? (
-            <span className="shrink-0 tabular-nums text-sm font-semibold text-brand-ink dark:text-brand-on-dark">
-              {percent}%
-            </span>
-          ) : (
-            <span className="shrink-0 text-xs font-medium text-brand-ink/85 dark:text-brand-on-dark/90">
-              Sending…
-            </span>
-          )}
+          {galleryLabel && phase !== "preparing" ? (
+            <p className="pl-6 text-xs font-medium text-brand-ink/90 dark:text-brand-on-dark/90">
+              {galleryLabel}
+            </p>
+          ) : null}
         </div>
+        <span className="shrink-0 tabular-nums text-sm font-semibold text-brand-ink dark:text-brand-on-dark">
+          {statusLabel}
+        </span>
       </div>
       <div className="mt-3 h-2 overflow-hidden rounded-full bg-brand/25 dark:bg-brand/35">
-        {computable ? (
+        {showDeterminateBar ? (
           <div
             className="h-full rounded-full bg-brand transition-[width] duration-150 ease-out dark:bg-brand-on-dark"
             style={{ width: `${percent}%` }}

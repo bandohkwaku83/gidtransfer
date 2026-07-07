@@ -930,18 +930,29 @@ export type UploadFolderMediaResult = {
 export type FolderMediaBatchProgress = {
   fileIndex: number;
   fileCount: number;
+  filesUploaded: number;
+  filesTotal: number;
+  batchIndex: number;
+  batchCount: number;
+  phase?: "presigning" | "uploading" | "finalizing";
 };
 
-export async function uploadFolderRawMedia(
-  folderId: string,
-  files: File[],
+export type FolderMediaUploadCallbacks = {
   onProgress?: (
     loaded: number,
     total: number,
     lengthComputable: boolean,
     batch?: FolderMediaBatchProgress,
-  ) => void,
+  ) => void;
+  onBatchComplete?: (body: unknown) => void;
+};
+
+export async function uploadFolderRawMedia(
+  folderId: string,
+  files: File[],
+  onProgress?: FolderMediaUploadCallbacks["onProgress"],
   formOptions?: UploadFolderMediaFormOptions,
+  callbacks?: Pick<FolderMediaUploadCallbacks, "onBatchComplete">,
 ): Promise<UploadFolderMediaResult | null> {
   if (files.length === 0) return null;
   if (isLocalDemoFolderId(folderId)) {
@@ -955,6 +966,7 @@ export async function uploadFolderRawMedia(
     onProgress: (loaded, total, lengthComputable, batch) => {
       onProgress?.(loaded, total, lengthComputable, batch);
     },
+    onBatchComplete: callbacks?.onBatchComplete,
   });
 
   return {
@@ -966,13 +978,9 @@ export async function uploadFolderRawMedia(
 export async function uploadFolderFinalMedia(
   folderId: string,
   files: File[],
-  onProgress?: (
-    loaded: number,
-    total: number,
-    lengthComputable: boolean,
-    batch?: FolderMediaBatchProgress,
-  ) => void,
+  onProgress?: FolderMediaUploadCallbacks["onProgress"],
   formOptions?: UploadFolderFinalMediaFormOptions,
+  callbacks?: Pick<FolderMediaUploadCallbacks, "onBatchComplete">,
 ): Promise<UploadFolderMediaResult | null> {
   if (files.length === 0) return null;
   if (isLocalDemoFolderId(folderId)) {
@@ -989,6 +997,7 @@ export async function uploadFolderFinalMedia(
     onProgress: (loaded, total, lengthComputable, batch) => {
       onProgress?.(loaded, total, lengthComputable, batch);
     },
+    onBatchComplete: callbacks?.onBatchComplete,
   });
 
   return {
