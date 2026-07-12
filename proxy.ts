@@ -3,6 +3,7 @@ import type { NextRequest } from "next/server";
 import { marketingSiteHost } from "@/lib/marketing/site-seo";
 import {
   isPhotographerAuthPath,
+  isPlatformAdminPath,
   parseTenantFromHostname,
   photographerAuthUrl,
 } from "@/lib/studio-url";
@@ -34,7 +35,7 @@ export function proxy(request: NextRequest) {
 
   const { pathname } = request.nextUrl;
 
-  if (isPhotographerAuthPath(pathname)) {
+  if (isPhotographerAuthPath(pathname) || isPlatformAdminPath(pathname)) {
     const dest = new URL(photographerAuthUrl(pathname, host));
     dest.search = request.nextUrl.search;
     return NextResponse.redirect(dest);

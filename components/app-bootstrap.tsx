@@ -34,6 +34,7 @@ const PRIORITY_ROUTES = [
 
 const PUBLIC_GALLERY_RESERVED_SEGMENTS = new Set([
   "dashboard",
+  "admin",
   "login",
   "verify-email",
   "onboarding",
@@ -56,6 +57,8 @@ function isPublicBootstrapPath(pathname: string): boolean {
   return (
     pathname === "/" ||
     pathname === "/login" ||
+    pathname === "/admin/login" ||
+    pathname.startsWith("/admin/login/") ||
     pathname === "/verify-email" ||
     pathname === "/onboarding" ||
     pathname === "/reset-password" ||

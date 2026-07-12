@@ -1,0 +1,90 @@
+@reference "../globals.css";
+
+/* Scoped admin theme — imported only from app/admin/layout.tsx */
+.admin-app {
+  --admin-background: #f4f6f9;
+  --admin-foreground: #1a1d26;
+  --admin-primary: #5e001e;
+  --admin-primary-hover: #4a0018;
+  --admin-primary-light: #fdf2f5;
+  --admin-primary-muted: #f5e0e8;
+  --admin-primary-subtle: #c990a0;
+
+  --color-primary: var(--admin-primary);
+  --color-primary-hover: var(--admin-primary-hover);
+  --color-primary-light: var(--admin-primary-light);
+  --color-primary-muted: var(--admin-primary-muted);
+  --color-primary-subtle: var(--admin-primary-subtle);
+
+  background: var(--admin-background);
+  color: var(--admin-foreground);
+}
+
+@layer components {
+  .admin-app .input-base {
+    @apply w-full rounded-xl border border-slate-200/80 bg-white px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 transition-[border-color,box-shadow] focus:outline-none focus:ring-2;
+    border-color: color-mix(in srgb, var(--admin-primary-subtle) 40%, #e2e8f0);
+  }
+
+  .admin-app .input-base:focus {
+    border-color: var(--admin-primary-subtle);
+    --tw-ring-color: var(--admin-primary-muted);
+  }
+
+  .admin-app .select-base {
+    @apply rounded-xl border border-slate-200/80 bg-white px-3.5 py-2.5 text-sm text-slate-700 transition-[border-color,box-shadow] focus:outline-none focus:ring-2;
+  }
+
+  .admin-app .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60;
+    background-color: var(--admin-primary);
+  }
+
+  .admin-app .btn-primary:hover {
+    background-color: var(--admin-primary-hover);
+  }
+
+  .admin-app .btn-primary:focus {
+    --tw-ring-color: var(--admin-primary);
+  }
+
+  .admin-app .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200/80 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60;
+  }
+
+  .admin-app .card {
+    @apply rounded-2xl bg-white shadow-[0_1px_3px_rgba(0,0,0,0.04),0_4px_16px_rgba(0,0,0,0.04)];
+  }
+
+  .admin-app .filter-bar {
+    @apply flex flex-wrap items-center gap-3 rounded-2xl bg-white p-4 shadow-[0_1px_3px_rgba(0,0,0,0.04),0_4px_16px_rgba(0,0,0,0.04)];
+  }
+}
+
+@keyframes admin-toast-enter {
+  from {
+    opacity: 0;
+    transform: translateX(1rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes admin-toast-progress {
+  from {
+    width: 100%;
+  }
+  to {
+    width: 0%;
+  }
+}
+
+.admin-app .toast-enter {
+  animation: admin-toast-enter 0.25s ease-out;
+}
+
+.admin-app .toast-progress {
+  animation: admin-toast-progress 5s linear forwards;
+}

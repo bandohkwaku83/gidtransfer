@@ -214,6 +214,11 @@ export function isPhotographerAuthPath(pathname: string): boolean {
   );
 }
 
+/** Platform admin UI — apex host only (`gidtransfer.com/admin`). */
+export function isPlatformAdminPath(pathname: string): boolean {
+  return pathname === "/admin" || pathname.startsWith("/admin/");
+}
+
 /** Logged-in photographer app (dashboard and nested routes). */
 export function isPhotographerDashboardPath(pathname: string): boolean {
   return pathname === "/dashboard" || pathname.startsWith("/dashboard/");
