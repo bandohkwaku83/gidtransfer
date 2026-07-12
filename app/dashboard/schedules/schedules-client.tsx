@@ -148,7 +148,7 @@ export function SchedulesClient() {
         month: viewMonth + 1,
         type: typeParam,
       });
-      setBookings(res.bookings.map(mapBooking));
+      setBookings((res?.bookings ?? []).map(mapBooking));
     } catch (e) {
       const msg =
         e instanceof ApiError ? e.message : e instanceof Error ? e.message : "Could not load bookings.";

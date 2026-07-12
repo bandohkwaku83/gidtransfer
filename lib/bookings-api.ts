@@ -210,12 +210,18 @@ function filterByShootType(bookings: ApiBooking[], type?: string): ApiBooking[] 
 }
 
 export async function getBookingsMeta(): Promise<BookingsMetaResponse> {
-  return authedJson<BookingsMetaResponse>(
+  const res = await authedJson<BookingsMetaResponse | null>(
     "/api/bookings/meta",
     { method: "GET" },
     "Failed to load booking types",
     ApiError,
   );
+  const shootTypes = res?.shootTypes ?? [];
+  return {
+    shootTypes,
+    legend: res?.legend ?? shootTypes,
+    clientsListPath: res?.clientsListPath,
+  };
 }
 
 export async function getBookingsWeekSummary(): Promise<BookingsWeekSummary> {
@@ -228,12 +234,17 @@ export async function getBookingsWeekSummary(): Promise<BookingsWeekSummary> {
 }
 
 export async function getBookingsStats(): Promise<BookingsStats> {
-  return authedJson<BookingsStats>(
+  const res = await authedJson<BookingsStats | null>(
     "/api/bookings/stats",
     { method: "GET" },
     "Failed to load booking stats",
     ApiError,
   );
+  return {
+    thisWeekCount: res?.thisWeekCount ?? 0,
+    thisMonthCount: res?.thisMonthCount ?? 0,
+    todayCount: res?.todayCount ?? 0,
+  };
 }
 
 export async function listBookings(params: {
@@ -250,37 +261,41 @@ export async function listBookings(params: {
   if (params.from?.trim()) q.set("from", params.from.trim());
   if (params.to?.trim()) q.set("to", params.to.trim());
 
-  const res = await authedJson<ListBookingsResponse>(
+  const res = await authedJson<ListBookingsResponse | null>(
     `/api/bookings?${q.toString()}`,
     { method: "GET" },
     "Failed to load bookings",
     ApiError,
   );
-  const bookings = filterByShootType(res.bookings ?? [], params.type);
+  const bookings = filterByShootType(res?.bookings ?? [], params.type);
   return {
-    count: params.type ? bookings.length : (res.count ?? bookings.length),
+    count: params.type ? bookings.length : (res?.count ?? bookings.length),
     bookings,
   };
 }
 
 export async function getBooking(id: string): Promise<ApiBooking> {
-  const res = await authedJson<{ booking: ApiBooking }>(
+  const res = await authedJson<{ booking?: ApiBooking | null } | null>(
     `/api/bookings/${encodeURIComponent(id)}`,
     { method: "GET" },
     "Failed to load booking",
     ApiError,
   );
-  return res.booking;
+  const booking = res?.booking;
+  if (!booking) {
+    throw new ApiError("Booking not found", 404, res);
+  }
+  return booking;
 }
 
 export async function getUpcomingBooking(): Promise<ApiBooking | null> {
-  const res = await authedJson<{ booking?: ApiBooking | null }>(
+  const res = await authedJson<{ booking?: ApiBooking | null } | null>(
     "/api/bookings/upcoming",
     { method: "GET" },
     "Failed to load upcoming booking",
     ApiError,
   );
-  return res.booking ?? null;
+  return res?.booking ?? null;
 }
 
 export async function createBooking(

@@ -107,7 +107,7 @@ async function loadRecentBookings(): Promise<ApiBooking[]> {
   const byId = new Map<string, ApiBooking>();
   for (const result of results) {
     if (result.status !== "fulfilled") continue;
-    for (const booking of result.value.bookings) {
+    for (const booking of result.value?.bookings ?? []) {
       byId.set(booking._id, booking);
     }
   }

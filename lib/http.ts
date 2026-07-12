@@ -178,7 +178,13 @@ export async function authedFetch(
   const dedupeKey = requestDedupeKey(method, path);
 
   const execute = async (): Promise<Response> => {
-    const { res } = await fetchWithRetry(apiUrl(path), { ...init, headers, method }, retries);
+    const fetchInit: RequestInit = {
+      ...init,
+      headers,
+      method,
+      ...(method === "GET" && init.cache === undefined ? { cache: "no-store" } : {}),
+    };
+    const { res } = await fetchWithRetry(apiUrl(path), fetchInit, retries);
 
     if (res.status === 401) {
       const errBody = await parseJson(res.clone());
@@ -236,8 +242,28 @@ export async function authedJson<T>(
   options: AuthedFetchOptions = {},
 ): Promise<T> {
   const res = await authedFetch(path, init, options);
-  const body = await parseJson(res);
-  if (!res.ok) {
+  let body = await parseJson(res);
+
+  // Backend may respond 304 (ETag) with an empty body — refetch without cache.
+  if (res.status === 304) {
+    const retry = await authedFetch(
+      path,
+      { ...init, cache: "no-store" },
+      { ...options, retries: 0 },
+    );
+    if (!retry.ok) {
+      const errBody = body;
+      throwIfEmailNotVerified(retry.status, errBody);
+      throw new ErrorCtor(
+        extractMessage(errBody, `${fallbackError} (${retry.status})`),
+        retry.status,
+        errBody,
+      );
+    }
+    body = await parseJson(retry);
+  }
+
+  if (!res.ok && res.status !== 304) {
     throwIfEmailNotVerified(res.status, body);
     throw new ErrorCtor(
       extractMessage(body, `${fallbackError} (${res.status})`),
