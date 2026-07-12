@@ -62,6 +62,7 @@ export type GalleryMediaBundle = {
 export type GalleryUploadsListOptions = {
   view?: "grid" | "full";
   cursor?: string;
+  page?: number;
   limit?: number;
   ids?: string[];
 };
@@ -358,9 +359,25 @@ function normalizeUploadsPagination(body: unknown): GalleryUploadsPagination {
     (typeof pg.nextCursor === "string" && pg.nextCursor.trim()) ||
     (typeof pg.next_cursor === "string" && pg.next_cursor.trim()) ||
     null;
+  const page = typeof pg.page === "number" && pg.page > 0 ? pg.page : undefined;
+  const limit = typeof pg.limit === "number" && pg.limit > 0 ? pg.limit : undefined;
+  const total = typeof pg.total === "number" && pg.total >= 0 ? pg.total : undefined;
+  const totalPages =
+    typeof pg.totalPages === "number" && pg.totalPages >= 0
+      ? pg.totalPages
+      : typeof pg.total_pages === "number" && pg.total_pages >= 0
+        ? pg.total_pages
+        : undefined;
+  const hasMoreExplicit = pg.hasMore === true || pg.has_more === true;
+  const hasMoreFromPages =
+    page != null && totalPages != null ? page < totalPages : undefined;
   return {
-    hasMore: pg.hasMore === true || pg.has_more === true,
+    hasMore: hasMoreExplicit || hasMoreFromPages === true,
     nextCursor,
+    page,
+    limit,
+    total,
+    totalPages,
   };
 }
 
@@ -368,6 +385,7 @@ function buildUploadsQuery(options: GalleryUploadsListOptions = {}): string {
   const qs = new URLSearchParams();
   if (options.view) qs.set("view", options.view);
   if (options.cursor?.trim()) qs.set("cursor", options.cursor.trim());
+  if (options.page != null && options.page > 0) qs.set("page", String(options.page));
   if (options.limit != null && options.limit > 0) qs.set("limit", String(options.limit));
   if (options.ids?.length) qs.set("ids", options.ids.filter(Boolean).join(","));
   const query = qs.toString();
@@ -394,12 +412,21 @@ export async function fetchGalleryUploadsPage(
 /** Fetch every uploads page (grid view) — for bulk operations that need all filenames/ids. */
 export async function listAllGalleryUploads(galleryId: string): Promise<ApiFolderMedia[]> {
   const all: ApiFolderMedia[] = [];
+  let page = 1;
   let cursor: string | undefined;
   for (;;) {
-    const page = await fetchGalleryUploadsPage(galleryId, { view: "grid", cursor });
-    all.push(...page.uploads);
-    if (!page.pagination.hasMore || !page.pagination.nextCursor) break;
-    cursor = page.pagination.nextCursor;
+    const result = await fetchGalleryUploadsPage(
+      galleryId,
+      cursor ? { view: "grid", cursor } : { view: "grid", page },
+    );
+    all.push(...result.uploads);
+    if (!result.pagination.hasMore) break;
+    if (result.pagination.nextCursor) {
+      cursor = result.pagination.nextCursor;
+      continue;
+    }
+    page = (result.pagination.page ?? page) + 1;
+    if (page > 500) break;
   }
   return all;
 }

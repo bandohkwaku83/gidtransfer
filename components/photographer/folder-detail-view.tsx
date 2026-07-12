@@ -388,6 +388,7 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
   const musicFileInputRef = useRef<HTMLInputElement>(null);
   const coverFileInputRef = useRef<HTMLInputElement>(null);
   const derivativesPollAbortRef = useRef<AbortController | null>(null);
+  const derivativesPendingIdsRef = useRef<Set<string>>(new Set());
   const derivativesBootstrappedRef = useRef<string | null>(null);
   /** Hydrate design drafts once per folder load — not on every metadata PATCH. */
   const folderDesignHydratedRef = useRef<string | null>(null);
@@ -596,14 +597,30 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
   }, [folderId, loadGalleryAnalytics]);
 
   const loadMoreUploads = useCallback(async () => {
-    const cursor = folder?.uploadsPagination?.nextCursor;
-    if (!folder || !cursor?.trim() || loadingMoreUploads || isLocalDemoFolderId(folderId)) return;
+    const pagination = folder?.uploadsPagination;
+    if (!folder || !pagination?.hasMore || loadingMoreUploads || isLocalDemoFolderId(folderId)) {
+      return;
+    }
+
+    const cursor = pagination.nextCursor?.trim() || undefined;
+    const loadedCount = extractRawMediaList(folder).length;
+    const nextPage =
+      !cursor && pagination.page != null
+        ? pagination.page + 1
+        : !cursor && loadedCount >= (pagination.limit ?? 50)
+          ? Math.floor(loadedCount / (pagination.limit ?? 50)) + 1
+          : undefined;
+    if (!cursor && nextPage == null) return;
+
     setLoadingMoreUploads(true);
     try {
-      const page = await fetchGalleryUploadsPage(folderId, { view: "grid", cursor: cursor.trim() });
+      const page = await fetchGalleryUploadsPage(folderId, {
+        view: "grid",
+        ...(cursor ? { cursor } : { page: nextPage }),
+      });
       setFolder((prev) => {
         if (!prev) return prev;
-        const merged = upsertGalleryUploadRows(prev.uploads ?? [], page.uploads);
+        const merged = upsertGalleryUploadRows(extractRawMediaList(prev), page.uploads);
         return {
           ...prev,
           uploads: merged,
@@ -645,18 +662,34 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
 
   const startDerivativesPolling = useCallback(
     (photoIds: string[]) => {
-      if (photoIds.length === 0 || isLocalDemoFolderId(folderId)) return;
+      if (isLocalDemoFolderId(folderId)) return;
+      for (const id of photoIds) {
+        if (id) derivativesPendingIdsRef.current.add(id);
+      }
+      if (derivativesPendingIdsRef.current.size === 0) return;
+
       derivativesPollAbortRef.current?.abort();
       const ac = new AbortController();
       derivativesPollAbortRef.current = ac;
+      const idsToPoll = [...derivativesPendingIdsRef.current];
+
       void pollGalleryUploadDerivatives(
         folderId,
-        photoIds,
+        idsToPoll,
         (photo) => {
+          derivativesPendingIdsRef.current.delete(photo.id);
           mergeRawUploadRows([galleryPhotoToApiFolderMedia(photo)]);
         },
         ac.signal,
-      ).catch(() => {});
+      )
+        .catch(() => {})
+        .finally(() => {
+          if (derivativesPollAbortRef.current !== ac) return;
+          derivativesPollAbortRef.current = null;
+          if (derivativesPendingIdsRef.current.size > 0) {
+            startDerivativesPolling([]);
+          }
+        });
     },
     [folderId, mergeRawUploadRows],
   );
@@ -690,6 +723,7 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
 
   useEffect(() => {
     derivativesBootstrappedRef.current = null;
+    derivativesPendingIdsRef.current.clear();
     derivativesPollAbortRef.current?.abort();
   }, [folderId]);
 
@@ -994,6 +1028,17 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
     return rawOrderIds ? applyOrderByIds(base, rawOrderIds) : base;
   }, [folder, rawOrderIds]);
 
+  const rawUploadsTotal = useMemo(() => {
+    const apiTotal = folder?.uploadsPagination?.total;
+    if (apiTotal != null) return Math.max(apiTotal, rawAssets.length);
+    return rawAssets.length;
+  }, [folder?.uploadsPagination?.total, rawAssets.length]);
+
+  const rawUploadsRemaining = useMemo(
+    () => Math.max(0, rawUploadsTotal - rawAssets.length),
+    [rawUploadsTotal, rawAssets.length],
+  );
+
   const finalAssets = useMemo(() => {
     const base = folder ? extractFinalMediaList(folder).map(apiFolderMediaToFinal) : [];
     return finalOrderIds ? applyOrderByIds(base, finalOrderIds) : base;
@@ -1067,7 +1112,7 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
       buildGalleryAnalyticsSnapshot({
         viewCount: Number(folder?.share?.viewCount ?? 0),
         downloadCount: Number(folder?.share?.downloadCount ?? 0),
-        uploadsCount: rawAssets.length,
+        uploadsCount: rawUploadsTotal,
         selectionsCount: clientSelectedAssets.length,
         finalsCount: finalAssets.length,
         activityTimestamps: collectGalleryActivityTimestamps(
@@ -1076,7 +1121,7 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
         ),
         referenceIso: folder?.updatedAt ?? null,
       }),
-    [folder, rawAssets.length, clientSelectedAssets, finalAssets.length],
+    [folder, rawUploadsTotal, clientSelectedAssets, finalAssets.length],
   );
 
   const galleryAnalytics = apiAnalytics ?? fallbackGalleryAnalytics;
@@ -2981,7 +3026,7 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
         tab={tab}
         onTabChange={setTab}
         counts={{
-          uploads: rawAssets.length,
+          uploads: rawUploadsTotal,
           selection: clientSelectedAssets.length,
           finals: finalAssets.length,
           // blog: folder
@@ -3035,7 +3080,7 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
               published={galleryPublished}
               shareExpired={folder.shareExpired}
               sharedAt={folder.share?.sharedAt}
-              uploadsCount={rawAssets.length}
+              uploadsCount={rawUploadsTotal}
               finalsCount={finalAssets.length}
               commentsCount={selectionWithComments.length}
               flaggedFinalsCount={flaggedFinalItems.length}
@@ -3079,7 +3124,7 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
               icon={Images}
               title="Raw uploads"
               description="Upload raw files into the active set chosen above."
-              count={rawAssets.length}
+              count={rawUploadsTotal}
             />
             <FolderUploadOptionToggle
               checked={rawUploadPreviewWatermark}
@@ -3136,7 +3181,6 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
                     name: a.originalName,
                     mediaSrc: demoAssetGridSrc(a),
                     isVideo: isFolderMediaVideo(a),
-                    derivativesPending: a.derivativesReady === false && !isFolderMediaVideo(a),
                   }))}
                   selectedIds={selectedRawIds}
                   onToggleSelected={toggleRawSelected}
@@ -3157,7 +3201,7 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
                 {folder?.uploadsPagination?.hasMore ? (
                   <GalleryViewMoreButton
                     onClick={() => void loadMoreUploads()}
-                    remainingCount={0}
+                    remainingCount={rawUploadsRemaining}
                   />
                 ) : null}
                 {loadingMoreUploads ? (

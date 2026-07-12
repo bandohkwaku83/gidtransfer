@@ -37,11 +37,8 @@ export type PresignedUpload = UploadFileMeta & {
   expiresIn: number;
 };
 
-/** Backend presign limit — chunk larger picks before calling presign. */
+/** Backend presign limit — only split when a pick exceeds this count. */
 export const MAX_PRESIGN_BATCH_FILES = 700;
-
-/** Smaller pipeline chunks keep progress smooth and photos appearing incrementally. */
-export const UPLOAD_PIPELINE_CHUNK_SIZE = 50;
 
 /** Parallel S3 PUTs — avoids overwhelming the browser tab on huge batches. */
 const MAX_S3_CONCURRENCY = 8;
@@ -256,10 +253,14 @@ export function putToS3(
   return putToS3Direct(file, presigned, headers, onProgress);
 }
 
-async function uploadFilesToS3(
+/** Upload files in parallel; finalize each one as soon as its S3 PUT succeeds. */
+async function uploadFilesWithPerFileComplete<T>(
   files: File[],
   uploads: PresignedUpload[],
-  onFileProgress?: (fileIndex: number, pct: number) => void,
+  options: {
+    onFileProgress?: (fileIndex: number, pct: number) => void;
+    onFileComplete: (fileIndex: number) => Promise<T>;
+  },
 ): Promise<void> {
   let nextIndex = 0;
   let firstError: Error | undefined;
@@ -270,9 +271,10 @@ async function uploadFilesToS3(
       if (index >= files.length) return;
       try {
         await putToS3(files[index]!, uploads[index]!, (pct) =>
-          onFileProgress?.(index, pct),
+          options.onFileProgress?.(index, pct),
         );
-        onFileProgress?.(index, 100);
+        options.onFileProgress?.(index, 100);
+        await options.onFileComplete(index);
       } catch (err) {
         if (!firstError) {
           firstError = err instanceof Error ? err : new Error(String(err));
@@ -284,6 +286,18 @@ async function uploadFilesToS3(
   const workers = Math.min(MAX_S3_CONCURRENCY, files.length);
   await Promise.all(Array.from({ length: workers }, () => worker()));
   if (firstError) throw firstError;
+}
+
+function mergeUploadPhotosResult(
+  merged: S3GalleryUploadPhotosResult,
+  res: S3GalleryUploadPhotosResult,
+): void {
+  if (Array.isArray(res.created)) merged.created!.push(...res.created);
+  if (Array.isArray(res.replaced)) merged.replaced!.push(...res.replaced);
+  if (Array.isArray(res.skipped)) merged.skipped!.push(...res.skipped);
+  if (Array.isArray(res.conflicts) && res.conflicts.length) {
+    merged.conflicts = [...(merged.conflicts ?? []), ...res.conflicts];
+  }
 }
 
 async function presignGalleryUploads(
@@ -511,12 +525,17 @@ export async function s3UploadGalleryPhotos(
     onBatchComplete?: (result: S3GalleryUploadPhotosResult) => void;
   },
 ): Promise<S3GalleryUploadPhotosResult> {
-  const chunkSize = Math.min(UPLOAD_PIPELINE_CHUNK_SIZE, MAX_PRESIGN_BATCH_FILES);
-  const batches = chunkFiles(files, chunkSize);
+  const batches = chunkFiles(files, MAX_PRESIGN_BATCH_FILES);
   const merged: S3GalleryUploadPhotosResult = {
     created: [],
     replaced: [],
     skipped: [],
+  };
+
+  const completeOptions = {
+    onConflict: options?.onConflict,
+    setId: options?.setId,
+    applyPreviewWatermark: options?.applyPreviewWatermark,
   };
 
   for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
@@ -530,34 +549,17 @@ export async function s3UploadGalleryPhotos(
       throw new FoldersApiError("Upload preparation returned an unexpected file count.", 500, null);
     }
 
-    await uploadFilesToS3(batch, uploads, (fileIndex, pct) => {
-      fileProgress[fileIndex] = pct;
-      scaleS3UploadProgress(files, batches, batchIndex, fileProgress, options?.onProgress);
+    await uploadFilesWithPerFileComplete(batch, uploads, {
+      onFileProgress: (fileIndex, pct) => {
+        fileProgress[fileIndex] = pct;
+        scaleS3UploadProgress(files, batches, batchIndex, fileProgress, options?.onProgress);
+      },
+      onFileComplete: async (fileIndex) => {
+        const res = await completeGalleryUploads(galleryId, [uploads[fileIndex]!], completeOptions);
+        mergeUploadPhotosResult(merged, res);
+        options?.onBatchComplete?.(res);
+      },
     });
-
-    scaleS3UploadProgress(
-      files,
-      batches,
-      batchIndex,
-      fileProgress.map(() => 100),
-      options?.onProgress,
-      "finalizing",
-    );
-
-    const res = await completeGalleryUploads(galleryId, uploads, {
-      onConflict: options?.onConflict,
-      setId: options?.setId,
-      applyPreviewWatermark: options?.applyPreviewWatermark,
-    });
-
-    if (Array.isArray(res.created)) merged.created!.push(...res.created);
-    if (Array.isArray(res.replaced)) merged.replaced!.push(...res.replaced);
-    if (Array.isArray(res.skipped)) merged.skipped!.push(...res.skipped);
-    if (Array.isArray(res.conflicts) && res.conflicts.length) {
-      merged.conflicts = [...(merged.conflicts ?? []), ...res.conflicts];
-    }
-
-    options?.onBatchComplete?.(res);
   }
 
   return merged;
@@ -586,11 +588,18 @@ export async function s3UploadGalleryFinals(
     }) => void;
   },
 ): Promise<{ message?: string; created?: S3GalleryPhoto[]; skipped?: string[] }> {
-  const chunkSize = Math.min(UPLOAD_PIPELINE_CHUNK_SIZE, MAX_PRESIGN_BATCH_FILES);
-  const batches = chunkFiles(files, chunkSize);
+  const batches = chunkFiles(files, MAX_PRESIGN_BATCH_FILES);
   const created: S3GalleryPhoto[] = [];
   const skipped: string[] = [];
   let lastMessage: string | undefined;
+
+  const completeOptions = {
+    clientPaid: options?.clientPaid,
+    outstandingBalanceGhs: options?.outstandingBalanceGhs,
+    lockPreviews: options?.lockPreviews,
+    setId: options?.setId,
+    applyWatermark: options?.applyWatermark,
+  };
 
   for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
     const batch = batches[batchIndex]!;
@@ -603,33 +612,19 @@ export async function s3UploadGalleryFinals(
       throw new FoldersApiError("Upload preparation returned an unexpected file count.", 500, null);
     }
 
-    await uploadFilesToS3(batch, uploads, (fileIndex, pct) => {
-      fileProgress[fileIndex] = pct;
-      scaleS3UploadProgress(files, batches, batchIndex, fileProgress, options?.onProgress);
+    await uploadFilesWithPerFileComplete(batch, uploads, {
+      onFileProgress: (fileIndex, pct) => {
+        fileProgress[fileIndex] = pct;
+        scaleS3UploadProgress(files, batches, batchIndex, fileProgress, options?.onProgress);
+      },
+      onFileComplete: async (fileIndex) => {
+        const res = await completeGalleryFinals(galleryId, [uploads[fileIndex]!], completeOptions);
+        if (typeof res.message === "string") lastMessage = res.message;
+        if (Array.isArray(res.created)) created.push(...res.created);
+        if (Array.isArray(res.skipped)) skipped.push(...res.skipped);
+        options?.onBatchComplete?.(res);
+      },
     });
-
-    scaleS3UploadProgress(
-      files,
-      batches,
-      batchIndex,
-      fileProgress.map(() => 100),
-      options?.onProgress,
-      "finalizing",
-    );
-
-    const res = await completeGalleryFinals(galleryId, uploads, {
-      clientPaid: options?.clientPaid,
-      outstandingBalanceGhs: options?.outstandingBalanceGhs,
-      lockPreviews: options?.lockPreviews,
-      setId: options?.setId,
-      applyWatermark: options?.applyWatermark,
-    });
-
-    if (typeof res.message === "string") lastMessage = res.message;
-    if (Array.isArray(res.created)) created.push(...res.created);
-    if (Array.isArray(res.skipped)) skipped.push(...res.skipped);
-
-    options?.onBatchComplete?.(res);
   }
 
   return { message: lastMessage, created, skipped };

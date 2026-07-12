@@ -27,20 +27,16 @@ export type FolderUploadGridItem = {
   locked?: boolean;
   outstandingBalanceGhs?: number | null;
   flagged?: boolean;
-  /** Show subtle processing overlay while thumbnails are generating. */
-  derivativesPending?: boolean;
 };
 
 const MediaThumb = memo(function MediaThumb({
   src,
   name,
   isVideo,
-  derivativesPending,
 }: {
   src: string;
   name: string;
   isVideo: boolean;
-  derivativesPending?: boolean;
 }) {
   return (
     <>
@@ -57,14 +53,6 @@ const MediaThumb = memo(function MediaThumb({
         // eslint-disable-next-line @next/next/no-img-element
         <img src={src} alt="" className="pointer-events-none h-full w-full object-cover" loading="lazy" />
       )}
-      {derivativesPending && !isVideo ? (
-        <span
-          className="pointer-events-none absolute inset-0 z-[4] flex items-center justify-center bg-black/20 backdrop-blur-[1px]"
-          aria-hidden
-        >
-          <span className="h-5 w-5 animate-spin rounded-full border-2 border-white/35 border-t-white/90" />
-        </span>
-      ) : null}
       {isVideo ? (
         <span className="pointer-events-none absolute left-2 bottom-2 z-[5] rounded-md bg-black/70 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-white">
           Video
@@ -212,7 +200,6 @@ const UploadTile = memo(function UploadTile({
             src={item.mediaSrc}
             name={item.name}
             isVideo={item.isVideo}
-            derivativesPending={item.derivativesPending}
           />
         </button>
 

@@ -9,6 +9,10 @@ export type { DuplicateUploadAction } from "@/lib/upload-preferences";
 export type GalleryUploadsPagination = {
   hasMore: boolean;
   nextCursor?: string | null;
+  page?: number;
+  limit?: number;
+  total?: number;
+  totalPages?: number;
 };
 
 export type ApiFolderShare = {

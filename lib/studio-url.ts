@@ -127,15 +127,22 @@ export function isLocalDevHostname(host: string): boolean {
   );
 }
 
-/** Tenant slug from `bizzles.localhost:3000` or `bizzles.example.com`. */
+/**
+ * Tenant slug from `bizzles.localhost:3000` or `bizzles.example.com`.
+ * Reserved slugs (e.g. `admin`, `api`, `www`) are not studio tenants — `admin.*` is a separate app.
+ */
 export function parseTenantFromHostname(host: string): string | null {
   const hostname = (host.split(":")[0] ?? "").trim().toLowerCase();
   if (!hostname) return null;
 
+  const subdomainTenant = (sub: string): string | null => {
+    if (!sub || sub.includes(".") || isReservedStudioSlug(sub)) return null;
+    return sub;
+  };
+
   if (hostname.endsWith(".localhost")) {
     const sub = hostname.slice(0, -".localhost".length);
-    if (sub && sub !== "www" && !sub.includes(".")) return sub;
-    return null;
+    return subdomainTenant(sub);
   }
 
   const baseDomain = (
@@ -147,7 +154,7 @@ export function parseTenantFromHostname(host: string): string | null {
     .toLowerCase();
   if (baseDomain && hostname.endsWith(`.${baseDomain}`)) {
     const sub = hostname.slice(0, -(baseDomain.length + 1));
-    if (sub && sub !== "www" && !sub.includes(".")) return sub;
+    return subdomainTenant(sub);
   }
 
   return null;
