@@ -10,6 +10,7 @@ import {
   verifyEmailPath,
 } from "@/lib/auth-api";
 import { consumeAuthHandoffFromUrl, getAuth, getAuthToken, setAuthSession } from "@/lib/auth-demo";
+import { isPlatformAdminPath } from "@/lib/studio-url";
 
 /** App Router paths; must match real `app/` routes (use pathname shape Next resolves). */
 const PRIORITY_ROUTES = [
@@ -57,8 +58,7 @@ function isPublicBootstrapPath(pathname: string): boolean {
   return (
     pathname === "/" ||
     pathname === "/login" ||
-    pathname === "/admin/login" ||
-    pathname.startsWith("/admin/login/") ||
+    isPlatformAdminPath(pathname) ||
     pathname === "/verify-email" ||
     pathname === "/onboarding" ||
     pathname === "/reset-password" ||
@@ -73,6 +73,10 @@ function isPublicBootstrapPath(pathname: string): boolean {
 
 async function runClientBootstrap(): Promise<void> {
   consumeAuthHandoffFromUrl();
+
+  if (typeof window !== "undefined" && isPlatformAdminPath(window.location.pathname)) {
+    return;
+  }
 
   const token = getAuthToken()?.trim();
   if (!token) return;
@@ -130,7 +134,8 @@ export function AppBootstrap({ children }: { children: ReactNode }) {
     if (
       userNeedsEmailVerification(auth.user) &&
       !pathname.startsWith(verifyEmailPath()) &&
-      !pathname.startsWith("/login")
+      !pathname.startsWith("/login") &&
+      !isPlatformAdminPath(pathname)
     ) {
       router.replace(verifyEmailPath());
       return;

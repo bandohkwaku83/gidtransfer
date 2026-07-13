@@ -88,11 +88,13 @@ export function clearOnboardingProfileCache(user: { _id: string; email: string }
 
 /** Merge API user with optional local onboarding cache (fallback when API omits studio). */
 export function hydrateAuthUser(user: AuthUser): AuthUser {
-  if (user.onboardingComplete) {
-    const p = readPersistedOnboarding(user);
-    const studio = user.studio ?? p?.studio;
+  const persisted = readPersistedOnboarding(user);
+  const complete = user.onboardingComplete || persisted?.complete === true;
+  if (complete) {
+    const studio = user.studio ?? persisted?.studio;
     return {
       ...user,
+      onboardingComplete: true,
       ...(studio ? { studio } : {}),
       name:
         studio?.companyName?.trim() ||

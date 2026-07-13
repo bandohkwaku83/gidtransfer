@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useToast } from "@/components/toast-provider";
 import { SmsSenderIdField } from "@/components/sms/sms-sender-id-field";
 import { StudioUrlField } from "@/components/studio/studio-url-field";
@@ -149,12 +149,16 @@ export default function OnboardingPage() {
   const [smsSenderId, setSmsSenderId] = useState("");
   const [smsSenderManuallyEdited, setSmsSenderManuallyEdited] = useState(false);
   const [slugError, setSlugError] = useState<string | null>(null);
+  const initStartedRef = useRef(false);
 
   useEffect(() => {
     redirectToApexAuthIfNeeded("/onboarding");
   }, []);
 
   useEffect(() => {
+    if (initStartedRef.current) return;
+    initStartedRef.current = true;
+
     let cancelled = false;
 
     async function init() {
@@ -168,6 +172,11 @@ export default function OnboardingPage() {
 
       if (userNeedsEmailVerification(auth.user)) {
         router.replace(verifyEmailPath());
+        return;
+      }
+
+      if (auth.user.onboardingComplete) {
+        navigateAfterAuth(auth.user, router);
         return;
       }
 

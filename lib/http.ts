@@ -1,7 +1,11 @@
 import { apiUrl } from "@/lib/api";
 import { recordApiMetric } from "@/lib/api-metrics";
 import { clearAuth, getAuthToken } from "@/lib/auth-demo";
-import { photographerAuthUrl, photographerSignOutUrl } from "@/lib/studio-url";
+import {
+  isPlatformAdminPath,
+  photographerAuthUrl,
+  photographerSignOutUrl,
+} from "@/lib/studio-url";
 
 /**
  * Base class for failures returned by an authenticated API call.
@@ -70,7 +74,8 @@ function throwIfEmailNotVerified(status: number, body: unknown): void {
   if (status !== 403 || !isEmailNotVerified403(body)) return;
   if (
     typeof window !== "undefined" &&
-    !window.location.pathname.startsWith("/verify-email")
+    !window.location.pathname.startsWith("/verify-email") &&
+    !isPlatformAdminPath(window.location.pathname)
   ) {
     window.location.href = photographerAuthUrl("/verify-email");
   }
