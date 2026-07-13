@@ -5,11 +5,11 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { AppSplashLoader } from "@/components/app-splash-loader";
 import {
   fetchAuthMe,
-  mapApiUserToAuthUser,
+  refreshAuthSessionFromApi,
   userNeedsEmailVerification,
   verifyEmailPath,
 } from "@/lib/auth-api";
-import { consumeAuthHandoffFromUrl, getAuth, getAuthToken, setAuthSession } from "@/lib/auth-demo";
+import { consumeAuthHandoffFromUrl, getAuth, getAuthToken } from "@/lib/auth-demo";
 import { isPlatformAdminPath } from "@/lib/studio-url";
 
 /** App Router paths; must match real `app/` routes (use pathname shape Next resolves). */
@@ -78,15 +78,17 @@ async function runClientBootstrap(): Promise<void> {
     return;
   }
 
+  const path = typeof window !== "undefined" ? window.location.pathname : "";
+  if (path === "/onboarding" || path.startsWith("/onboarding/")) {
+    return;
+  }
+
   const token = getAuthToken()?.trim();
   if (!token) return;
 
   try {
     const { user: apiUser } = await fetchAuthMe();
-    const auth = getAuth();
-    if (!auth) return;
-    const user = mapApiUserToAuthUser(apiUser);
-    setAuthSession({ ...auth, token, user });
+    refreshAuthSessionFromApi(apiUser);
   } catch {
     // 401 / network — authedFetch handles session expiry
   }

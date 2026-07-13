@@ -83,6 +83,53 @@ function nameFromEmail(email: string) {
   return localPart.replace(/[._-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+function mergeStudioProfile(
+  api?: ApiAuthUser["studio"],
+  prior?: AuthUser["studio"],
+): ApiAuthUser["studio"] | undefined {
+  if (!api && !prior) return undefined;
+  return { ...(prior ?? {}), ...(api ?? {}) } as ApiAuthUser["studio"];
+}
+
+/** Merge API user fields without downgrading client-known onboarding completion. */
+export function mergeApiAuthUser(
+  apiUser: ApiAuthUser,
+  prior?: AuthUser | null,
+): ApiAuthUser {
+  const onboardingComplete =
+    apiUser.onboardingComplete === true || prior?.onboardingComplete === true;
+
+  return {
+    ...apiUser,
+    _id: apiUser._id?.trim() || prior?._id || "",
+    email: apiUser.email?.trim() || prior?.email || "",
+    onboardingComplete,
+    createdAt: apiUser.createdAt ?? prior?.createdAt,
+    updatedAt: apiUser.updatedAt ?? prior?.updatedAt,
+    emailVerified:
+      apiUser.emailVerified !== undefined ? apiUser.emailVerified : prior?.emailVerified,
+    emailVerifiedAt:
+      apiUser.emailVerifiedAt !== undefined ? apiUser.emailVerifiedAt : prior?.emailVerifiedAt,
+    authProvider: apiUser.authProvider ?? prior?.authProvider,
+    studio: mergeStudioProfile(apiUser.studio, prior?.studio),
+  };
+}
+
+/** Refresh the stored session from GET /api/auth/me without losing onboarding progress. */
+export function refreshAuthSessionFromApi(apiUser: ApiAuthUser): AuthUser | null {
+  const token = getAuthToken()?.trim();
+  if (!token) return null;
+  const auth = getAuth();
+  if (!auth) return null;
+
+  const user = mapApiUserToAuthUser(mergeApiAuthUser(apiUser, auth.user));
+  setAuthSession({ ...auth, token, user });
+  if (user.onboardingComplete && user.studio) {
+    cacheOnboardingProfile(user, user.studio);
+  }
+  return user;
+}
+
 /** Save JWT + user from register, login, Google, verify-email, or reset-password. */
 export function persistAuthResponse(res: AuthResponse): AuthUser {
   const token = res.token?.trim();
@@ -90,19 +137,7 @@ export function persistAuthResponse(res: AuthResponse): AuthUser {
     throw new Error("Login succeeded but no token was returned. Check the API URL.");
   }
   const prior = getAuth()?.user;
-  const mergedApiUser: ApiAuthUser = {
-    _id: res.user._id?.trim() || prior?._id || "",
-    email: res.user.email?.trim() || prior?.email || "",
-    onboardingComplete: res.user.onboardingComplete ?? prior?.onboardingComplete,
-    createdAt: res.user.createdAt ?? prior?.createdAt,
-    updatedAt: res.user.updatedAt ?? prior?.updatedAt,
-    emailVerified: res.user.emailVerified ?? prior?.emailVerified,
-    emailVerifiedAt:
-      res.user.emailVerifiedAt !== undefined ? res.user.emailVerifiedAt : prior?.emailVerifiedAt,
-    authProvider: res.user.authProvider ?? prior?.authProvider,
-    studio: res.user.studio ?? (prior?.studio ? { ...prior.studio } : undefined),
-  };
-  const user = mapApiUserToAuthUser(mergedApiUser);
+  const user = mapApiUserToAuthUser(mergeApiAuthUser(res.user, prior));
   setAuthSession({
     email: user.email,
     token,
@@ -175,6 +210,11 @@ export function navigateAfterAuth(
       clearAuth,
     )
   ) {
+    return true;
+  }
+
+  if (typeof window !== "undefined") {
+    window.location.replace(photographerAuthUrl("/dashboard"));
     return true;
   }
   router.replace("/dashboard");

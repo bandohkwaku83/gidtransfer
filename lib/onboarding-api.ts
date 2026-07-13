@@ -1,4 +1,4 @@
-import { mapApiUserToAuthUser, type ApiAuthUser } from "@/lib/auth-api";
+import { mapApiUserToAuthUser, mergeApiAuthUser, type ApiAuthUser } from "@/lib/auth-api";
 import {
   cacheOnboardingProfile,
   getAuth,
@@ -22,13 +22,7 @@ export function persistOnboardingResponse(res: OnboardingResponse): AuthUser {
     throw new Error("Not signed in. Please log in again.");
   }
   const prior = getAuth()?.user;
-  const mergedApiUser: ApiAuthUser = {
-    ...res.user,
-    onboardingComplete: Boolean(
-      res.user.onboardingComplete ?? prior?.onboardingComplete,
-    ),
-  };
-  const user = mapApiUserToAuthUser(mergedApiUser, {
+  const user = mapApiUserToAuthUser(mergeApiAuthUser(res.user, prior), {
     studioUrlSuffix: res.studioUrlSuffix,
     studioUrl: res.studioUrl,
   });

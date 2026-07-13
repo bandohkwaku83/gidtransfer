@@ -10,7 +10,6 @@ import { StudioUrlField } from "@/components/studio/studio-url-field";
 import {
   navigateAfterAuth,
   userNeedsEmailVerification,
-  verifyEmailPath,
 } from "@/lib/auth-api";
 import { clearAuth, getAuth, getAuthToken, logout } from "@/lib/auth-demo";
 import {
@@ -150,6 +149,7 @@ export default function OnboardingPage() {
   const [smsSenderManuallyEdited, setSmsSenderManuallyEdited] = useState(false);
   const [slugError, setSlugError] = useState<string | null>(null);
   const initStartedRef = useRef(false);
+  const leaveOnboardingRef = useRef(false);
 
   useEffect(() => {
     redirectToApexAuthIfNeeded("/onboarding");
@@ -171,20 +171,23 @@ export default function OnboardingPage() {
       }
 
       if (userNeedsEmailVerification(auth.user)) {
-        router.replace(verifyEmailPath());
+        leaveOnboardingRef.current = true;
+        navigateAfterAuth(auth.user, router);
         return;
       }
 
       if (auth.user.onboardingComplete) {
+        leaveOnboardingRef.current = true;
         navigateAfterAuth(auth.user, router);
         return;
       }
 
       try {
         const res = await fetchOnboarding();
-        if (cancelled) return;
+        if (cancelled || leaveOnboardingRef.current) return;
         const user = persistOnboardingResponse(res);
         if (user.onboardingComplete) {
+          leaveOnboardingRef.current = true;
           navigateAfterAuth(user, router);
           return;
         }
@@ -204,12 +207,13 @@ export default function OnboardingPage() {
           setSmsSenderManuallyEdited,
         });
       } catch (err) {
-        if (cancelled) return;
+        if (cancelled || leaveOnboardingRef.current) return;
         if (err instanceof OnboardingApiError && err.status === 401) {
           return;
         }
         const u = getAuth()?.user;
         if (u?.onboardingComplete) {
+          leaveOnboardingRef.current = true;
           navigateAfterAuth(u, router);
           return;
         }
@@ -236,7 +240,7 @@ export default function OnboardingPage() {
           }
         }
       } finally {
-        if (!cancelled) setReady(true);
+        if (!cancelled && !leaveOnboardingRef.current) setReady(true);
       }
     }
 
@@ -303,6 +307,7 @@ export default function OnboardingPage() {
 
     setSlugError(null);
     setBusy(true);
+    leaveOnboardingRef.current = true;
     try {
       const res = await completeOnboardingApi({
         companyName: name,
@@ -316,11 +321,9 @@ export default function OnboardingPage() {
       });
       const user = persistOnboardingResponse(res);
       showToast(res.message?.trim() || "Welcome to your studio.", "success");
-      const navigated = navigateAfterAuth(user, router);
-      if (!navigated) {
-        setBusy(false);
-      }
+      navigateAfterAuth(user, router);
     } catch (e) {
+      leaveOnboardingRef.current = false;
       setBusy(false);
       const message = onboardingErrorMessage(e, "Could not save your profile.");
       if (e instanceof OnboardingApiError && e.status === 409) {
@@ -330,7 +333,7 @@ export default function OnboardingPage() {
     }
   }
 
-  if (!ready) {
+  if (!ready || leaveOnboardingRef.current) {
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center">
         <OnboardingBackground />
