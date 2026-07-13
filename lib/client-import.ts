@@ -1,4 +1,5 @@
 import type { ClientInput } from "@/lib/clients-api";
+import { sanitizeContactNumberInput } from "@/lib/contact-number-input";
 import * as XLSX from "xlsx";
 
 export type ClientImportRow = {
@@ -127,12 +128,13 @@ function parseClientImportMatrix(matrix: string[][]): ClientImportParseResult {
     if (hasMappedHeader) {
       columnMap.forEach((field, colIndex) => {
         if (!field) return;
-        draft[field] = cells[colIndex]?.trim() ?? "";
+        const raw = cells[colIndex]?.trim() ?? "";
+        draft[field] = field === "contact" ? sanitizeContactNumberInput(raw) : raw;
       });
     } else {
       draft.name = cells[0]?.trim() ?? "";
       draft.email = cells[1]?.trim() ?? "";
-      draft.contact = cells[2]?.trim() ?? "";
+      draft.contact = sanitizeContactNumberInput(cells[2]?.trim() ?? "");
       draft.location = cells[3]?.trim() ?? "";
     }
 

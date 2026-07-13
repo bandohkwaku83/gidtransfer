@@ -21,7 +21,7 @@ import {
 } from "lucide-react";
 import { useToast } from "@/components/toast-provider";
 import { formModalLabelClass } from "@/components/ui/form-modal";
-import { FormInput } from "@/components/ui/form-input";
+import { FormInput, ContactNumberInput } from "@/components/ui/form-input";
 import {
   logout,
   type DemoAuthUser,
@@ -357,13 +357,11 @@ export function SettingsProfileSection({
               <Phone className="h-3.5 w-3.5 text-zinc-400" aria-hidden />
               Business phone
             </span>
-            <FormInput
-              type="tel"
+            <ContactNumberInput
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
               placeholder="e.g. +1 555 0100"
               disabled={busy}
-              autoComplete="tel"
               className="mt-2"
             />
           </label>

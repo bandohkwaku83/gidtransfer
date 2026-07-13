@@ -195,3 +195,40 @@ export async function deleteIncome(id: string): Promise<void> {
     ApiError,
   );
 }
+
+export type RecordBookingInvoiceBody = {
+  issuedOn?: string;
+  addOns?: { label: string; amount: number }[];
+  amountPaying?: number;
+};
+
+export async function recordBookingInvoice(
+  bookingId: string,
+  input: RecordBookingInvoiceBody = {},
+): Promise<{ message?: string; invoiceNumber?: string; entry: IncomeEntry }> {
+  const body: Record<string, unknown> = {};
+  if (input.issuedOn?.trim()) body.issuedOn = input.issuedOn.trim();
+  if (input.addOns?.length) body.addOns = input.addOns;
+  if (input.amountPaying !== undefined) body.amountPaying = input.amountPaying;
+
+  const res = await authedJson<{
+    message?: string;
+    invoiceNumber?: string;
+    entry?: RawIncomeEntry;
+    income?: RawIncomeEntry;
+  }>(
+    `/api/bookings/${encodeURIComponent(bookingId)}/invoice`,
+    {
+      method: "POST",
+      body: JSON.stringify(body),
+    },
+    "Failed to record invoice in income",
+    IncomeApiError,
+  );
+
+  return {
+    message: res.message,
+    invoiceNumber: res.invoiceNumber,
+    entry: unwrapEntryResponse(res),
+  };
+}

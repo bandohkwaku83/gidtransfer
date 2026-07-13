@@ -5,7 +5,7 @@ import { MessageSquare, Send } from "lucide-react";
 import { useToast } from "@/components/toast-provider";
 import { SmsSenderIdField } from "@/components/sms/sms-sender-id-field";
 import { SmsSenderStatusBanner } from "@/components/sms/sms-sender-status-banner";
-import { FormInput } from "@/components/ui/form-input";
+import { ContactNumberInput } from "@/components/ui/form-input";
 import { formModalLabelClass } from "@/components/ui/form-modal";
 import type { DemoAuthUser } from "@/lib/auth-demo";
 import {
@@ -198,13 +198,11 @@ export function SettingsSmsSection({
             </p>
             <label className="mt-3 block">
               <span className={cn(formModalLabelClass, "normal-case")}>Phone number</span>
-              <FormInput
-                type="tel"
+              <ContactNumberInput
                 value={testPhone}
                 onChange={(e) => setTestPhone(e.target.value)}
                 placeholder="e.g. +233200000000"
                 disabled={testBusy}
-                autoComplete="tel"
                 className="mt-2"
               />
             </label>

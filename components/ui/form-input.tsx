@@ -3,7 +3,8 @@
 import { Input, Tooltip } from "antd";
 import type { InputRef, InputProps, TextAreaProps } from "antd/es/input";
 import type { TextAreaRef } from "antd/es/input/TextArea";
-import { forwardRef, type ReactNode } from "react";
+import { forwardRef, type ChangeEvent, type ReactNode } from "react";
+import { sanitizeContactNumberInput } from "@/lib/contact-number-input";
 import { cn } from "@/lib/utils";
 
 /**
@@ -168,6 +169,32 @@ export const FormInput = forwardRef<InputRef, FormInputProps>(function FormInput
     />
   );
 });
+
+export type ContactNumberInputProps = Omit<FormInputProps, "type" | "inputMode">;
+
+/** Phone/contact fields — digits and symbols only; letters are stripped on input. */
+export const ContactNumberInput = forwardRef<InputRef, ContactNumberInputProps>(
+  function ContactNumberInput({ onChange, autoComplete = "tel", ...props }, ref) {
+    function handleChange(e: ChangeEvent<HTMLInputElement>) {
+      const sanitized = sanitizeContactNumberInput(e.target.value);
+      if (sanitized !== e.target.value) {
+        e.target.value = sanitized;
+      }
+      onChange?.(e);
+    }
+
+    return (
+      <FormInput
+        ref={ref}
+        type="tel"
+        inputMode="tel"
+        autoComplete={autoComplete}
+        onChange={handleChange}
+        {...props}
+      />
+    );
+  },
+);
 
 export type FormPasswordInputProps = InputProps & { help?: ReactNode | boolean };
 

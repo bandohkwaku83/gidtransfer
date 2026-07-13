@@ -15,7 +15,7 @@ import {
   FormModalSplitLayout,
   FormModalSplitMain,
 } from "@/components/ui/form-modal";
-import { FormInput } from "@/components/ui/form-input";
+import { FormInput, ContactNumberInput } from "@/components/ui/form-input";
 import { onboardingAntInputClassName } from "@/lib/onboarding-field-styles";
 import {
   createClient,
@@ -160,7 +160,7 @@ export function CreateClientModal({ open, onClose, client, onSaved, elevated }: 
                   </FormField>
 
                   <FormField label="Contact number" required appearance="onboarding">
-                    <FormInput
+                    <ContactNumberInput
                       className={onboardingAntInputClassName}
                       value={contact}
                       onChange={(e) => setContact(e.target.value)}

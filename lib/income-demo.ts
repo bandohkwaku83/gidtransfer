@@ -242,13 +242,13 @@ export const DEMO_INCOME_ENTRIES: IncomeEntry[] = [
 export function formatIncomeCompact(amount: number, currency = "GHS"): string {
   const code = currency.trim().toUpperCase() || "GHS";
   const prefix = code === "GHS" ? "GH₵" : `${code} `;
-  if (amount >= 1_000_000) {
-    return `${prefix}${(amount / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
+  if (Number.isInteger(amount)) {
+    return `${prefix}${amount.toLocaleString("en-GH")}`;
   }
-  if (amount >= 1_000) {
-    return `${prefix}${(amount / 1_000).toFixed(1).replace(/\.0$/, "")}k`;
-  }
-  return `${prefix}${amount.toLocaleString("en-GH")}`;
+  return `${prefix}${amount.toLocaleString("en-GH", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
 }
 
 export function incomeStatusLabel(status: IncomeStatus): string {

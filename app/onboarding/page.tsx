@@ -24,7 +24,7 @@ import {
   PRIMARY_DELIVERABLE_OPTIONS,
   type PrimaryDeliverableValue,
 } from "@/lib/onboarding-api";
-import { FormInput } from "@/components/ui/form-input";
+import { FormInput, ContactNumberInput } from "@/components/ui/form-input";
 import {
   onboardingAntInputClassName,
   onboardingLabelClass,
@@ -434,8 +434,7 @@ export default function OnboardingPage() {
               Business phone
               <OnboardingRequiredMark />
             </span>
-            <FormInput
-              type="tel"
+            <ContactNumberInput
               autoComplete="tel"
               className={onboardingAntInputClassName}
               value={phone}

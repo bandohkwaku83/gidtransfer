@@ -28,6 +28,7 @@ import {
   type BookingInvoiceData,
 } from "@/lib/booking-invoice";
 import { getBooking } from "@/lib/bookings-api";
+import { recordBookingInvoice } from "@/lib/income-api";
 import { onboardingAntInputClassName } from "@/lib/onboarding-field-styles";
 import { studioLogoSrc } from "@/lib/branding";
 import { cn } from "@/lib/utils";
@@ -252,8 +253,9 @@ export function BookingInvoiceModal({ open, booking, onClose }: Props) {
     if (!invoiceData) return;
     setBusy(true);
     try {
+      await syncInvoiceToIncome(invoiceData);
       await downloadBookingInvoicePdf(invoiceData);
-      showToast("Invoice PDF downloaded.", "success");
+      showToast("Invoice recorded and PDF downloaded.", "success");
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Could not create PDF.", "error");
     } finally {
@@ -269,13 +271,14 @@ export function BookingInvoiceModal({ open, booking, onClose }: Props) {
     }
     setBusy(true);
     try {
+      await syncInvoiceToIncome(invoiceData);
       const result = await shareBookingInvoicePdf(invoiceData);
       if (result === "shared") {
-        showToast("Invoice shared.", "success");
+        showToast("Invoice recorded and shared.", "success");
       } else if (result === "mailto") {
-        showToast("PDF downloaded — attach it in your email app.", "success");
+        showToast("Invoice recorded — attach the PDF in your email app.", "success");
       } else {
-        showToast("PDF downloaded.", "success");
+        showToast("Invoice recorded and PDF downloaded.", "success");
       }
     } catch (e) {
       if (e instanceof Error && e.name === "AbortError") return;
@@ -284,7 +287,7 @@ export function BookingInvoiceModal({ open, booking, onClose }: Props) {
         try {
           await downloadBookingInvoicePdf(invoiceData);
           window.location.href = mailto;
-          showToast("PDF downloaded — attach it in your email app.", "success");
+          showToast("Invoice recorded — attach the PDF in your email app.", "success");
         } catch {
           showToast("Could not send invoice.", "error");
         }
@@ -299,6 +302,22 @@ export function BookingInvoiceModal({ open, booking, onClose }: Props) {
   function handleClose() {
     if (busy) return;
     onClose();
+  }
+
+  async function syncInvoiceToIncome(data: BookingInvoiceData) {
+    const addOns =
+      data.lineItems.length > 1
+        ? data.lineItems.slice(1).map((item) => ({
+            label: item.description,
+            amount: item.total,
+          }))
+        : [];
+
+    await recordBookingInvoice(data.booking.id, {
+      issuedOn: data.issuedOn,
+      addOns,
+      amountPaying: 0,
+    });
   }
 
   if (!open || !booking || !invoiceData) return null;
