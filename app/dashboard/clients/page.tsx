@@ -10,6 +10,7 @@ import {
   Trash2,
   Users,
 } from "lucide-react";
+import Link from "next/link";
 import { Select } from "antd";
 import { FormSearchInput, dashboardSearchFieldClassName } from "@/components/ui/form-input";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -296,7 +297,12 @@ export default function ClientsPage() {
                           )}
                         >
                           <td className="px-5 py-3.5 font-medium text-zinc-900 dark:text-zinc-100 sm:px-6">
-                            {record.name}
+                            <Link
+                              href={`/dashboard/clients/${record._id}`}
+                              className="transition hover:text-brand hover:underline underline-offset-2 dark:hover:text-brand-on-dark"
+                            >
+                              {record.name}
+                            </Link>
                           </td>
                           <td className="max-w-[14rem] truncate px-3 py-3.5 text-zinc-600 dark:text-zinc-300">
                             {record.email?.trim() || "N/A"}
