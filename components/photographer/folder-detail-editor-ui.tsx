@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type ComponentType, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from "react";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -77,6 +77,11 @@ import { statusLabel } from "@/components/photographer/folder-detail-bits";
 import type { GalleryAccessEmailEntry } from "@/lib/gallery-email-access";
 
 export type FolderEditorTab = "dashboard" | "gallery" | "uploads" | "selection" | "finals" | "blog";
+export type CustomizeSectionId =
+  | "cover-photo"
+  | "cover-style"
+  | "grid-typography"
+  | "client-access";
 export type PreviewLayout = GalleryImageLayout;
 export type PreviewViewport = "desktop" | "mobile";
 
@@ -86,33 +91,65 @@ function CustomizeSection({
   description,
   children,
   footer,
+  open,
+  onOpenChange,
+  defaultOpen = false,
 }: {
   icon: ComponentType<{ className?: string; strokeWidth?: number }>;
   title: string;
   description?: string;
   children: ReactNode;
   footer?: ReactNode;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  defaultOpen?: boolean;
 }) {
+  const [internalOpen, setInternalOpen] = useState(defaultOpen);
+  const isControlled = open !== undefined;
+  const isOpen = isControlled ? open : internalOpen;
+
+  const setOpen = (next: boolean) => {
+    if (!isControlled) setInternalOpen(next);
+    onOpenChange?.(next);
+  };
+
   return (
-    <section className="rounded-2xl border border-zinc-200/90 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
-      <div className="border-b border-zinc-100 px-4 py-3 dark:border-zinc-800">
-        <div className="flex min-w-0 items-start gap-2.5">
-          <span className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand-soft text-brand dark:bg-brand/15 dark:text-brand-on-dark">
-            <Icon className="h-4 w-4" strokeWidth={1.75} aria-hidden />
-          </span>
-          <div className="min-w-0">
-            <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">{title}</h3>
-            {description ? (
-              <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-500 dark:text-zinc-400">
-                {description}
-              </p>
-            ) : null}
-          </div>
+    <section className="overflow-hidden rounded-2xl border border-zinc-200/90 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
+      <button
+        type="button"
+        onClick={() => setOpen(!isOpen)}
+        aria-expanded={isOpen}
+        className={cn(
+          "flex w-full items-start gap-2.5 bg-[#F8F8F8] px-4 py-3 text-left transition-colors hover:bg-[#F0F0F0]",
+          isOpen ? "border-b border-zinc-200/80" : "",
+        )}
+      >
+        <span className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand-soft text-brand dark:bg-brand/15 dark:text-brand-on-dark">
+          <Icon className="h-4 w-4" strokeWidth={1.75} aria-hidden />
+        </span>
+        <div className="min-w-0 flex-1">
+          <h3 className="text-sm font-semibold text-[#171717]">{title}</h3>
+          {description ? (
+            <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-500 dark:text-zinc-400">
+              {description}
+            </p>
+          ) : null}
         </div>
-      </div>
-      <div className="space-y-3 p-4">{children}</div>
-      {footer ? (
-        <div className="border-t border-zinc-100 px-4 py-3 dark:border-zinc-800">{footer}</div>
+        <ChevronDown
+          className={cn(
+            "mt-1.5 h-4 w-4 shrink-0 text-zinc-400 transition-transform duration-200",
+            isOpen && "rotate-180",
+          )}
+          aria-hidden
+        />
+      </button>
+      {isOpen ? (
+        <div>
+          <div className="space-y-3 p-4">{children}</div>
+          {footer ? (
+            <div className="border-t border-zinc-100 px-4 py-3 dark:border-zinc-800">{footer}</div>
+          ) : null}
+        </div>
       ) : null}
     </section>
   );
@@ -867,10 +904,19 @@ export function CoverFrameStylePicker({
   disabled?: boolean;
   coverFrames?: readonly GalleryCoverFrameOption[];
 }) {
+  const pickerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    pickerRef.current
+      ?.querySelector<HTMLElement>('[aria-selected="true"]')
+      ?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+  }, [value]);
+
   return (
     <div
+      ref={pickerRef}
       className={cn(
-        "grid max-h-[min(360px,55vh)] grid-cols-1 gap-1.5 overflow-y-auto pr-0.5 [scrollbar-width:thin] sm:grid-cols-2",
+        "-mx-1 flex snap-x snap-mandatory gap-2 overflow-x-auto overscroll-x-contain px-1 pb-2 [scrollbar-width:thin]",
         className,
       )}
       role="listbox"
@@ -890,7 +936,7 @@ export function CoverFrameStylePicker({
             disabled={disabled}
             onClick={() => onChange(frameId)}
             className={cn(
-              "flex flex-col items-stretch rounded-xl border p-2 transition disabled:opacity-50",
+              "flex w-[8.5rem] shrink-0 snap-start flex-col items-stretch rounded-xl border p-2 transition disabled:opacity-50",
               selected
                 ? "border-brand/50 bg-brand-soft dark:border-brand/35 dark:bg-brand/15"
                 : "border-zinc-200/90 bg-zinc-50/50 hover:border-zinc-300 dark:border-zinc-700 dark:bg-zinc-900/30 dark:hover:border-zinc-600",
@@ -933,7 +979,7 @@ export function GalleryLayoutStylePicker({
   return (
     <div
       className={cn(
-        "grid max-h-[min(280px,50vh)] grid-cols-1 gap-1.5 overflow-y-auto pr-0.5 [scrollbar-width:thin] sm:grid-cols-2",
+        "grid grid-cols-2 gap-2",
         className,
       )}
       role="listbox"
@@ -1097,8 +1143,6 @@ export function CustomizeGallerySidebar({
   focalY,
   onFocalChange,
   savingFocal,
-  onSaveFocal,
-  onCancelFocal,
   onUploadMusic,
   onRemoveMusic,
 }: {
@@ -1148,17 +1192,21 @@ export function CustomizeGallerySidebar({
   focalY: number;
   onFocalChange: (x: number, y: number) => void;
   savingFocal: boolean;
-  onSaveFocal: () => void;
-  onCancelFocal: () => void;
   onUploadMusic: () => void;
   onRemoveMusic: () => void;
 }) {
   useGalleryGoogleFonts(titleFont, bodyFont);
+  const [openSection, setOpenSection] = useState<CustomizeSectionId | null>("cover-photo");
+
+  const sectionOpen = (id: CustomizeSectionId) => openSection === id;
+  const sectionToggle = (id: CustomizeSectionId) => (open: boolean) => {
+    setOpenSection(open ? id : null);
+  };
 
   return (
     <aside
       className={cn(
-        "w-full shrink-0 space-y-4 lg:w-[min(100%,380px)]",
+        "w-full shrink-0 space-y-4 pb-8 lg:w-[min(100%,380px)]",
         "lg:sticky lg:top-4 lg:max-h-[calc(100dvh-5rem)] lg:overflow-y-auto",
         "[scrollbar-width:thin]",
       )}
@@ -1175,7 +1223,9 @@ export function CustomizeGallerySidebar({
       <CustomizeSection
         icon={ImageIcon}
         title="Cover photo"
-        description="Hero image and focal point. Saves immediately when you upload or adjust focal."
+        description="Hero image and focal point. Saves automatically as you adjust."
+        open={sectionOpen("cover-photo")}
+        onOpenChange={sectionToggle("cover-photo")}
       >
         <div className="flex gap-3 rounded-xl border border-zinc-100 bg-zinc-50/60 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/40">
           <div className="relative h-[4.5rem] w-[6.5rem] shrink-0 overflow-hidden rounded-lg border border-zinc-200/80 bg-zinc-200 dark:border-zinc-700 dark:bg-zinc-800">
@@ -1227,35 +1277,23 @@ export function CustomizeGallerySidebar({
 
         {focalEditOpen ? (
           <div className="space-y-3 rounded-xl border border-brand/20 bg-brand-soft/30 p-3 dark:border-brand/25 dark:bg-brand/10">
-            <p className="text-[11px] font-medium text-zinc-700 dark:text-zinc-300">
-              Drag to set the focal point
-            </p>
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[11px] font-medium text-zinc-700 dark:text-zinc-300">
+                Drag to set the focal point
+              </p>
+              {savingFocal ? (
+                <span className="text-[10px] font-medium text-zinc-500 dark:text-zinc-400">
+                  Saving…
+                </span>
+              ) : null}
+            </div>
             <CoverFocalPreview
               imageUrl={coverSrc}
               focalX={focalX}
               focalY={focalY}
               onFocalChange={onFocalChange}
-              disabled={savingFocal}
               frameClassName="aspect-[16/10] w-full rounded-lg"
             />
-            <div className="flex gap-2">
-              <button
-                type="button"
-                disabled={savingFocal}
-                onClick={onSaveFocal}
-                className="flex-1 rounded-lg bg-brand px-3 py-2 text-xs font-semibold text-white shadow-sm disabled:opacity-50"
-              >
-                {savingFocal ? "Saving…" : "Save focal"}
-              </button>
-              <button
-                type="button"
-                disabled={savingFocal}
-                onClick={onCancelFocal}
-                className="flex-1 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100"
-              >
-                Cancel
-              </button>
-            </div>
           </div>
         ) : null}
       </CustomizeSection>
@@ -1264,6 +1302,8 @@ export function CustomizeGallerySidebar({
         icon={Palette}
         title="Cover style"
         description="Layout of the hero area on the client link. Changes save automatically."
+        open={sectionOpen("cover-style")}
+        onOpenChange={sectionToggle("cover-style")}
       >
         <CoverColorPicker
           value={coverColorDraft}
@@ -1288,19 +1328,30 @@ export function CustomizeGallerySidebar({
             className="mt-1"
           />
         </div>
-        <CoverFrameStylePicker
-          value={coverFrameDraft}
-          coverColor={coverColorDraft}
-          onChange={onCoverFrameChange}
-          coverFrames={coverFrameOptions}
-          className="mt-3"
-        />
+        <div className="pt-1">
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <p className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">
+              Cover layout
+            </p>
+            <p className="text-[10px] text-zinc-400 dark:text-zinc-500">
+              Swipe to browse
+            </p>
+          </div>
+          <CoverFrameStylePicker
+            value={coverFrameDraft}
+            coverColor={coverColorDraft}
+            onChange={onCoverFrameChange}
+            coverFrames={coverFrameOptions}
+          />
+        </div>
       </CustomizeSection>
 
       <CustomizeSection
         icon={LayoutGrid}
         title="Grid & typography"
         description="Default grid style and fonts on the client link save automatically."
+        open={sectionOpen("grid-typography")}
+        onOpenChange={sectionToggle("grid-typography")}
       >
         <div>
           <p className="mb-2 text-[11px] font-medium text-zinc-600 dark:text-zinc-400">Default grid style</p>
@@ -1330,6 +1381,8 @@ export function CustomizeGallerySidebar({
         icon={Shield}
         title="Client access"
         description="Background music and password protection apply to the client gallery."
+        open={sectionOpen("client-access")}
+        onOpenChange={sectionToggle("client-access")}
       >
         <div className="space-y-4">
           <div className="rounded-xl border border-zinc-100 bg-zinc-50/50 p-3 dark:border-zinc-800 dark:bg-zinc-900/30">

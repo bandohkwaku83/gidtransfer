@@ -44,7 +44,7 @@ function StatMiniCard({ item, loading }: { item: DashboardStatItem; loading?: bo
           <p
             className={cn(
               "dashboard-stat-card-value",
-              isZero && "text-[#B8A4AE] dark:text-zinc-600",
+              isZero && "text-zinc-300 dark:text-zinc-600",
             )}
           >
             {item.value}

@@ -114,7 +114,6 @@ import {
   getFolder,
   refreshFolderMedia,
   getFolderClientName,
-  getFolderClientContact,
   getFolderCoverUrl,
   folderCoverObjectPositionStyle,
   FALLBACK_SHARE_EXPIRY_PRESETS,
@@ -395,6 +394,7 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
   const coverStyleSaveGenRef = useRef(0);
   const imageLayoutSaveGenRef = useRef(0);
   const designFontsSaveGenRef = useRef(0);
+  const focalSaveGenRef = useRef(0);
 
   const [focalEditOpen, setFocalEditOpen] = useState(false);
   const [focalDraft, setFocalDraft] = useState({ x: 50, y: 50 });
@@ -810,6 +810,7 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
       );
       setTitleFontDraft(folder.titleFont?.trim() || "Playfair Display");
       setBodyFontDraft(folder.bodyFont?.trim() || "Inter");
+      setFocalDraft(parseFolderCoverFocal(folder));
     }
 
     if (folder.allowDownloads !== undefined) {
@@ -2010,10 +2011,7 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
     }
   }
 
-  async function onToggleGalleryOnline(
-    nextOnline: boolean,
-    options?: { notifyClientViaSms?: boolean },
-  ) {
+  async function onToggleGalleryOnline(nextOnline: boolean) {
     if (!folder || busy) return;
     if (nextOnline && !canActivateGalleryOnline(folder)) {
       showToast(galleryOnlineActivationHint(folder), "error");
@@ -2025,18 +2023,13 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
         ? await regenerateFolderShare(folder._id, {
             clearSlug: false,
             linkExpiry: linkExpiry || undefined,
-            notifyClientViaSms: options?.notifyClientViaSms,
           })
         : { folder: await revokeFolderShare(folder._id) };
       setFolder(result.folder);
-      if (nextOnline && result.smsError?.message?.trim()) {
-        showToast(`Gallery is online, but SMS failed: ${result.smsError.message.trim()}`, "info");
-      } else {
-        showToast(
-          nextOnline ? "Gallery is now online." : "Gallery is now offline.",
-          "success",
-        );
-      }
+      showToast(
+        nextOnline ? "Gallery is now online." : "Gallery is now offline.",
+        "success",
+      );
     } catch (e) {
       showToast(
         e instanceof Error ? e.message : "Could not update gallery status.",
@@ -2135,36 +2128,65 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
     }
   }
 
-  async function saveCoverFocal() {
-    if (!folder || savingFocal) return;
-    setSavingFocal(true);
-    try {
-      const updated = await updateFolder(folder._id, {
-        coverFocalX: focalDraft.x,
-        coverFocalY: focalDraft.y,
-      }, folder);
-      setFolder(updated);
-      showToast("Cover framing saved.", "success");
-      setFocalEditOpen(false);
-    } catch (e) {
-      showToast(
-        e instanceof FoldersApiError
-          ? e.message
-          : e instanceof Error
+  const saveCoverFocal = useCallback(
+    async (coords: { x: number; y: number }, options?: { silent?: boolean }) => {
+      if (!folder) return;
+      const saveGen = ++focalSaveGenRef.current;
+      setSavingFocal(true);
+      try {
+        const updated = await updateFolder(
+          folder._id,
+          {
+            coverFocalX: coords.x,
+            coverFocalY: coords.y,
+          },
+          folder,
+        );
+        if (saveGen !== focalSaveGenRef.current) return;
+        setFolder(updated);
+        if (!options?.silent) {
+          showToast("Cover framing saved.", "success");
+        }
+      } catch (e) {
+        if (saveGen !== focalSaveGenRef.current) return;
+        showToast(
+          e instanceof FoldersApiError
             ? e.message
-            : "Could not save cover framing.",
-        "error",
-      );
-    } finally {
-      setSavingFocal(false);
-    }
-  }
+            : e instanceof Error
+              ? e.message
+              : "Could not save cover framing.",
+          "error",
+        );
+      } finally {
+        if (saveGen === focalSaveGenRef.current) {
+          setSavingFocal(false);
+        }
+      }
+    },
+    [folder, showToast],
+  );
 
   function openFocalEditor() {
     if (!folder) return;
     setFocalDraft(parseFolderCoverFocal(folder));
     setFocalEditOpen(true);
   }
+
+  const focalDirtyForSave = useMemo(() => {
+    if (!folder) return false;
+    const saved = parseFolderCoverFocal(folder);
+    return (
+      Math.abs(focalDraft.x - saved.x) >= 0.5 || Math.abs(focalDraft.y - saved.y) >= 0.5
+    );
+  }, [folder, focalDraft]);
+
+  useEffect(() => {
+    if (!folder || !focalDirtyForSave) return;
+    const timer = window.setTimeout(() => {
+      void saveCoverFocal(focalDraft, { silent: true });
+    }, 450);
+    return () => window.clearTimeout(timer);
+  }, [folder, focalDirtyForSave, focalDraft, saveCoverFocal]);
 
   const saveCoverFrame = useCallback(async (options?: { silent?: boolean }) => {
     if (!folder) return;
@@ -2335,7 +2357,7 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
     saveDesignFonts,
   ]);
 
-  function cancelFocalEditor() {
+  function closeFocalEditor() {
     setFocalEditOpen(false);
   }
 
@@ -2908,7 +2930,6 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
   }
 
   const clientName = getFolderClientName(folder);
-  const clientHasPhone = Boolean(getFolderClientContact(folder));
   const title = folder.eventName?.trim() || clientName;
   const coverUrl = getFolderCoverUrl(folder);
   const coverSrc = coverUrl
@@ -3093,10 +3114,9 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
               analytics={galleryAnalytics}
               statusBusy={busy}
               activationHint={galleryOnlineHint}
-              clientHasPhone={clientHasPhone}
               onNavigateTab={setTab}
               onCopyShare={() => void onCopyShareLink()}
-              onOnlineChange={(next, options) => void onToggleGalleryOnline(next, options)}
+              onOnlineChange={(next) => void onToggleGalleryOnline(next)}
             />
           ) : null}
 
@@ -3465,15 +3485,13 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
             coverBusy={coverBusy}
             hasCover={hasCover}
             onReplaceCover={() => coverFileInputRef.current?.click()}
-            onAdjustFocal={() => (focalEditOpen ? cancelFocalEditor() : openFocalEditor())}
+            onAdjustFocal={() => (focalEditOpen ? closeFocalEditor() : openFocalEditor())}
             focalEditOpen={focalEditOpen}
             coverSrc={coverSrc}
-            focalX={focalDraft.x}
-            focalY={focalDraft.y}
+            focalX={previewFocal.x}
+            focalY={previewFocal.y}
             onFocalChange={(x, y) => setFocalDraft({ x, y })}
             savingFocal={savingFocal}
-            onSaveFocal={() => void saveCoverFocal()}
-            onCancelFocal={cancelFocalEditor}
             onUploadMusic={() => musicFileInputRef.current?.click()}
             onRemoveMusic={() => void onRemoveBackgroundMusic()}
           />

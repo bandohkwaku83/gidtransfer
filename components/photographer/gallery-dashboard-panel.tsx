@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { type ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
   ArrowUpRight,
@@ -36,10 +36,9 @@ export type GalleryDashboardPanelProps = {
   analytics: GalleryAnalyticsSnapshot;
   statusBusy?: boolean;
   activationHint: string;
-  clientHasPhone?: boolean;
   onNavigateTab: (tab: FolderEditorTab) => void;
   onCopyShare: () => void;
-  onOnlineChange: (online: boolean, options?: { notifyClientViaSms?: boolean }) => void;
+  onOnlineChange: (online: boolean) => void;
 };
 
 function GalleryMetricCard({
@@ -107,7 +106,6 @@ function GalleryPublishStatus({
   sharedAt,
   busy,
   activationHint,
-  clientHasPhone,
   onOnlineChange,
 }: {
   online: boolean;
@@ -115,11 +113,8 @@ function GalleryPublishStatus({
   sharedAt?: string | null;
   busy?: boolean;
   activationHint: string;
-  clientHasPhone?: boolean;
-  onOnlineChange: (online: boolean, options?: { notifyClientViaSms?: boolean }) => void;
+  onOnlineChange: (online: boolean) => void;
 }) {
-  const [notifyViaSms, setNotifyViaSms] = useState(false);
-
   const statusHint = online
     ? "Clients can open your gallery link."
     : shareExpired
@@ -160,43 +155,9 @@ function GalleryPublishStatus({
           label={online ? "Set gallery offline" : "Set gallery online"}
           checked={online}
           disabled={busy}
-          onChange={(next) => {
-            if (next && !online) {
-              onOnlineChange(true, notifyViaSms ? { notifyClientViaSms: true } : undefined);
-              setNotifyViaSms(false);
-              return;
-            }
-            onOnlineChange(next);
-          }}
+          onChange={onOnlineChange}
         />
       </div>
-
-      {!online ? (
-        <label
-          className={cn(
-            "flex items-start gap-3 rounded-xl border border-zinc-200 bg-zinc-50/80 px-4 py-3 text-xs dark:border-zinc-800 dark:bg-zinc-900/40",
-            !clientHasPhone && "opacity-60",
-          )}
-        >
-          <input
-            type="checkbox"
-            className="mt-0.5 h-4 w-4 rounded border-zinc-300 text-brand focus:ring-brand"
-            checked={notifyViaSms}
-            disabled={busy || !clientHasPhone}
-            onChange={(e) => setNotifyViaSms(e.target.checked)}
-          />
-          <span>
-            <span className="font-semibold text-zinc-800 dark:text-zinc-200">
-              Send SMS to client
-            </span>
-            <span className="mt-0.5 block text-zinc-500 dark:text-zinc-400">
-              {clientHasPhone
-                ? "Notify the client by text when you turn the gallery online."
-                : "Add a phone number to this gallery’s client to enable SMS."}
-            </span>
-          </span>
-        </label>
-      ) : null}
     </div>
   );
 }
@@ -218,7 +179,6 @@ export function GalleryDashboardPanel({
   analytics,
   statusBusy,
   activationHint,
-  clientHasPhone,
   onNavigateTab,
   onCopyShare,
   onOnlineChange,
@@ -234,7 +194,6 @@ export function GalleryDashboardPanel({
         sharedAt={sharedAt}
         busy={statusBusy}
         activationHint={activationHint}
-        clientHasPhone={clientHasPhone}
         onOnlineChange={onOnlineChange}
       />
 

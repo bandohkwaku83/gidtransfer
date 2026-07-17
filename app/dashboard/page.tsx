@@ -295,7 +295,7 @@ export default function DashboardPage() {
       hint: "CRM directory",
       href: "/dashboard/clients",
       icon: Users,
-      iconWrap: "bg-white/65 shadow-sm ring-1 ring-white/80 dark:bg-white/10 dark:ring-white/10",
+      iconWrap: "bg-brand-soft ring-1 ring-brand/10 dark:bg-brand/15 dark:ring-brand/20",
       iconColor: "text-brand dark:text-brand-on-dark",
     },
     {
@@ -304,7 +304,7 @@ export default function DashboardPage() {
       hint: "Delivery projects",
       href: "/dashboard/galleries",
       icon: FolderOpen,
-      iconWrap: "bg-white/65 shadow-sm ring-1 ring-white/80 dark:bg-white/10 dark:ring-white/10",
+      iconWrap: "bg-brand-soft ring-1 ring-brand/10 dark:bg-brand/15 dark:ring-brand/20",
       iconColor: "text-brand dark:text-brand-on-dark",
     },
     {
@@ -313,8 +313,8 @@ export default function DashboardPage() {
       hint: "Draft or proofing",
       href: "/dashboard/galleries",
       icon: Clock3,
-      iconWrap: "bg-white/65 shadow-sm ring-1 ring-white/80 dark:bg-white/10 dark:ring-white/10",
-      iconColor: "text-amber-800 dark:text-amber-300",
+      iconWrap: "bg-amber-50 ring-1 ring-amber-200/80 dark:bg-amber-950/40 dark:ring-amber-900/50",
+      iconColor: "text-amber-700 dark:text-amber-300",
     },
     {
       label: "Completed",
@@ -322,8 +322,8 @@ export default function DashboardPage() {
       hint: "Delivered",
       href: "/dashboard/galleries",
       icon: CheckCircle2,
-      iconWrap: "bg-white/65 shadow-sm ring-1 ring-white/80 dark:bg-white/10 dark:ring-white/10",
-      iconColor: "text-emerald-800 dark:text-emerald-300",
+      iconWrap: "bg-emerald-50 ring-1 ring-emerald-200/80 dark:bg-emerald-950/40 dark:ring-emerald-900/50",
+      iconColor: "text-emerald-700 dark:text-emerald-300",
     },
   ];
 
