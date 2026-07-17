@@ -4,10 +4,7 @@ import {
   ChevronLeft,
   ChevronRight,
   FileUp,
-  Mail,
-  MapPin,
   Pencil,
-  Phone,
   Plus,
   Search,
   Trash2,
@@ -28,13 +25,6 @@ import {
   dashboardPageHeaderTitleClassName,
 } from "@/components/dashboard/dashboard-page-header";
 import { cn } from "@/lib/utils";
-
-function initials(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return "?";
-  if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase();
-  return (parts[0]![0]! + parts[parts.length - 1]![0]!).toUpperCase();
-}
 
 export default function ClientsPage() {
   const { showToast } = useToast();
@@ -242,14 +232,16 @@ export default function ClientsPage() {
           </div>
 
           {loading ? (
-            <ul className="space-y-3">
-              {Array.from({ length: 5 }).map((_, i) => (
-                <li
-                  key={i}
-                  className="h-[5.25rem] animate-pulse rounded-2xl border border-zinc-200 bg-zinc-100/80 dark:border-zinc-800 dark:bg-zinc-900/50"
-                />
-              ))}
-            </ul>
+            <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
+              <div className="space-y-0 divide-y divide-zinc-100 dark:divide-zinc-800">
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <div
+                    key={i}
+                    className="h-14 animate-pulse bg-zinc-100/80 dark:bg-zinc-900/50"
+                  />
+                ))}
+              </div>
+            </div>
           ) : clients.length === 0 ? (
             <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed border-zinc-300 bg-zinc-50/80 px-6 py-16 text-center dark:border-zinc-700 dark:bg-zinc-900/30">
               <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-zinc-200/80 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
@@ -278,79 +270,78 @@ export default function ClientsPage() {
               </button>
             </div>
           ) : (
-            <>
-              <ul className="space-y-2">
-                {pageRows.map((record) => {
-                  const isDeleting = pendingDeleteId === record._id;
-                  return (
-                    <li key={record._id}>
-                      <div
-                        className={cn(
-                          "group flex flex-col gap-4 rounded-2xl border border-zinc-200/90 bg-white p-4 transition-shadow hover:shadow-md hover:shadow-zinc-900/5 dark:border-zinc-800 dark:bg-zinc-950 dark:hover:shadow-black/40 md:flex-row md:items-center md:justify-between md:gap-6 md:p-5",
-                          isDeleting && "pointer-events-none opacity-55",
-                        )}
-                      >
-                        <div className="flex min-w-0 flex-1 gap-4">
-                          <div
-                            className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-zinc-100 to-zinc-200 text-sm font-bold text-zinc-700 ring-1 ring-zinc-300/60 dark:from-zinc-800 dark:to-zinc-900 dark:text-zinc-200 dark:ring-zinc-700"
-                            aria-hidden
-                          >
-                            {initials(record.name)}
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <p className="truncate font-semibold text-zinc-900 dark:text-zinc-50">
-                              {record.name}
-                            </p>
-                            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1.5 text-xs text-zinc-600 dark:text-zinc-400">
-                              <span className="inline-flex min-w-0 items-center gap-1.5">
-                                <Mail className="h-3.5 w-3.5 shrink-0 text-zinc-400" aria-hidden />
-                                <span className="truncate">{record.email?.trim() || "N/A"}</span>
-                              </span>
-                              <span className="inline-flex items-center gap-1.5">
-                                <Phone className="h-3.5 w-3.5 shrink-0 text-zinc-400" aria-hidden />
-                                {record.contact?.trim() || "N/A"}
-                              </span>
-                              <span className="inline-flex min-w-0 items-center gap-1.5">
-                                <MapPin className="h-3.5 w-3.5 shrink-0 text-zinc-400" aria-hidden />
-                                <span className="truncate">
-                                  {record.location?.trim() || "Unknown"}
-                                </span>
-                              </span>
+            <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[640px] text-left text-sm">
+                  <thead>
+                    <tr className="border-b border-zinc-100 bg-zinc-50/80 text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900/50 dark:text-zinc-400">
+                      <th className="px-5 py-3 sm:px-6">Name</th>
+                      <th className="px-3 py-3">Email</th>
+                      <th className="px-3 py-3">Phone</th>
+                      <th className="px-3 py-3">Location</th>
+                      <th className="w-px px-5 py-3 text-right sm:px-6">
+                        <span className="sr-only">Actions</span>
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
+                    {pageRows.map((record) => {
+                      const isDeleting = pendingDeleteId === record._id;
+                      return (
+                        <tr
+                          key={record._id}
+                          className={cn(
+                            "transition-colors hover:bg-zinc-50/80 dark:hover:bg-zinc-900/40",
+                            isDeleting && "pointer-events-none opacity-55",
+                          )}
+                        >
+                          <td className="px-5 py-3.5 font-medium text-zinc-900 dark:text-zinc-100 sm:px-6">
+                            {record.name}
+                          </td>
+                          <td className="max-w-[14rem] truncate px-3 py-3.5 text-zinc-600 dark:text-zinc-300">
+                            {record.email?.trim() || "N/A"}
+                          </td>
+                          <td className="whitespace-nowrap px-3 py-3.5 text-zinc-600 dark:text-zinc-300">
+                            {record.contact?.trim() || "N/A"}
+                          </td>
+                          <td className="max-w-[12rem] truncate px-3 py-3.5 text-zinc-600 dark:text-zinc-300">
+                            {record.location?.trim() || "Unknown"}
+                          </td>
+                          <td className="px-5 py-3.5 sm:px-6">
+                            <div className="flex items-center justify-end gap-2">
+                              <button
+                                type="button"
+                                onClick={() => openEdit(record)}
+                                disabled={isDeleting}
+                                className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-200 text-zinc-600 transition hover:border-zinc-300 hover:bg-white hover:text-zinc-900 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:bg-zinc-900 dark:hover:text-zinc-100"
+                                aria-label={`Edit ${record.name}`}
+                              >
+                                <Pencil className="h-4 w-4" aria-hidden />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDelete(record)}
+                                disabled={isDeleting}
+                                className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-red-200 text-red-600 transition hover:bg-red-50 disabled:opacity-50 dark:border-red-900/50 dark:text-red-400 dark:hover:bg-red-950/40"
+                                aria-label={`Delete ${record.name}`}
+                              >
+                                {isDeleting ? (
+                                  <span className="h-4 w-4 animate-pulse rounded bg-red-200 dark:bg-red-900/50" />
+                                ) : (
+                                  <Trash2 className="h-4 w-4" aria-hidden />
+                                )}
+                              </button>
                             </div>
-                          </div>
-                        </div>
-                        <div className="flex shrink-0 items-center justify-end gap-2 border-t border-zinc-100 pt-4 md:border-t-0 md:pt-0 dark:border-zinc-800">
-                          <button
-                            type="button"
-                            onClick={() => openEdit(record)}
-                            disabled={isDeleting}
-                            className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-zinc-200 text-zinc-600 transition hover:border-zinc-300 hover:bg-zinc-50 hover:text-zinc-900 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:bg-zinc-900 dark:hover:text-zinc-100"
-                            aria-label={`Edit ${record.name}`}
-                          >
-                            <Pencil className="h-4 w-4" aria-hidden />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDelete(record)}
-                            disabled={isDeleting}
-                            className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-red-200 text-red-600 transition hover:bg-red-50 disabled:opacity-50 dark:border-red-900/50 dark:text-red-400 dark:hover:bg-red-950/40"
-                            aria-label={`Delete ${record.name}`}
-                          >
-                            {isDeleting ? (
-                              <span className="h-4 w-4 animate-pulse rounded bg-red-200 dark:bg-red-900/50" />
-                            ) : (
-                              <Trash2 className="h-4 w-4" aria-hidden />
-                            )}
-                          </button>
-                        </div>
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
 
               {filteredClients.length > 0 ? (
-                <div className="mt-1 flex flex-col gap-4 border-t border-zinc-200 pt-5 dark:border-zinc-800 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex flex-col gap-4 border-t border-zinc-100 px-5 py-4 dark:border-zinc-800 sm:flex-row sm:items-center sm:justify-between sm:px-6">
                   <p className="text-center text-xs font-medium text-zinc-600 sm:text-left dark:text-zinc-400">
                     {`${rangeStart}–${rangeEnd} of ${filteredClients.length}${searchTrimmed ? " matching" : ""}`}
                     {clients.length !== filteredClients.length
@@ -396,7 +387,7 @@ export default function ClientsPage() {
                   </div>
                 </div>
               ) : null}
-            </>
+            </div>
           )}
         </section>
       ) : null}
