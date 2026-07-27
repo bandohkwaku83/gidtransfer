@@ -100,11 +100,21 @@ import {
   fetchGalleryUploadsPage,
   galleryPhotoToApiFolderMedia,
   galleryPhotosPendingDerivatives,
+  pollGalleryFinalDerivatives,
   pollGalleryUploadDerivatives,
   upsertGalleryUploadRows,
   type ApiGalleryPhoto,
   type GalleryUploadPhotosResult,
 } from "@/lib/gallery-media-api";
+import { GalleryPhotoSearchBar } from "@/components/gallery/gallery-photo-search-bar";
+import {
+  EMPTY_GALLERY_PHOTO_SEARCH,
+  galleryPhotoSearchActive,
+  type GalleryPhotoSearchFilters,
+} from "@/lib/gallery-photo-search";
+import { useDebouncedValue } from "@/lib/use-debounced-value";
+import { DashOrNativeVideo } from "@/components/media/dash-or-native-video";
+import { videoPosterSrc, type DashStatus } from "@/lib/gallery-media-streaming";
 import {
   extractFinalMediaList,
   extractRawMediaList,
@@ -282,14 +292,17 @@ function FolderMediaThumb({
   return (
     <>
       {isVideo ? (
-        <video
-          src={src}
-          muted
-          playsInline
-          preload="metadata"
-          aria-label={name}
-          className="pointer-events-none h-full w-full bg-black object-cover"
-        />
+        src ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={src}
+            alt=""
+            className="pointer-events-none h-full w-full bg-black object-cover"
+            loading="lazy"
+          />
+        ) : (
+          <div className="pointer-events-none h-full w-full bg-zinc-900" aria-label={name} />
+        )
       ) : (
         // eslint-disable-next-line @next/next/no-img-element
         <img
@@ -351,6 +364,31 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
   const [mediaSetFilter, setMediaSetFilter] = useState<GallerySetFilter>("all");
   const [setsBusy, setSetsBusy] = useState(false);
   const [loadingMoreUploads, setLoadingMoreUploads] = useState(false);
+  const [uploadsSearch, setUploadsSearch] = useState<GalleryPhotoSearchFilters>(
+    EMPTY_GALLERY_PHOTO_SEARCH,
+  );
+  const [uploadsSearchBusy, setUploadsSearchBusy] = useState(false);
+  const debouncedUploadsSearchQ = useDebouncedValue(uploadsSearch.q, 300);
+  const uploadsSearchFilters = useMemo(
+    (): GalleryPhotoSearchFilters => ({
+      ...uploadsSearch,
+      q: debouncedUploadsSearchQ,
+    }),
+    [uploadsSearch, debouncedUploadsSearchQ],
+  );
+  const uploadsSearchIsActive = galleryPhotoSearchActive(uploadsSearchFilters);
+  const uploadsSearchRequestKey = useMemo(
+    () =>
+      JSON.stringify({
+        q: uploadsSearchFilters.q.trim(),
+        scene: uploadsSearchFilters.scene.trim(),
+        suggested: uploadsSearchFilters.suggested,
+        blurry: uploadsSearchFilters.blurry,
+        minQuality: uploadsSearchFilters.minQuality,
+      }),
+    [uploadsSearchFilters],
+  );
+  const uploadsSearchWasActiveRef = useRef(false);
   const [activeFeedbackId, setActiveFeedbackId] = useState<string | null>(null);
   const [savingFeedbackId, setSavingFeedbackId] = useState<string | null>(null);
   const [linkCopied, setLinkCopied] = useState(false);
@@ -389,6 +427,8 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
   const derivativesPollAbortRef = useRef<AbortController | null>(null);
   const derivativesPendingIdsRef = useRef<Set<string>>(new Set());
   const derivativesBootstrappedRef = useRef<string | null>(null);
+  const finalsPollAbortRef = useRef<AbortController | null>(null);
+  const finalsPendingIdsRef = useRef<Set<string>>(new Set());
   /** Hydrate design drafts once per folder load — not on every metadata PATCH. */
   const folderDesignHydratedRef = useRef<string | null>(null);
   const coverStyleSaveGenRef = useRef(0);
@@ -612,11 +652,28 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
           : undefined;
     if (!cursor && nextPage == null) return;
 
+    const searchOpts = uploadsSearchIsActive
+      ? {
+          ...(uploadsSearchFilters.q.trim()
+            ? { q: uploadsSearchFilters.q.trim() }
+            : {}),
+          ...(uploadsSearchFilters.scene.trim()
+            ? { scene: uploadsSearchFilters.scene.trim() }
+            : {}),
+          ...(uploadsSearchFilters.suggested ? { suggested: true } : {}),
+          ...(uploadsSearchFilters.blurry ? { blurry: true } : {}),
+          ...(uploadsSearchFilters.minQuality != null
+            ? { minQuality: uploadsSearchFilters.minQuality }
+            : {}),
+        }
+      : {};
+
     setLoadingMoreUploads(true);
     try {
       const page = await fetchGalleryUploadsPage(folderId, {
         view: "grid",
         ...(cursor ? { cursor } : { page: nextPage }),
+        ...searchOpts,
       });
       setFolder((prev) => {
         if (!prev) return prev;
@@ -632,7 +689,75 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
     } finally {
       setLoadingMoreUploads(false);
     }
-  }, [folder, folderId, loadingMoreUploads, showToast]);
+  }, [
+    folder,
+    folderId,
+    loadingMoreUploads,
+    showToast,
+    uploadsSearchFilters,
+    uploadsSearchIsActive,
+  ]);
+
+  useEffect(() => {
+    setUploadsSearch(EMPTY_GALLERY_PHOTO_SEARCH);
+    uploadsSearchWasActiveRef.current = false;
+  }, [folderId]);
+
+  useEffect(() => {
+    if (!folder || isLocalDemoFolderId(folderId)) return;
+    const active = galleryPhotoSearchActive(uploadsSearchFilters);
+    if (!active && !uploadsSearchWasActiveRef.current) return;
+    uploadsSearchWasActiveRef.current = active;
+
+    let cancelled = false;
+
+    async function run() {
+      setUploadsSearchBusy(true);
+      try {
+        const searchOpts = active
+          ? {
+              ...(uploadsSearchFilters.q.trim()
+                ? { q: uploadsSearchFilters.q.trim() }
+                : {}),
+              ...(uploadsSearchFilters.scene.trim()
+                ? { scene: uploadsSearchFilters.scene.trim() }
+                : {}),
+              ...(uploadsSearchFilters.suggested ? { suggested: true } : {}),
+              ...(uploadsSearchFilters.blurry ? { blurry: true } : {}),
+              ...(uploadsSearchFilters.minQuality != null
+                ? { minQuality: uploadsSearchFilters.minQuality }
+                : {}),
+            }
+          : {};
+        const page = await fetchGalleryUploadsPage(folderId, {
+          view: "grid",
+          page: 1,
+          ...searchOpts,
+        });
+        if (cancelled) return;
+        setFolder((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            uploads: page.uploads,
+            uploadsPagination: page.pagination,
+          };
+        });
+      } catch (e) {
+        if (cancelled) return;
+        if (e instanceof DOMException && e.name === "AbortError") return;
+        showToast(e instanceof Error ? e.message : "Could not search uploads.", "error");
+      } finally {
+        if (!cancelled) setUploadsSearchBusy(false);
+      }
+    }
+
+    void run();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- driven by search key + folderId
+  }, [folderId, uploadsSearchRequestKey, showToast]);
 
   const mergeRawUploadRows = useCallback(
     (rows: ReturnType<typeof galleryPhotoToApiFolderMedia>[]) => {
@@ -694,6 +819,40 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
     [folderId, mergeRawUploadRows],
   );
 
+  const startFinalsDerivativesPolling = useCallback(
+    (finalIds: string[]) => {
+      if (isLocalDemoFolderId(folderId)) return;
+      for (const id of finalIds) {
+        if (id) finalsPendingIdsRef.current.add(id);
+      }
+      if (finalsPendingIdsRef.current.size === 0) return;
+
+      finalsPollAbortRef.current?.abort();
+      const ac = new AbortController();
+      finalsPollAbortRef.current = ac;
+      const idsToPoll = [...finalsPendingIdsRef.current];
+
+      void pollGalleryFinalDerivatives(
+        folderId,
+        idsToPoll,
+        (photo) => {
+          finalsPendingIdsRef.current.delete(photo.id);
+          mergeFinalUploadRows([galleryPhotoToApiFolderMedia(photo)]);
+        },
+        ac.signal,
+      )
+        .catch(() => {})
+        .finally(() => {
+          if (finalsPollAbortRef.current !== ac) return;
+          finalsPollAbortRef.current = null;
+          if (finalsPendingIdsRef.current.size > 0) {
+            startFinalsDerivativesPolling([]);
+          }
+        });
+    },
+    [folderId, mergeFinalUploadRows],
+  );
+
   const applyRawUploadComplete = useCallback(
     (body: unknown): number => {
       if (!body || typeof body !== "object") return 0;
@@ -714,29 +873,57 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
       const photos = result.created ?? [];
       if (photos.length === 0) return 0;
       mergeFinalUploadRows(photos.map(galleryPhotoToApiFolderMedia));
+      startFinalsDerivativesPolling(galleryPhotosPendingDerivatives(photos));
       return photos.length;
     },
-    [mergeFinalUploadRows],
+    [mergeFinalUploadRows, startFinalsDerivativesPolling],
   );
 
-  useEffect(() => () => derivativesPollAbortRef.current?.abort(), []);
+  useEffect(
+    () => () => {
+      derivativesPollAbortRef.current?.abort();
+      finalsPollAbortRef.current?.abort();
+    },
+    [],
+  );
 
   useEffect(() => {
     derivativesBootstrappedRef.current = null;
     derivativesPendingIdsRef.current.clear();
     derivativesPollAbortRef.current?.abort();
+    finalsPendingIdsRef.current.clear();
+    finalsPollAbortRef.current?.abort();
   }, [folderId]);
 
   useEffect(() => {
     if (!folder || isLocalDemoFolderId(folder._id)) return;
     if (derivativesBootstrappedRef.current === folder._id) return;
     derivativesBootstrappedRef.current = folder._id;
-    const pending = extractRawMediaList(folder)
-      .filter((m) => m.derivativesReady === false)
+    const pendingUploads = extractRawMediaList(folder)
+      .filter(
+        (m) =>
+          m.derivativesReady === false ||
+          (m.isVideo === true &&
+            (m.dashStatus === "pending" ||
+              m.dashStatus === "processing" ||
+              m.streamingReady === false)),
+      )
       .map((m) => String(m.id ?? m._id ?? ""))
       .filter(Boolean);
-    if (pending.length > 0) startDerivativesPolling(pending);
-  }, [folder, startDerivativesPolling]);
+    if (pendingUploads.length > 0) startDerivativesPolling(pendingUploads);
+    const pendingFinals = extractFinalMediaList(folder)
+      .filter(
+        (m) =>
+          m.derivativesReady === false ||
+          (m.isVideo === true &&
+            (m.dashStatus === "pending" ||
+              m.dashStatus === "processing" ||
+              m.streamingReady === false)),
+      )
+      .map((m) => String(m.id ?? m._id ?? ""))
+      .filter(Boolean);
+    if (pendingFinals.length > 0) startFinalsDerivativesPolling(pendingFinals);
+  }, [folder, startDerivativesPolling, startFinalsDerivativesPolling]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1340,23 +1527,37 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
     });
   }, []);
 
-  type FolderLightboxItem = { id: string; name: string; src: string; isVideo: boolean };
+  type FolderLightboxItem = {
+    id: string;
+    name: string;
+    src: string;
+    isVideo: boolean;
+    posterUrl?: string;
+    dashUrl?: string;
+    dashStatus?: DashStatus;
+  };
   const lightboxNavItems = useMemo((): FolderLightboxItem[] => {
     if (tab === "gallery") return [];
     if (tab === "uploads") {
       return filteredRawAssets.map((a) => ({
         id: a.id,
         name: a.originalName,
-        src: demoAssetGridSrc(a),
+        src: a.url?.trim() || demoAssetGridSrc(a),
         isVideo: isFolderMediaVideo(a),
+        ...(a.posterUrl ? { posterUrl: a.posterUrl } : {}),
+        ...(a.dashUrl ? { dashUrl: a.dashUrl } : {}),
+        ...(a.dashStatus ? { dashStatus: a.dashStatus } : {}),
       }));
     }
     if (tab === "selection") {
       return filteredSelectionBySet.map((a) => ({
         id: a.id,
         name: a.originalName,
-        src: demoAssetGridSrc(a),
+        src: a.url?.trim() || demoAssetGridSrc(a),
         isVideo: isFolderMediaVideo(a),
+        ...(a.posterUrl ? { posterUrl: a.posterUrl } : {}),
+        ...(a.dashUrl ? { dashUrl: a.dashUrl } : {}),
+        ...(a.dashStatus ? { dashStatus: a.dashStatus } : {}),
       }));
     }
     return filteredFinalAssets.map((f) => ({
@@ -1364,6 +1565,9 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
       name: f.name,
       src: f.url,
       isVideo: isFolderMediaVideo(f),
+      ...(f.posterUrl ? { posterUrl: f.posterUrl } : {}),
+      ...(f.dashUrl ? { dashUrl: f.dashUrl } : {}),
+      ...(f.dashStatus ? { dashStatus: f.dashStatus } : {}),
     }));
   }, [tab, filteredRawAssets, filteredSelectionBySet, filteredFinalAssets]);
 
@@ -3026,7 +3230,7 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
         onChange={(ev) => void onBackgroundMusicFileChange(ev)}
       />
 
-      <div className="space-y-0">
+      <div className="overflow-hidden rounded-[1.5rem] border border-zinc-200/80 bg-white shadow-[0_10px_40px_-24px_rgba(15,23,42,0.35)] dark:border-zinc-800 dark:bg-zinc-950 dark:shadow-none">
         <FolderEditorChrome
           title={title}
           eventDateLabel={eventDateLabel}
@@ -3044,21 +3248,21 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
         />
 
         <FolderEditorTabBar
-        tab={tab}
-        onTabChange={setTab}
-        counts={{
-          uploads: rawUploadsTotal,
-          selection: clientSelectedAssets.length,
-          finals: finalAssets.length,
-          // blog: folder
-          //   ? listGalleryBlogPosts(folder._id).filter((p) => p.status === "published").length
-          //   : 0,
-        }}
-        showPreviewToggle={tab === "gallery"}
-        previewViewport={previewViewport}
-        onPreviewViewportChange={setPreviewViewport}
+          tab={tab}
+          onTabChange={setTab}
+          counts={{
+            uploads: rawUploadsTotal,
+            selection: clientSelectedAssets.length,
+            finals: finalAssets.length,
+            // blog: folder
+            //   ? listGalleryBlogPosts(folder._id).filter((p) => p.status === "published").length
+            //   : 0,
+          }}
+          showPreviewToggle={tab === "gallery"}
+          previewViewport={previewViewport}
+          onPreviewViewportChange={setPreviewViewport}
         />
-
+      </div>
         {showMediaTabs ? (
           <GallerySetBar
             className="mt-3"
@@ -3078,7 +3282,6 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
             showUploadHint={tab === "uploads"}
           />
         ) : null}
-      </div>
 
       {uploadProgress ? (
         <UploadProgressBanner
@@ -3098,19 +3301,20 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
         <div className="min-w-0 flex-1 space-y-5">
           {tab === "dashboard" ? (
             <GalleryDashboardPanel
+              title={title}
+              clientName={clientName}
+              eventDateLabel={eventDateLabel}
+              coverSrc={coverSrc}
+              hasCover={hasCover}
               published={galleryPublished}
               shareExpired={folder.shareExpired}
-              sharedAt={folder.share?.sharedAt}
               uploadsCount={rawUploadsTotal}
               finalsCount={finalAssets.length}
               commentsCount={selectionWithComments.length}
               flaggedFinalsCount={flaggedFinalItems.length}
-              selectionLimit={folder ? folderSelectionLimit(folder) : null}
               shareActive={shareActive}
               shareUrl={shareUrl}
               linkCopied={linkCopied}
-              passwordProtection={passwordProtectionDraft}
-              finalImagesLocked={lockedFinalCount > 0}
               analytics={galleryAnalytics}
               statusBusy={busy}
               activationHint={galleryOnlineHint}
@@ -3145,6 +3349,13 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
               title="Raw uploads"
               description="Upload raw files into the active set chosen above."
               count={rawUploadsTotal}
+            />
+            <GalleryPhotoSearchBar
+              value={uploadsSearch}
+              onChange={setUploadsSearch}
+              showAiFilters
+              searching={uploadsSearchBusy}
+              placeholder="Search uploads…"
             />
             <FolderUploadOptionToggle
               checked={rawUploadPreviewWatermark}
@@ -3185,8 +3396,12 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
             ) : null}
             {rawAssets.length === 0 ? (
               <FolderUploadEmptyState
-                title="No uploads yet"
-                description="Drop files here or pick a set above to organize by section."
+                title={uploadsSearchIsActive ? "No matching uploads" : "No uploads yet"}
+                description={
+                  uploadsSearchIsActive
+                    ? "Try a different search or clear filters."
+                    : "Drop files here or pick a set above to organize by section."
+                }
               />
             ) : filteredRawAssets.length === 0 ? (
               <FolderUploadEmptyState
@@ -3406,7 +3621,9 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
                 items={filteredFinalAssets.map((f) => ({
                   id: f.id,
                   name: f.name,
-                  mediaSrc: f.url,
+                  mediaSrc: f.isVideo
+                    ? videoPosterSrc(f) || ""
+                    : f.url,
                   isVideo: isFolderMediaVideo(f),
                   locked: f.locked,
                   outstandingBalanceGhs: f.outstandingBalanceGhs,
@@ -3657,8 +3874,11 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
           onZoomChange={setLightboxZoom}
         >
           {lbItem.isVideo ? (
-            <video
+            <DashOrNativeVideo
               src={lbItem.src}
+              poster={videoPosterSrc(lbItem)}
+              dashUrl={lbItem.dashUrl}
+              dashStatus={lbItem.dashStatus}
               controls
               playsInline
               preload="metadata"

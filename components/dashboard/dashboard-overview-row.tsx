@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { CalendarDays, Plus, UserPlus } from "lucide-react";
+import { CalendarDays } from "lucide-react";
 import { DashboardStackedCardsArt } from "@/components/dashboard/dashboard-stacked-cards-art";
 import { PRODUCT_TAGLINE } from "@/lib/branding";
 import { cn } from "@/lib/utils";
@@ -39,11 +39,9 @@ export function DashboardOverviewRow({
 
         <div className="relative z-[1] flex flex-wrap items-center gap-3">
           <button type="button" onClick={onNewGallery} className="dashboard-btn-primary">
-            <Plus className="h-4 w-4" aria-hidden />
             New gallery
           </button>
           <button type="button" onClick={onAddClient} className="dashboard-btn-secondary">
-            <UserPlus className="h-4 w-4" aria-hidden />
             Add client
           </button>
         </div>

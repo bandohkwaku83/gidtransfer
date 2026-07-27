@@ -24,6 +24,7 @@ type RawIncomeEntry = {
   currency?: string;
   status?: IncomeStatus;
   bookingId?: string;
+  source?: "income" | "booking" | string;
 };
 
 export type IncomeStatusSlice = {
@@ -41,6 +42,27 @@ export type IncomeSummaryResponse = {
 export type ListIncomeResponse = {
   count: number;
   entries: IncomeEntry[];
+  pagination?: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+    hasMore: boolean;
+  };
+};
+
+export const EMPTY_INCOME_SUMMARY: IncomeSummary = {
+  collectedThisMonth: 0,
+  pendingTotal: 0,
+  invoicedThisMonth: 0,
+  paidBookingsCount: 0,
+  currency: "GHS",
+};
+
+export const EMPTY_INCOME_SUMMARY_RESPONSE: IncomeSummaryResponse = {
+  summary: EMPTY_INCOME_SUMMARY,
+  monthlyRevenue: [],
+  byStatus: [],
 };
 
 export type CreateIncomeBody = {
@@ -102,27 +124,67 @@ function unwrapEntryResponse(body: unknown): IncomeEntry {
 }
 
 export async function listIncome(params: { year: number }): Promise<ListIncomeResponse> {
-  const res = await authedJson<{ count?: number; entries?: RawIncomeEntry[] }>(
+  const res = await authedJson<{
+    count?: number;
+    entries?: RawIncomeEntry[];
+    pagination?: ListIncomeResponse["pagination"];
+  } | null>(
     `/api/income?year=${params.year}`,
     { method: "GET" },
     "Failed to load income",
     IncomeApiError,
   );
-  const entries = (res.entries ?? [])
+
+  const rawEntries =
+    res && typeof res === "object" && Array.isArray(res.entries) ? res.entries : [];
+  const entries = rawEntries
     .filter((raw) => raw._id || raw.id)
     .map(mapApiIncomeToEntry);
-  return { count: res.count ?? entries.length, entries };
+
+  return {
+    count:
+      res && typeof res === "object" && typeof res.count === "number"
+        ? res.count
+        : entries.length,
+    entries,
+    pagination:
+      res && typeof res === "object" && res.pagination && typeof res.pagination === "object"
+        ? res.pagination
+        : undefined,
+  };
 }
 
 export async function getIncomeSummary(params: {
   year: number;
 }): Promise<IncomeSummaryResponse> {
-  return authedJson<IncomeSummaryResponse>(
+  const res = await authedJson<IncomeSummaryResponse | null>(
     `/api/income/summary?year=${params.year}`,
     { method: "GET" },
     "Failed to load income summary",
     IncomeApiError,
   );
+
+  if (!res || typeof res !== "object") {
+    return EMPTY_INCOME_SUMMARY_RESPONSE;
+  }
+
+  const rawSummary = res.summary;
+  const summary: IncomeSummary =
+    rawSummary && typeof rawSummary === "object"
+      ? {
+          collectedThisMonth: Number(rawSummary.collectedThisMonth) || 0,
+          pendingTotal: Number(rawSummary.pendingTotal) || 0,
+          invoicedThisMonth: Number(rawSummary.invoicedThisMonth) || 0,
+          paidBookingsCount: Number(rawSummary.paidBookingsCount) || 0,
+          currency: (rawSummary.currency ?? "GHS").trim() || "GHS",
+        }
+      : EMPTY_INCOME_SUMMARY;
+
+  return {
+    summary,
+    monthlyRevenue: Array.isArray(res.monthlyRevenue) ? res.monthlyRevenue : [],
+    byStatus: Array.isArray(res.byStatus) ? res.byStatus : [],
+  };
 }
 
 export async function getIncome(id: string): Promise<IncomeEntry> {

@@ -2,6 +2,10 @@ import { API_BASE_URL, resolveGridThumbUrl, sameOriginUploadsUrl } from "@/lib/a
 import { loadProjectById } from "@/lib/demo-data";
 import type { DemoAsset, DemoFinalAsset, FolderStatus } from "@/lib/demo-data";
 import type { ApiFolder, ApiFolderMedia } from "@/lib/folders/types";
+import {
+  pickStreamingFields,
+  progressiveGridSrc,
+} from "@/lib/gallery-media-streaming";
 
 /** True when the folder id refers to a local demo/seed gallery (not the remote API). */
 export function isLocalDemoFolderId(folderId: string): boolean {
@@ -276,11 +280,11 @@ function apiEditStatusToUi(s?: string): "NONE" | "IN_PROGRESS" | "EDITED" {
   return "NONE";
 }
 
-/** Photographer dashboard grid — prefer gridUrl/thumbUrl, fall back to full image while processing. */
+/** Photographer dashboard grid — progressive JPEG thumbs; video posters. */
 export function demoAssetGridSrc(
-  asset: Pick<DemoAsset, "gridUrl" | "thumbUrl" | "url">,
+  asset: Pick<DemoAsset, "gridUrl" | "thumbUrl" | "url" | "posterUrl" | "isVideo">,
 ): string {
-  return asset.gridUrl?.trim() || asset.thumbUrl?.trim() || asset.url?.trim() || "";
+  return progressiveGridSrc(asset);
 }
 
 /** Map API media row → in-app DemoAsset shape for folder detail UI. */
@@ -292,7 +296,12 @@ export function apiFolderMediaToDemoAsset(m: ApiFolderMedia): DemoAsset {
     `m-${Math.random().toString(36).slice(2, 10)}`;
   const originalName =
     m.originalName || m.originalFilename || m.filename || m.name || "Photo";
-  const smallThumb = m.gridUrl || m.thumbUrl || m.thumbnailUrl || "";
+  const streaming = pickStreamingFields(m as Record<string, unknown>);
+  const posterRaw = streaming.posterUrl || m.posterUrl || "";
+  const posterResolved = posterRaw ? resolveCoverUrl(posterRaw) || posterRaw : "";
+  const dashUrlRaw = streaming.dashUrl || m.dashUrl || "";
+  const dashUrl = dashUrlRaw ? resolveCoverUrl(dashUrlRaw) || dashUrlRaw : "";
+  const smallThumb = m.gridUrl || m.thumbUrl || m.thumbnailUrl || posterResolved || "";
   const fullUrl = m.url || "";
   const largePreview = m.displayUrl || fullUrl || m.previewUrl || m.image || "";
   const thumbResolved = smallThumb ? resolveGridThumbUrl(smallThumb) || smallThumb : "";
@@ -303,10 +312,9 @@ export function apiFolderMediaToDemoAsset(m: ApiFolderMedia): DemoAsset {
     m.isVideo === true ||
     mimeType.startsWith("video/") ||
     /\.(mp4|mov|webm|m4v|avi|mkv|ogv)$/i.test(originalName);
-  const mediaUrl = largeResolved || thumbResolved || resolvedUrl;
-  const previewUrl = isVideo
-    ? mediaUrl
-    : largeResolved && thumbResolved && largeResolved !== thumbResolved
+  const mediaUrl = largeResolved || resolvedUrl;
+  const previewUrl =
+    !isVideo && largeResolved && thumbResolved && largeResolved !== thumbResolved
       ? largeResolved
       : undefined;
   const selected =
@@ -320,6 +328,8 @@ export function apiFolderMediaToDemoAsset(m: ApiFolderMedia): DemoAsset {
     const nested = (m.raw as ApiFolderMedia).setId;
     if (nested != null && nested !== "") setId = String(nested);
   }
+  const dashStatus = streaming.dashStatus ?? m.dashStatus;
+  const streamingReady = streaming.streamingReady ?? m.streamingReady;
   return {
     id,
     originalName,
@@ -333,13 +343,22 @@ export function apiFolderMediaToDemoAsset(m: ApiFolderMedia): DemoAsset {
       (typeof (m as Record<string, unknown>).selected_at === "string"
         ? ((m as Record<string, unknown>).selected_at as string)
         : null),
-    thumbUrl: isVideo ? mediaUrl : thumbResolved,
+    thumbUrl: isVideo ? posterResolved || thumbResolved : thumbResolved || resolvedUrl,
     ...(thumbResolved && !isVideo ? { gridUrl: thumbResolved } : {}),
-    url: isVideo ? mediaUrl : resolvedUrl,
+    ...(isVideo && (posterResolved || thumbResolved)
+      ? { gridUrl: posterResolved || thumbResolved }
+      : {}),
+    url: isVideo ? mediaUrl || resolvedUrl : resolvedUrl,
     ...(previewUrl ? { previewUrl } : {}),
     ...(m.displayUrl ? { displayUrl: resolveCoverUrl(m.displayUrl) || m.displayUrl } : {}),
+    ...(posterResolved ? { posterUrl: posterResolved } : {}),
+    ...(dashUrl ? { dashUrl } : {}),
+    ...(dashStatus ? { dashStatus } : {}),
+    ...(streamingReady !== undefined ? { streamingReady } : {}),
     ...(m.derivativesReady === false ? { derivativesReady: false } : {}),
+    ...(m.derivativesReady === true ? { derivativesReady: true } : {}),
     ...(isVideo ? { isVideo: true } : {}),
+    ...(m.ai ? { ai: m.ai } : {}),
     setId,
   };
 }
@@ -423,8 +442,13 @@ export function folderFinalsPaymentLocked(folder: ApiFolder): boolean {
 export function apiFolderMediaToFinal(m: ApiFolderMedia): DemoFinalAsset {
   const id = m._id || m.id || `f-${Math.random().toString(36).slice(2, 10)}`;
   const name = m.originalName || m.originalFilename || m.filename || m.name || "Final";
+  const streaming = pickStreamingFields(m as Record<string, unknown>);
   const urlRaw = m.url || m.displayUrl || m.previewUrl || m.thumbUrl || "";
   const url = resolveCoverUrl(urlRaw) || urlRaw || "";
+  const posterRaw = streaming.posterUrl || m.posterUrl || "";
+  const posterUrl = posterRaw ? resolveCoverUrl(posterRaw) || posterRaw : "";
+  const dashUrlRaw = streaming.dashUrl || m.dashUrl || "";
+  const dashUrl = dashUrlRaw ? resolveCoverUrl(dashUrlRaw) || dashUrlRaw : "";
   const mimeType = m.mimeType || m.contentType || m.content_type || "";
   const isVideo =
     m.isVideo === true ||
@@ -459,6 +483,8 @@ export function apiFolderMediaToFinal(m: ApiFolderMedia): DemoFinalAsset {
     m.setId != null && m.setId !== "" ? String(m.setId) : null;
   const balanceRaw = m.outstandingBalanceGhs ?? readOutstandingAmountGhs(o);
   const outstandingBalanceGhs = balanceRaw > 0 ? balanceRaw : m.outstandingBalanceGhs ?? null;
+  const dashStatus = streaming.dashStatus ?? m.dashStatus;
+  const streamingReady = streaming.streamingReady ?? m.streamingReady;
   return {
     id,
     name,
@@ -468,6 +494,10 @@ export function apiFolderMediaToFinal(m: ApiFolderMedia): DemoFinalAsset {
     ...(outstandingBalanceGhs != null ? { outstandingBalanceGhs } : {}),
     ...(mimeType ? { mimeType } : {}),
     ...(isVideo ? { isVideo: true } : {}),
+    ...(posterUrl ? { posterUrl } : {}),
+    ...(dashUrl ? { dashUrl } : {}),
+    ...(dashStatus ? { dashStatus } : {}),
+    ...(streamingReady !== undefined ? { streamingReady } : {}),
   };
 }
 

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { ArrowRight, CheckCircle2, Clock3, FolderOpen, Plus, Sparkles, Users } from "lucide-react";
+import { ArrowRight, CheckCircle2, Clock3, FolderOpen, Sparkles, Users } from "lucide-react";
 import { DashboardOverviewRow } from "@/components/dashboard/dashboard-overview-row";
 import { DashboardStatCards } from "@/components/dashboard/dashboard-stat-cards";
 import { DashboardActivityPanel } from "@/components/dashboard/dashboard-activity-panel";
@@ -452,7 +452,6 @@ export default function DashboardPage() {
               onClick={() => setCreateOpen(true)}
               className="dashboard-btn-primary mt-5"
             >
-              <Plus className="h-4 w-4" aria-hidden="true" />
               New gallery
             </button>
           </div>

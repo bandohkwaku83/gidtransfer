@@ -1,7 +1,9 @@
 "use client";
 
+import Link from "next/link";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { ChevronRight } from "lucide-react";
 import { SettingsShell } from "@/components/settings/settings-shell";
 import {
   SettingsBillingSection,
@@ -24,13 +26,17 @@ import {
   SETTINGS_PREREQUISITE_FOCUS,
   isSafeDashboardReturnTo,
 } from "@/lib/settings-prerequisite";
-import { isSettingsTabId, type SettingsTabId } from "@/lib/settings-tabs";
-import { PRODUCT_TAGLINE } from "@/lib/branding";
 import {
-  DashboardPageHeader,
-  dashboardPageHeaderDescriptionClassName,
-  dashboardPageHeaderTitleClassName,
-} from "@/components/dashboard/dashboard-page-header";
+  isSettingsTabId,
+  settingsTabHref,
+  settingsTabMeta,
+  type SettingsTabId,
+} from "@/lib/settings-tabs";
+
+function formatAccountRole(role?: string): string {
+  if (!role) return "Photographer";
+  return role.charAt(0).toUpperCase() + role.slice(1).replace(/_/g, " ");
+}
 
 function SettingsPageContent() {
   const { showToast } = useToast();
@@ -125,10 +131,6 @@ function SettingsPageContent() {
     setAuthVersion((v) => v + 1);
   }
 
-  function setTab(tab: SettingsTabId) {
-    router.replace(`/dashboard/settings?tab=${tab}`, { scroll: false });
-  }
-
   useEffect(() => {
     if (loading) return;
     const focusId =
@@ -147,6 +149,47 @@ function SettingsPageContent() {
     if (!returnTo) return;
     router.push(returnTo);
   }, [returnTo, router]);
+
+  const accountEmail =
+    pageData?.bundle.account?.email ??
+    pageData?.bundle.profile?.email ??
+    auth?.user?.email ??
+    auth?.email ??
+    "";
+  const accountRole = formatAccountRole(
+    pageData?.bundle.account?.role ?? auth?.user?.role,
+  );
+  const accountId = pageData?.bundle.account?.accountId ?? auth?.user?._id;
+
+  const profileHeaderExtra =
+    activeTab === "profile" ? (
+      <dl className="grid gap-3 rounded-xl border border-zinc-200/80 bg-white/70 px-4 py-3 sm:grid-cols-3 dark:border-zinc-800 dark:bg-zinc-950/50">
+        <div className="min-w-0">
+          <dt className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
+            Email
+          </dt>
+          <dd className="mt-1 truncate text-sm font-medium text-zinc-900 dark:text-zinc-100">
+            {accountEmail || "N/A"}
+          </dd>
+        </div>
+        <div className="min-w-0">
+          <dt className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
+            Role
+          </dt>
+          <dd className="mt-1 text-sm font-medium text-zinc-900 dark:text-zinc-100">
+            {accountRole}
+          </dd>
+        </div>
+        <div className="min-w-0">
+          <dt className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
+            Account ID
+          </dt>
+          <dd className="mt-1 truncate font-mono text-xs text-zinc-500 dark:text-zinc-400">
+            {accountId || "N/A"}
+          </dd>
+        </div>
+      </dl>
+    ) : null;
 
   async function onWatermarkChange(next: boolean) {
     if (!settings || savingWatermark) return;
@@ -232,7 +275,6 @@ function SettingsPageContent() {
             auth={auth}
             pageData={pageData}
             loading={loading}
-            onTabChange={setTab}
             onProfileUpdated={applyPageData}
           />
         );
@@ -299,12 +341,39 @@ function SettingsPageContent() {
     }
   }
 
+  const activeTabMeta = settingsTabMeta(activeTab);
+
   return (
     <div className="dashboard-page space-y-6">
-      <DashboardPageHeader>
-        <h1 className={dashboardPageHeaderTitleClassName()}>Settings</h1>
-        <p className={dashboardPageHeaderDescriptionClassName("mt-1.5")}>{PRODUCT_TAGLINE}</p>
-      </DashboardPageHeader>
+      <header>
+        <nav aria-label="Breadcrumb">
+          <ol className="flex flex-wrap items-center gap-1.5 text-sm">
+            <li>
+              <Link
+                href="/dashboard"
+                className="font-medium text-zinc-400 transition hover:text-zinc-600 dark:text-zinc-500 dark:hover:text-zinc-300"
+              >
+                Dashboard
+              </Link>
+            </li>
+            <li className="text-zinc-300 dark:text-zinc-600" aria-hidden>
+              <ChevronRight className="h-3.5 w-3.5" strokeWidth={2} />
+            </li>
+            <li>
+              <Link
+                href={settingsTabHref("profile")}
+                className="font-semibold text-zinc-600 transition hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200"
+              >
+                Settings
+              </Link>
+            </li>
+            <li className="text-zinc-300 dark:text-zinc-600" aria-hidden>
+              <ChevronRight className="h-3.5 w-3.5" strokeWidth={2} />
+            </li>
+            <li className="font-semibold text-zinc-900 dark:text-zinc-50">{activeTabMeta.label}</li>
+          </ol>
+        </nav>
+      </header>
 
       {loadError ? (
         <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-200">
@@ -340,7 +409,7 @@ function SettingsPageContent() {
         </div>
       ) : null}
 
-      <SettingsShell activeTab={activeTab}>
+      <SettingsShell headerExtra={profileHeaderExtra}>
         {renderPanel()}
       </SettingsShell>
     </div>

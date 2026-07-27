@@ -430,8 +430,13 @@ export function PhotographersTable({
                       href={`/admin/photographers/${p.userId}`}
                       className="flex items-center gap-2.5"
                     >
-                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary-light text-xs font-semibold text-primary">
-                        {p.companyName.charAt(0).toUpperCase()}
+                      <span className="h-8 w-8 shrink-0 overflow-hidden rounded-full bg-slate-200">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src="/images/user-profile.png"
+                          alt=""
+                          className="h-full w-full object-cover"
+                        />
                       </span>
                       <span className="truncate font-medium text-slate-900 group-hover:text-primary">
                         {p.companyName}

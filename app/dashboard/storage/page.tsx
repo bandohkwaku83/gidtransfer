@@ -14,16 +14,12 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
-  DashboardPageHeader,
-  dashboardPageHeaderDescriptionClassName,
-  dashboardPageHeaderTitleClassName,
-} from "@/components/dashboard/dashboard-page-header";
-import {
   fetchStorage,
   StorageApiError,
   type StorageGalleryRow,
   type StorageSummary,
 } from "@/lib/storage-api";
+import { isAbortError } from "@/lib/http";
 import { getActivePlanDefinition } from "@/lib/subscription-plan";
 
 function formatBytes(bytes: number): string {
@@ -96,7 +92,7 @@ export default function StoragePage() {
         setSummary(data.summary);
         setGalleries(data.galleries);
       } catch (err) {
-        if (signal?.aborted) return;
+        if (isAbortError(err) || signal?.aborted) return;
         setSummary(null);
         setGalleries([]);
         const message =
@@ -166,65 +162,169 @@ export default function StoragePage() {
 
   const showEmptyList = !listLoading && sortedRows.length === 0 && !listError;
 
+  const usedPct = pct(usedBytes, planBytes);
+  const ringCircumference = 2 * Math.PI * 42;
+  const ringOffset = ringCircumference - (usedPct / 100) * ringCircumference;
+
+  const breakdown = summary?.breakdown;
+  const rawsBytes = breakdown?.rawsBytes ?? 0;
+  const selectionsBytes = breakdown?.selectionsBytes ?? 0;
+  const finalsBytes = breakdown?.finalsBytes ?? 0;
+
   return (
     <div className="dashboard-page space-y-6">
-      <DashboardPageHeader innerClassName="space-y-4">
-        <div>
-          <h1 className={dashboardPageHeaderTitleClassName()}>Storage</h1>
-          <p className={dashboardPageHeaderDescriptionClassName("mt-1.5")}>
-            Raws, selections, and finals across all galleries.
-          </p>
-        </div>
+      <header>
+        <nav aria-label="Breadcrumb">
+          <ol className="flex flex-wrap items-center gap-1.5 text-sm">
+            <li>
+              <Link
+                href="/dashboard"
+                className="font-medium text-zinc-400 transition hover:text-zinc-600 dark:text-zinc-500 dark:hover:text-zinc-300"
+              >
+                Dashboard
+              </Link>
+            </li>
+            <li className="text-zinc-300 dark:text-zinc-600" aria-hidden>
+              <ChevronRight className="h-3.5 w-3.5" strokeWidth={2} />
+            </li>
+            <li>
+              <span className="font-semibold text-zinc-600 dark:text-zinc-400">Studio</span>
+            </li>
+            <li className="text-zinc-300 dark:text-zinc-600" aria-hidden>
+              <ChevronRight className="h-3.5 w-3.5" strokeWidth={2} />
+            </li>
+            <li className="font-semibold text-zinc-900 dark:text-zinc-50">Storage</li>
+          </ol>
+        </nav>
+      </header>
 
-        {summaryError ? (
-          <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-200">
-            {summaryError}
-            <button
-              type="button"
-              className="ml-3 font-semibold underline"
-              onClick={() => void loadStorage()}
-            >
-              Retry
-            </button>
+      {summaryError ? (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-200">
+          {summaryError}
+          <button
+            type="button"
+            className="ml-3 font-semibold underline"
+            onClick={() => void loadStorage()}
+          >
+            Retry
+          </button>
+        </div>
+      ) : summaryLoading ? (
+        <div className="dashboard-panel space-y-4">
+          <div className="h-5 w-24 animate-pulse rounded bg-zinc-200/80 dark:bg-zinc-800" />
+          <div className="flex gap-6">
+            <div className="flex-1 space-y-3">
+              <div className="h-9 w-32 animate-pulse rounded-lg bg-zinc-200/80 dark:bg-zinc-800" />
+              <div className="h-3 animate-pulse rounded-full bg-zinc-200/80 dark:bg-zinc-800" />
+            </div>
+            <div className="h-28 w-28 shrink-0 animate-pulse rounded-full bg-zinc-200/80 dark:bg-zinc-800" />
           </div>
-        ) : summaryLoading ? (
-          <div className="space-y-3">
-            <div className="h-9 w-32 animate-pulse rounded-lg bg-zinc-200/80 dark:bg-zinc-800" />
-            <div className="h-2 animate-pulse rounded-full bg-zinc-200/80 dark:bg-zinc-800" />
-          </div>
-        ) : (
-          <>
-            <div className="flex flex-wrap items-end justify-between gap-3">
+        </div>
+      ) : (
+        <section className="dashboard-panel">
+          <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0 flex-1 space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400">Plan usage</p>
+                <span className="rounded-full bg-zinc-100 px-2.5 py-0.5 text-xs font-semibold text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
+                  {planLabel}
+                </span>
+              </div>
+
               <div>
-                <p className="font-display text-3xl font-medium tabular-nums tracking-tight text-zinc-900 dark:text-zinc-50">
+                <p className="font-display text-3xl font-semibold tabular-nums tracking-tight text-zinc-900 dark:text-zinc-50">
                   {formatBytes(usedBytes)}
                 </p>
-                <p className="mt-0.5 text-sm text-zinc-600 dark:text-zinc-400">
-                  of {formatBytes(planBytes)}, {planLabel}
+                <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
+                  of {formatBytes(planBytes)} · {formatBytes(Math.max(0, planBytes - usedBytes))}{" "}
+                  free
                 </p>
               </div>
-              <p className="text-xs font-medium uppercase tracking-[0.12em] text-zinc-500 dark:text-zinc-500">
-                {formatPercentDisplay(pct(usedBytes, planBytes))} of plan
-              </p>
+
+              <div className="space-y-2.5">
+                <div
+                  className="flex h-3 overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800"
+                  role="progressbar"
+                  aria-valuenow={usedPct}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-label="Storage breakdown by type"
+                >
+                  {rawsBytes > 0 ? (
+                    <div
+                      className="h-full bg-brand transition-[width]"
+                      style={{ width: `${pct(rawsBytes, planBytes)}%` }}
+                    />
+                  ) : null}
+                  {selectionsBytes > 0 ? (
+                    <div
+                      className="h-full bg-brand/65 transition-[width]"
+                      style={{ width: `${pct(selectionsBytes, planBytes)}%` }}
+                    />
+                  ) : null}
+                  {finalsBytes > 0 ? (
+                    <div
+                      className="h-full bg-brand/35 transition-[width]"
+                      style={{ width: `${pct(finalsBytes, planBytes)}%` }}
+                    />
+                  ) : null}
+                </div>
+                <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-500 dark:text-zinc-400">
+                  <span className="inline-flex items-center gap-1.5">
+                    <span className="h-2 w-2 rounded-full bg-brand" aria-hidden />
+                    Raws {formatBytes(rawsBytes)}
+                  </span>
+                  <span className="inline-flex items-center gap-1.5">
+                    <span className="h-2 w-2 rounded-full bg-brand/65" aria-hidden />
+                    Selections {formatBytes(selectionsBytes)}
+                  </span>
+                  <span className="inline-flex items-center gap-1.5">
+                    <span className="h-2 w-2 rounded-full bg-brand/35" aria-hidden />
+                    Finals {formatBytes(finalsBytes)}
+                  </span>
+                </div>
+              </div>
             </div>
+
             <div
-              className="h-2 overflow-hidden rounded-full bg-zinc-200/80 dark:bg-zinc-800"
-              role="progressbar"
-              aria-valuenow={pct(usedBytes, planBytes)}
-              aria-valuemin={0}
-              aria-valuemax={100}
-              aria-label="Storage used"
+              className="relative mx-auto h-28 w-28 shrink-0 sm:mx-0"
+              aria-label={`${formatPercentDisplay(usedPct)} of plan used`}
             >
-              <div
-                className="h-full rounded-full bg-brand transition-[width]"
-                style={{
-                  width: `${Math.min(100, pct(usedBytes, planBytes))}%`,
-                }}
-              />
+              <svg viewBox="0 0 100 100" className="h-full w-full -rotate-90" aria-hidden>
+                <circle
+                  cx="50"
+                  cy="50"
+                  r="42"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="8"
+                  className="text-zinc-100 dark:text-zinc-800"
+                />
+                <circle
+                  cx="50"
+                  cy="50"
+                  r="42"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="8"
+                  strokeLinecap="round"
+                  className="text-brand transition-[stroke-dashoffset]"
+                  strokeDasharray={ringCircumference}
+                  strokeDashoffset={ringOffset}
+                />
+              </svg>
+              <div className="absolute inset-0 flex flex-col items-center justify-center">
+                <span className="text-xl font-semibold tabular-nums text-zinc-900 dark:text-zinc-50">
+                  {formatPercentDisplay(usedPct)}
+                </span>
+                <span className="text-[10px] font-medium uppercase tracking-wide text-zinc-400">
+                  used
+                </span>
+              </div>
             </div>
-          </>
-        )}
-      </DashboardPageHeader>
+          </div>
+        </section>
+      )}
 
       <section className="overflow-hidden rounded-2xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
         <div className="flex flex-col gap-4 border-b border-zinc-100 px-5 py-4 dark:border-zinc-800 sm:flex-row sm:items-center sm:justify-between sm:px-6">

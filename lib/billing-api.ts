@@ -156,23 +156,25 @@ export function sortBillingPlans(plans: BillingPlan[]): BillingPlan[] {
 }
 
 export async function fetchBillingPlans(): Promise<BillingPlan[]> {
-  const { plans } = await authedJson<{ plans: BillingPlan[] }>(
+  const data = await authedJson<{ plans?: BillingPlan[] } | null>(
     "/api/billing/plans",
     { method: "GET" },
     "Failed to load plans",
     BillingApiError,
   );
-  return sortBillingPlans(Array.isArray(plans) ? plans : []);
+  const plans = data && Array.isArray(data.plans) ? data.plans : [];
+  return sortBillingPlans(plans);
 }
 
 export async function fetchBillingSubscription(): Promise<BillingSubscription | null> {
-  const { subscription } = await authedJson<{ subscription: BillingSubscription | null }>(
+  const data = await authedJson<{ subscription?: BillingSubscription | null } | null>(
     "/api/billing/subscription",
     { method: "GET" },
     "Failed to load subscription",
     BillingApiError,
   );
-  return subscription ?? null;
+  if (!data || typeof data !== "object") return null;
+  return data.subscription ?? null;
 }
 
 export async function fetchBillingPageData(): Promise<{

@@ -45,6 +45,16 @@ export async function parseJson(res: Response): Promise<unknown> {
   }
 }
 
+/** Ignore aborted fetches (React strict mode, tab changes, sort toggles). */
+export function isAbortError(err: unknown): boolean {
+  if (err instanceof DOMException && err.name === "AbortError") return true;
+  if (err instanceof Error) {
+    if (err.name === "AbortError") return true;
+    if (/aborted/i.test(err.message)) return true;
+  }
+  return false;
+}
+
 /**
  * Extract a human-readable error string from a JSON error body, falling back when no
  * recognisable field is present. Looks at `message`, `error`, `detail` (in order) so the

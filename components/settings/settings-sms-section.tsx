@@ -21,6 +21,8 @@ import {
 import {
   getSmsConfig,
   sendTestSms,
+  SMS_ARKESEL_NOT_CONFIGURED_MESSAGE,
+  SMS_CONFIG_LOAD_FAILED_MESSAGE,
   smsApiErrorMessage,
 } from "@/lib/sms-api";
 import { cn } from "@/lib/utils";
@@ -43,6 +45,7 @@ export function SettingsSmsSection({
   const [testPhone, setTestPhone] = useState("");
   const [platformSender, setPlatformSender] = useState("Gidtransfer");
   const [configured, setConfigured] = useState(false);
+  const [configLoadFailed, setConfigLoadFailed] = useState(false);
 
   const studio = auth?.user?.studio;
   const apiStudio = pageData?.bundle.studio;
@@ -65,9 +68,12 @@ export function SettingsSmsSection({
         if (cancelled) return;
         setConfigured(config.configured);
         setPlatformSender(config.defaultSender?.trim() || "Gidtransfer");
+        setConfigLoadFailed(false);
       })
       .catch(() => {
-        if (!cancelled) setConfigured(false);
+        if (cancelled) return;
+        setConfigured(false);
+        setConfigLoadFailed(true);
       });
     return () => {
       cancelled = true;
@@ -85,7 +91,7 @@ export function SettingsSmsSection({
   const smsChanged = smsSenderId.trim().toUpperCase() !== savedSmsSenderId.toUpperCase();
   const smsValidation = smsSenderIdValidationMessage(smsSenderId);
 
-  async function handleRequestName() {
+  async function handleSaveName() {
     if (busy || !auth?.user) return;
     if (smsValidation) {
       showToast(smsValidation, "error");
@@ -109,9 +115,9 @@ export function SettingsSmsSection({
         smsSenderId: smsSenderId.trim().toUpperCase(),
       });
       onProfileUpdated?.(saved);
-      showToast("SMS display name submitted for approval.", "success");
+      showToast("SMS display name saved.", "success");
     } catch (e) {
-      showToast(settingsErrorMessage(e, "Could not request SMS display name."), "error");
+      showToast(settingsErrorMessage(e, "Could not save SMS display name."), "error");
     } finally {
       setBusy(false);
     }
@@ -119,6 +125,14 @@ export function SettingsSmsSection({
 
   async function handleTestSms() {
     if (testBusy) return;
+    if (configLoadFailed) {
+      showToast(SMS_CONFIG_LOAD_FAILED_MESSAGE, "error");
+      return;
+    }
+    if (!configured) {
+      showToast(SMS_ARKESEL_NOT_CONFIGURED_MESSAGE, "error");
+      return;
+    }
     const phone = testPhone.trim();
     if (!phone) {
       showToast("Enter a phone number for the test SMS.", "error");
@@ -178,11 +192,11 @@ export function SettingsSmsSection({
         <button
           type="button"
           disabled={busy || !smsChanged || Boolean(smsValidation)}
-          onClick={() => void handleRequestName()}
+          onClick={() => void handleSaveName()}
           className="inline-flex items-center gap-2 rounded-xl bg-brand px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-hover disabled:opacity-50"
         >
           <Send className="h-4 w-4" aria-hidden />
-          {busy ? "Submitting…" : "Request new name"}
+          {busy ? "Saving…" : "Save display name"}
         </button>
       </div>
 
@@ -192,9 +206,11 @@ export function SettingsSmsSection({
           <div className="min-w-0 flex-1">
             <p className="text-sm font-medium text-zinc-800 dark:text-zinc-200">Send test SMS</p>
             <p className="mt-0.5 text-xs text-zinc-500">
-              {configured
-                ? "Verify delivery with your business phone or any test number."
-                : "SMS is not configured on the server yet — test sends may fail."}
+              {configLoadFailed
+                ? SMS_CONFIG_LOAD_FAILED_MESSAGE
+                : configured
+                  ? "Verify delivery with your business phone or any test number."
+                  : "Test send is disabled until Arkesel is configured on the API."}
             </p>
             <label className="mt-3 block">
               <span className={cn(formModalLabelClass, "normal-case")}>Phone number</span>
@@ -202,13 +218,13 @@ export function SettingsSmsSection({
                 value={testPhone}
                 onChange={(e) => setTestPhone(e.target.value)}
                 placeholder="e.g. +233200000000"
-                disabled={testBusy}
+                disabled={testBusy || !configured || configLoadFailed}
                 className="mt-2"
               />
             </label>
             <button
               type="button"
-              disabled={testBusy}
+              disabled={testBusy || !configured || configLoadFailed}
               onClick={() => void handleTestSms()}
               className="mt-3 inline-flex items-center gap-2 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-200"
             >

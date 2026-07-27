@@ -2,6 +2,7 @@ import type { ApiClient } from "@/lib/clients-api";
 import type { GalleryCoverFrame } from "@/lib/gallery-cover-frame";
 import type { GalleryImageLayout } from "@/lib/gallery-image-layout";
 import type { ApiGallerySet } from "@/lib/gallery-sets-api";
+import type { PublicPhotoAi } from "@/lib/share-gallery-api";
 import { HttpError } from "@/lib/http";
 
 export type { DuplicateUploadAction } from "@/lib/upload-preferences";
@@ -62,6 +63,12 @@ export type ApiFolderMedia = {
   thumbnailUrl?: string;
   /** Grid-optimized thumbnail from GET uploads?view=grid (often absolute CDN URL). */
   gridUrl?: string;
+  /** Progressive JPEG poster for videos. */
+  posterUrl?: string;
+  /** MPEG-DASH manifest URL when packaged. */
+  dashUrl?: string;
+  dashStatus?: "pending" | "processing" | "ready" | "failed" | "skipped";
+  streamingReady?: boolean;
   previewUrl?: string;
   lockedPreviewUrl?: string;
   locked_preview_url?: string;
@@ -85,6 +92,8 @@ export type ApiFolderMedia = {
   setId?: string | null;
   /** False while thumbnails / watermarked previews are still processing. */
   derivativesReady?: boolean;
+  /** AI metadata when returned by search / list endpoints. */
+  ai?: PublicPhotoAi;
 };
 
 export type { ApiGallerySet };

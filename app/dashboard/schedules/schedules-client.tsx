@@ -1,8 +1,9 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { CalendarDays, ChevronLeft, ChevronRight, Plus } from "lucide-react";
+import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
 import { useToast } from "@/components/toast-provider";
 import { BookingCard, BookingDayPill } from "@/components/schedules/booking-card";
 import { BookingCategoryFilter } from "@/components/schedules/booking-category-filter";
@@ -31,13 +32,7 @@ import {
 } from "@/lib/bookings-api";
 import { ApiError } from "@/lib/clients-api";
 import { cn } from "@/lib/utils";
-import {
-  DashboardPageHeader,
-  dashboardPageHeaderChipClassName,
-  dashboardPageHeaderCtaClassName,
-  dashboardPageHeaderDescriptionClassName,
-  dashboardPageHeaderTitleClassName,
-} from "@/components/dashboard/dashboard-page-header";
+import { dashboardPageHeaderCtaClassName } from "@/components/dashboard/dashboard-page-header";
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
 
@@ -425,28 +420,36 @@ export function SchedulesClient() {
 
   return (
     <div className="dashboard-page space-y-6">
-      <DashboardPageHeader innerClassName="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="min-w-0">
-          <h1 className={dashboardPageHeaderTitleClassName()}>Bookings</h1>
-          <p className={dashboardPageHeaderDescriptionClassName()}>
-            Plan shoots, see what&apos;s on the calendar, and keep session details next to each
-            client.
-          </p>
-          {nextShoot ? (
-            <p className={dashboardPageHeaderChipClassName("mt-3 max-w-full flex-wrap")}>
-              <span className="font-semibold">Next up</span>
-              <span className="truncate text-brand-ink/80 dark:text-brand-on-dark/90">
-                {nextShoot.title}, {relativeDayLabel(nextShoot.date)},{" "}
-                {formatBookedTimeLabel(nextShoot.startTime)}
-              </span>
-            </p>
-          ) : null}
-        </div>
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <nav aria-label="Breadcrumb">
+          <ol className="flex flex-wrap items-center gap-1.5 text-sm">
+            <li>
+              <Link
+                href="/dashboard"
+                className="font-medium text-zinc-400 transition hover:text-zinc-600 dark:text-zinc-500 dark:hover:text-zinc-300"
+              >
+                Dashboard
+              </Link>
+            </li>
+            <li className="text-zinc-300 dark:text-zinc-600" aria-hidden>
+              <ChevronRight className="h-3.5 w-3.5" strokeWidth={2} />
+            </li>
+            <li className="font-semibold text-zinc-900 dark:text-zinc-50">Bookings</li>
+          </ol>
+        </nav>
         <button type="button" onClick={openCreateBooking} className={dashboardPageHeaderCtaClassName()}>
-          <Plus className="h-4 w-4" aria-hidden />
           New booking
         </button>
-      </DashboardPageHeader>
+      </header>
+
+      {nextShoot ? (
+        <p className="text-sm text-zinc-500 dark:text-zinc-400">
+          <span className="font-semibold text-zinc-700 dark:text-zinc-300">Next up</span>
+          {" · "}
+          {nextShoot.title}, {relativeDayLabel(nextShoot.date)},{" "}
+          {formatBookedTimeLabel(nextShoot.startTime)}
+        </p>
+      ) : null}
 
       <BookingsOverviewStrip
         weekCount={stats?.thisWeekCount ?? null}
@@ -610,9 +613,8 @@ export function SchedulesClient() {
               <button
                 type="button"
                 onClick={openCreateBooking}
-                className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-zinc-200 px-2.5 py-1 text-[11px] font-semibold text-zinc-700 transition hover:bg-zinc-50 dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                className="inline-flex shrink-0 rounded-lg border border-zinc-200 px-2.5 py-1 text-[11px] font-semibold text-zinc-700 transition hover:bg-zinc-50 dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-800"
               >
-                <Plus className="h-3 w-3" aria-hidden />
                 Add
               </button>
             </div>
@@ -626,9 +628,8 @@ export function SchedulesClient() {
                 <button
                   type="button"
                   onClick={openCreateBooking}
-                  className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-brand px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-hover"
+                  className="mt-3 rounded-lg bg-brand px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-hover"
                 >
-                  <Plus className="h-3.5 w-3.5" aria-hidden />
                   New booking
                 </button>
               </div>

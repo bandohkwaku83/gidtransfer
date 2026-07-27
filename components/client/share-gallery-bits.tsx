@@ -96,18 +96,6 @@ export const galleryTileHoverIconClass =
 
 /* ----------------------------- small helpers ----------------------------- */
 
-export function clientInitials(name: string): string {
-  const t = name.trim();
-  if (!t) return "?";
-  const parts = t.split(/\s+/).filter(Boolean);
-  if (parts.length >= 2) {
-    const a = parts[0]?.[0];
-    const b = parts[parts.length - 1]?.[0];
-    if (a && b) return `${a}${b}`.toUpperCase();
-  }
-  return t.slice(0, 2).toUpperCase();
-}
-
 export function toDemoAssets(shareAssets: ShareGalleryAsset[]): DemoAsset[] {
   return shareAssets.map((a) => ({
     id: a.id,
@@ -124,7 +112,15 @@ export function toDemoAssets(shareAssets: ShareGalleryAsset[]): DemoAsset[] {
     ...(a.isVideo ? { isVideo: true } : {}),
     ...(a.setId !== undefined ? { setId: a.setId } : {}),
     ...(a.derivativesReady === false ? { derivativesReady: false } : {}),
+    ...(a.derivativesReady === true ? { derivativesReady: true } : {}),
+    ...(a.posterUrl ? { posterUrl: a.posterUrl } : {}),
+    ...(a.dashUrl ? { dashUrl: a.dashUrl } : {}),
+    ...(a.dashStatus ? { dashStatus: a.dashStatus } : {}),
+    ...(a.streamingReady !== undefined ? { streamingReady: a.streamingReady } : {}),
     ...(a.removedFromBrowse ? { removedFromBrowse: true } : {}),
+    ...(a.rejectedByClient ? { rejectedByClient: true } : {}),
+    ...(a.rejectionComment ? { rejectionComment: a.rejectionComment } : {}),
+    ...(a.ai ? { ai: a.ai } : {}),
   }));
 }
 

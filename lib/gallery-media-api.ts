@@ -1,9 +1,21 @@
 import { resolveGridThumbUrl, sameOriginUploadsUrl } from "@/lib/api";
+import {
+  appendGalleryPhotoSearchParams,
+  readGalleryPhotoSearchMeta,
+  type GalleryPhotoSearchFilters,
+  type GalleryPhotoSearchMeta,
+} from "@/lib/gallery-photo-search";
+import {
+  isVideoStreamingPending,
+  pickStreamingFields,
+  type GalleryStreamingFields,
+} from "@/lib/gallery-media-streaming";
 import { s3UploadGalleryFinals, s3UploadGalleryPhotos } from "@/lib/gallery-upload-s3";
 import { authedJson } from "@/lib/http";
 import type { ApiFolderMedia, GalleryUploadsPagination } from "@/lib/folders/types";
 import { FoldersApiError } from "@/lib/folders/types";
 import type { DuplicateUploadAction } from "@/lib/upload-preferences";
+import type { PublicPhotoAi } from "@/lib/share-gallery-api";
 
 export type ApiGalleryPhoto = {
   id: string;
@@ -39,7 +51,9 @@ export type ApiGalleryPhoto = {
   setId?: string | null;
   /** False while thumbnails / watermarked previews are still processing. */
   derivativesReady?: boolean;
-};
+  /** Present on search results when AI metadata is available. */
+  ai?: PublicPhotoAi;
+} & GalleryStreamingFields;
 
 export type GalleryUploadPhotosResult = {
   message?: string;
@@ -65,11 +79,12 @@ export type GalleryUploadsListOptions = {
   page?: number;
   limit?: number;
   ids?: string[];
-};
+} & Partial<GalleryPhotoSearchFilters>;
 
 export type GalleryUploadsListResult = {
   uploads: ApiFolderMedia[];
   pagination: GalleryUploadsPagination;
+  search?: GalleryPhotoSearchMeta;
 };
 
 function galleryPath(id: string) {
@@ -106,11 +121,21 @@ function resolveMediaUrl(url?: string | null): string | undefined {
 }
 
 export function galleryPhotoToApiFolderMedia(photo: ApiGalleryPhoto): ApiFolderMedia {
-  const row = photo as ApiGalleryPhoto & { grid_url?: string; thumb_url?: string };
+  const row = photo as ApiGalleryPhoto & {
+    grid_url?: string;
+    thumb_url?: string;
+    poster_url?: string;
+    dash_url?: string;
+    dash_status?: string;
+    streaming_ready?: boolean;
+  };
   const url = resolveMediaUrl(photo.url);
   const displayUrl = resolveMediaUrl(photo.displayUrl);
+  const streaming = pickStreamingFields(row as Record<string, unknown>);
+  const posterUrl = resolveMediaUrl(streaming.posterUrl ?? row.posterUrl);
+  const dashUrl = resolveMediaUrl(streaming.dashUrl ?? row.dashUrl);
   const gridThumb = resolveGridThumbUrl(
-    row.gridUrl || row.grid_url || row.thumbUrl || row.thumb_url,
+    row.gridUrl || row.grid_url || row.thumbUrl || row.thumb_url || posterUrl,
   );
   const mimeType = photo.mimeType || photo.contentType || "";
   const isVideo =
@@ -118,13 +143,14 @@ export function galleryPhotoToApiFolderMedia(photo: ApiGalleryPhoto): ApiFolderM
     mimeType.toLowerCase().startsWith("video/") ||
     /\.(mp4|mov|webm|m4v|avi|mkv|ogv)$/i.test(photo.originalFilename) ||
     /\.(mp4|mov|webm|m4v|avi|mkv|ogv)(?:[?#].*)?$/i.test(url ?? "");
-  const resolvedThumb = isVideo ? undefined : gridThumb;
-  const previewUrl =
-    isVideo
-      ? url
-      : displayUrl && resolvedThumb && displayUrl !== resolvedThumb
-        ? displayUrl
-        : undefined;
+  const resolvedThumb = isVideo
+    ? resolveGridThumbUrl(posterUrl || gridThumb) || posterUrl || gridThumb
+    : gridThumb;
+  const previewUrl = isVideo
+    ? undefined
+    : displayUrl && resolvedThumb && displayUrl !== resolvedThumb
+      ? displayUrl
+      : undefined;
   return {
     _id: photo.id,
     id: photo.id,
@@ -134,8 +160,14 @@ export function galleryPhotoToApiFolderMedia(photo: ApiGalleryPhoto): ApiFolderM
     name: photo.originalFilename,
     url,
     ...(displayUrl ? { displayUrl } : {}),
-    thumbUrl: resolvedThumb,
+    thumbUrl: resolvedThumb || undefined,
     ...(resolvedThumb ? { gridUrl: resolvedThumb } : {}),
+    ...(posterUrl ? { posterUrl } : {}),
+    ...(dashUrl ? { dashUrl } : {}),
+    ...(streaming.dashStatus ? { dashStatus: streaming.dashStatus } : {}),
+    ...(streaming.streamingReady !== undefined
+      ? { streamingReady: streaming.streamingReady }
+      : {}),
     ...(previewUrl ? { previewUrl } : {}),
     mimeType,
     isVideo,
@@ -155,27 +187,63 @@ export function galleryPhotoToApiFolderMedia(photo: ApiGalleryPhoto): ApiFolderM
     ...(photo.clientPaid !== undefined ? { clientPaid: photo.clientPaid } : {}),
     setId: photo.setId ?? null,
     derivativesReady: photo.derivativesReady,
+    ...(photo.ai ? { ai: photo.ai } : {}),
   };
 }
 
-/** Photographer dashboard grid — prefer gridUrl/thumbUrl, fall back to full image while processing. */
+/** Photographer dashboard grid — prefer progressive thumb/grid, poster for videos. */
 export function folderUploadGridSrc(
-  media: Pick<ApiFolderMedia, "gridUrl" | "thumbUrl" | "url" | "thumbnailUrl">,
+  media: Pick<
+    ApiFolderMedia,
+    "gridUrl" | "thumbUrl" | "url" | "thumbnailUrl" | "posterUrl" | "isVideo"
+  >,
 ): string {
+  if (media.isVideo) {
+    return (
+      (media.posterUrl || "").trim() ||
+      (media.gridUrl || "").trim() ||
+      (media.thumbUrl || media.thumbnailUrl || "").trim()
+    );
+  }
   const thumb = (media.gridUrl || media.thumbUrl || media.thumbnailUrl || "").trim();
   const full = (media.url || "").trim();
   return thumb || full;
 }
 
-function galleryPhotoDerivativesPending(photo: ApiGalleryPhoto): boolean {
-  if (photo.derivativesReady === false) return true;
+function galleryPhotoIsVideo(photo: ApiGalleryPhoto): boolean {
   const mime = (photo.mimeType || photo.contentType || "").toLowerCase();
-  if (photo.isVideo === true || mime.startsWith("video/")) return false;
-  return false;
+  return (
+    photo.isVideo === true ||
+    mime.startsWith("video/") ||
+    /\.(mp4|mov|webm|m4v|avi|mkv|ogv)$/i.test(photo.originalFilename)
+  );
+}
+
+function galleryPhotoDerivativesPending(photo: ApiGalleryPhoto): boolean {
+  if (galleryPhotoIsVideo(photo)) {
+    return isVideoStreamingPending({
+      isVideo: true,
+      dashStatus: photo.dashStatus,
+      streamingReady: photo.streamingReady,
+    });
+  }
+  // Images: keep polling until the API reports derivativesReady === true.
+  return photo.derivativesReady !== true;
 }
 
 export function galleryPhotosPendingDerivatives(photos: ApiGalleryPhoto[]): string[] {
-  return photos.filter(galleryPhotoDerivativesPending).map((p) => p.id);
+  return photos
+    .filter((photo) => {
+      if (galleryPhotoIsVideo(photo)) {
+        return isVideoStreamingPending({
+          isVideo: true,
+          dashStatus: photo.dashStatus,
+          streamingReady: photo.streamingReady,
+        });
+      }
+      return photo.derivativesReady === false;
+    })
+    .map((p) => p.id);
 }
 
 export function upsertGalleryUploadRows(
@@ -233,7 +301,7 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
-/** Poll GET /uploads until listed photos report derivativesReady. */
+/** Poll GET /uploads until listed photos report derivativesReady and video streaming settles. */
 export async function pollGalleryUploadDerivatives(
   galleryId: string,
   photoIds: string[],
@@ -268,9 +336,59 @@ export async function pollGalleryUploadDerivatives(
     const photos = normalizePhotoList(res, ["photos"]);
     for (const photo of photos) {
       if (!pending.has(photo.id)) continue;
-      if (photo.derivativesReady !== true) continue;
+      const streaming = pickStreamingFields(photo as unknown as Record<string, unknown>);
+      const merged: ApiGalleryPhoto = { ...photo, ...streaming };
+      if (galleryPhotoDerivativesPending(merged)) continue;
       pending.delete(photo.id);
-      onPhotoReady(photo);
+      onPhotoReady(merged);
+    }
+    intervalMs = Math.min(Math.round(intervalMs * 1.4), DERIVATIVES_POLL_MAX_MS);
+  }
+}
+
+/** Poll GET /finals until listed finals settle (derivatives + DASH). */
+export async function pollGalleryFinalDerivatives(
+  galleryId: string,
+  finalIds: string[],
+  onFinalReady: (photo: ApiGalleryPhoto) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const pending = new Set(finalIds.filter(Boolean));
+  if (pending.size === 0) return;
+
+  let intervalMs = DERIVATIVES_POLL_MS;
+
+  while (pending.size > 0) {
+    if (signal?.aborted) return;
+    try {
+      await sleep(intervalMs, signal);
+    } catch {
+      return;
+    }
+    if (signal?.aborted) return;
+    if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+      continue;
+    }
+
+    const res = await authedJson<{ finals?: ApiGalleryPhoto[]; photos?: ApiGalleryPhoto[] }>(
+      `${galleryPath(galleryId)}/finals`,
+      { method: "GET" },
+      "Failed to refresh finals",
+      FoldersApiError,
+    );
+    const photos = normalizePhotoList(res, ["finals", "photos"]);
+    for (const photo of photos) {
+      if (!pending.has(photo.id)) continue;
+      const streaming = pickStreamingFields(photo as unknown as Record<string, unknown>);
+      const merged: ApiGalleryPhoto = { ...photo, ...streaming };
+      if (galleryPhotoDerivativesPending(merged)) continue;
+      pending.delete(photo.id);
+      onFinalReady(merged);
+    }
+    // Drop ids that vanished from the list so we do not poll forever.
+    const present = new Set(photos.map((p) => p.id));
+    for (const id of [...pending]) {
+      if (!present.has(id)) pending.delete(id);
     }
     intervalMs = Math.min(Math.round(intervalMs * 1.4), DERIVATIVES_POLL_MAX_MS);
   }
@@ -388,6 +506,13 @@ function buildUploadsQuery(options: GalleryUploadsListOptions = {}): string {
   if (options.page != null && options.page > 0) qs.set("page", String(options.page));
   if (options.limit != null && options.limit > 0) qs.set("limit", String(options.limit));
   if (options.ids?.length) qs.set("ids", options.ids.filter(Boolean).join(","));
+  appendGalleryPhotoSearchParams(qs, {
+    q: options.q ?? "",
+    scene: options.scene ?? "",
+    suggested: options.suggested === true,
+    blurry: options.blurry === true,
+    minQuality: options.minQuality ?? null,
+  });
   const query = qs.toString();
   return query ? `?${query}` : "";
 }
@@ -403,9 +528,68 @@ export async function fetchGalleryUploadsPage(
     "Failed to load uploads",
     FoldersApiError,
   );
+  const photos = normalizePhotoList(res, ["photos"]).map((photo) => {
+    const ai = pickPhotoAi(photo as unknown as Record<string, unknown>);
+    return galleryPhotoToApiFolderMedia(ai ? { ...photo, ai } : photo);
+  });
   return {
-    uploads: normalizePhotoList(res, ["photos"]).map(galleryPhotoToApiFolderMedia),
+    uploads: photos,
     pagination: normalizeUploadsPagination(res),
+    ...(readGalleryPhotoSearchMeta(res)
+      ? { search: readGalleryPhotoSearchMeta(res) }
+      : {}),
+  };
+}
+
+function pickPhotoAi(row: Record<string, unknown>): PublicPhotoAi | undefined {
+  const aiRaw = row.ai;
+  if (!aiRaw || typeof aiRaw !== "object" || Array.isArray(aiRaw)) return undefined;
+  const ai = aiRaw as Record<string, unknown>;
+  const statusRaw =
+    typeof ai.status === "string" ? ai.status.trim().toLowerCase() : "";
+  const status =
+    statusRaw === "pending" ||
+    statusRaw === "processing" ||
+    statusRaw === "ready" ||
+    statusRaw === "failed" ||
+    statusRaw === "skipped"
+      ? statusRaw
+      : "pending";
+  const num = (v: unknown): number | null => {
+    if (typeof v === "number" && Number.isFinite(v)) return v;
+    if (typeof v === "string" && v.trim()) {
+      const n = Number(v);
+      return Number.isFinite(n) ? n : null;
+    }
+    return null;
+  };
+  const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");
+  const bool = (v: unknown) => v === true || v === "true";
+  const strings = (v: unknown): string[] =>
+    Array.isArray(v)
+      ? v
+          .filter((x): x is string => typeof x === "string" && x.trim().length > 0)
+          .map((x) => x.trim())
+      : [];
+  return {
+    status,
+    suggested: bool(ai.suggested),
+    qualityScore: num(ai.qualityScore ?? ai.quality_score),
+    sceneLabel: str(ai.sceneLabel) || str(ai.scene_label) || null,
+    tags: strings(ai.tags),
+    issues: strings(ai.issues),
+    faceCount: num(ai.faceCount ?? ai.face_count),
+    eyesOpen:
+      typeof ai.eyesOpen === "boolean"
+        ? ai.eyesOpen
+        : typeof ai.eyes_open === "boolean"
+          ? ai.eyes_open
+          : null,
+    isBlurry: bool(ai.isBlurry) || bool(ai.is_blurry),
+    duplicateGroupId: str(ai.duplicateGroupId) || str(ai.duplicate_group_id) || null,
+    isBestInGroup: bool(ai.isBestInGroup) || bool(ai.is_best_in_group),
+    suggestionScore: num(ai.suggestionScore ?? ai.suggestion_score),
+    suggestionReason: str(ai.suggestionReason) || str(ai.suggestion_reason) || null,
   };
 }
 

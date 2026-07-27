@@ -3,11 +3,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   CalendarDays,
+  ChevronRight,
   FolderOpen,
   LayoutGrid,
   Link2,
   Pencil,
-  Plus,
   Rows3,
   Trash2,
 } from "lucide-react";
@@ -31,12 +31,7 @@ import {
   type ApiFolder,
 } from "@/lib/folders-api";
 import { listClients } from "@/lib/clients-api";
-import {
-  DashboardPageHeader,
-  dashboardPageHeaderCtaClassName,
-  dashboardPageHeaderDescriptionClassName,
-  dashboardPageHeaderTitleClassName,
-} from "@/components/dashboard/dashboard-page-header";
+import { dashboardPageHeaderCtaClassName } from "@/components/dashboard/dashboard-page-header";
 import { getSettings, getSettingsDefaultCoverUrl } from "@/lib/settings-api";
 import {
   type GalleryStatusFilter,
@@ -306,18 +301,27 @@ export default function GalleriesPage() {
 
   return (
     <div className="dashboard-page space-y-6">
-      <DashboardPageHeader innerClassName="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="min-w-0">
-          <h1 className={dashboardPageHeaderTitleClassName()}>Galleries</h1>
-          <p className={dashboardPageHeaderDescriptionClassName()}>
-            Upload raws, track client selections, and deliver finals from one place per shoot.
-          </p>
-        </div>
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <nav aria-label="Breadcrumb">
+          <ol className="flex flex-wrap items-center gap-1.5 text-sm">
+            <li>
+              <Link
+                href="/dashboard"
+                className="font-medium text-zinc-400 transition hover:text-zinc-600 dark:text-zinc-500 dark:hover:text-zinc-300"
+              >
+                Dashboard
+              </Link>
+            </li>
+            <li className="text-zinc-300 dark:text-zinc-600" aria-hidden>
+              <ChevronRight className="h-3.5 w-3.5" strokeWidth={2} />
+            </li>
+            <li className="font-semibold text-zinc-900 dark:text-zinc-50">Galleries</li>
+          </ol>
+        </nav>
         <button type="button" onClick={openCreate} className={dashboardPageHeaderCtaClassName()}>
-          <Plus className="h-4 w-4" aria-hidden />
           New gallery
         </button>
-      </DashboardPageHeader>
+      </header>
 
       <div className="space-y-2">
         <div className="overflow-visible rounded-sm bg-zinc-100 px-2 py-1.5 dark:bg-zinc-900">
@@ -465,9 +469,8 @@ export default function GalleriesPage() {
             <button
               type="button"
               onClick={openCreate}
-              className="mt-8 inline-flex items-center gap-2 rounded-xl bg-brand px-5 py-2.5 text-sm font-semibold text-white shadow-md shadow-brand/25 transition hover:bg-brand-hover"
+              className="mt-8 rounded-lg bg-brand px-5 py-2.5 text-sm font-semibold text-white shadow-md shadow-brand/25 transition hover:bg-brand-hover"
             >
-              <Plus className="h-4 w-4" aria-hidden="true" />
               New gallery
             </button>
           ) : statusFilter !== "all" ? (

@@ -21,7 +21,6 @@ import {
 import type { TableColumnsType } from "antd";
 import {
   ArrowLeftOutlined,
-  CameraOutlined,
   CheckCircleOutlined,
   MailOutlined,
   MessageOutlined,
@@ -230,12 +229,11 @@ export default function PhotographerDetailPage() {
             <div className="flex items-start gap-4">
               <Avatar
                 size={64}
-                src={photographer.companyLogo ?? undefined}
-                icon={<CameraOutlined />}
+                src={photographer.companyLogo ?? "/images/user-profile.png"}
                 className={
                   photographer.companyLogo
                     ? "!bg-white"
-                    : "!bg-primary/10 !text-primary"
+                    : "!bg-slate-200"
                 }
               />
               <div>

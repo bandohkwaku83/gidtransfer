@@ -41,14 +41,17 @@ const MediaThumb = memo(function MediaThumb({
   return (
     <>
       {isVideo ? (
-        <video
-          src={src}
-          muted
-          playsInline
-          preload="metadata"
-          aria-label={name}
-          className="pointer-events-none h-full w-full bg-black object-cover"
-        />
+        src ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={src}
+            alt=""
+            className="pointer-events-none h-full w-full bg-black object-cover"
+            loading="lazy"
+          />
+        ) : (
+          <div className="pointer-events-none h-full w-full bg-zinc-900" aria-label={name} />
+        )
       ) : (
         // eslint-disable-next-line @next/next/no-img-element
         <img src={src} alt="" className="pointer-events-none h-full w-full object-cover" loading="lazy" />

@@ -1,54 +1,14 @@
 import { authedJson, extractMessage, HttpError } from "@/lib/http";
-import type { StudioSmsFields } from "@/lib/sms-sender";
-
-export type SmsPlaceholder = {
-  key: string;
-  token: string;
-  label: string;
-};
-
-export type SmsRecipientTypeOption = {
-  id: string;
-  label: string;
-};
-
-export type SmsMeta = {
-  placeholders: SmsPlaceholder[];
-  recipientTypes: SmsRecipientTypeOption[];
-  configured: boolean;
-};
+import {
+  DEFAULT_PLATFORM_SMS_SENDER,
+  studioSmsFieldsFromApi,
+  type StudioSmsFields,
+} from "@/lib/sms-sender";
 
 export type SmsConfigResponse = {
   configured: boolean;
   defaultSender: string;
   studio: StudioSmsFields;
-};
-
-export type SmsMessageRow = {
-  _id: string;
-  recipientName: string;
-  recipientPhone: string;
-  recipientKind: string;
-  message: string;
-  messageLength: number;
-  status: string;
-  costGHS: number;
-  errorMessage?: string;
-  client?: string;
-  folder?: string;
-  recipientType?: string;
-  createdAt: string;
-  updatedAt?: string;
-};
-
-export type ListSmsMessagesResponse = {
-  messages: SmsMessageRow[];
-  pagination: {
-    page: number;
-    limit: number;
-    total: number;
-    totalPages: number;
-  };
 };
 
 export type SendSmsInput = {
@@ -76,101 +36,68 @@ export type SendTestSmsResponse = {
 
 export class SmsApiError extends HttpError {}
 
-async function delay(ms = 25) {
-  await new Promise((r) => setTimeout(r, ms));
+/** Server-side Arkesel / SMS provider not wired (env on the API). */
+export const SMS_ARKESEL_NOT_CONFIGURED_MESSAGE =
+  "Arkesel is not set up on the server. Set ARKESEL_API_KEY and ARKESEL_DEFAULT_SENDER on the API. You cannot fix this from the app.";
+
+export const SMS_NO_SENDER_MESSAGE =
+  "Set your SMS display name in Settings before sending.";
+
+export const SMS_CONFIG_LOAD_FAILED_MESSAGE = "Couldn't load SMS settings.";
+
+function extractErrorCode(body: unknown): string | null {
+  if (!body || typeof body !== "object") return null;
+  const code = (body as { code?: unknown }).code;
+  return typeof code === "string" && code.trim() ? code.trim() : null;
 }
 
+function normalizeSmsConfig(raw: unknown): SmsConfigResponse {
+  const o = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  const studioRaw =
+    o.studio && typeof o.studio === "object"
+      ? (o.studio as Partial<StudioSmsFields>)
+      : {};
+  const defaultSender =
+    typeof o.defaultSender === "string" && o.defaultSender.trim()
+      ? o.defaultSender.trim()
+      : DEFAULT_PLATFORM_SMS_SENDER;
+  return {
+    configured: o.configured === true,
+    defaultSender,
+    studio: studioSmsFieldsFromApi(studioRaw),
+  };
+}
+
+/** GET /api/sms/config — throws on network/auth failure (do not invent configured:false). */
 export async function getSmsConfig(): Promise<SmsConfigResponse> {
-  try {
-    return await authedJson<SmsConfigResponse>(
-      "/api/sms/config",
-      { method: "GET" },
-      "Failed to load SMS settings",
-      SmsApiError,
-    );
-  } catch {
-    await delay();
-    return {
-      configured: false,
-      defaultSender: "Gidtransfer",
-      studio: {
-        smsSenderStatus: "none",
-        smsBrandingReady: false,
-      },
-    };
-  }
+  const raw = await authedJson<unknown>(
+    "/api/sms/config",
+    { method: "GET" },
+    SMS_CONFIG_LOAD_FAILED_MESSAGE,
+    SmsApiError,
+  );
+  return normalizeSmsConfig(raw);
 }
 
 export async function sendTestSms(input: SendTestSmsInput): Promise<SendTestSmsResponse> {
-  return authedJson<SendTestSmsResponse>(
-    "/api/sms/test",
-    {
-      method: "POST",
-      body: JSON.stringify({
-        phone: input.phone.trim(),
-        ...(input.message?.trim() ? { message: input.message.trim() } : {}),
-      }),
-    },
-    "Failed to send test SMS",
-    SmsApiError,
-  );
-}
-
-export async function getSmsMeta(): Promise<SmsMeta> {
   try {
-    const config = await getSmsConfig();
-    return {
-      placeholders: [{ key: "client", token: "{client}", label: "Client name" }],
-      recipientTypes: [
-        { id: "client", label: "Client" },
-        { id: "custom", label: "Custom list" },
-      ],
-      configured: config.configured,
-    };
-  } catch {
-    await delay();
-    return {
-      placeholders: [{ key: "client", token: "{client}", label: "Client name" }],
-      recipientTypes: [
-        { id: "client", label: "Client" },
-        { id: "custom", label: "Custom list (demo)" },
-      ],
-      configured: false,
-    };
-  }
-}
-
-export async function listSmsMessages(params: {
-  page?: number;
-  limit?: number;
-  search?: string;
-  status?: "" | "sent" | "failed" | "skipped";
-}): Promise<ListSmsMessagesResponse> {
-  try {
-    const qs = new URLSearchParams();
-    if (params.page) qs.set("page", String(params.page));
-    if (params.limit) qs.set("limit", String(params.limit));
-    if (params.search?.trim()) qs.set("search", params.search.trim());
-    if (params.status) qs.set("status", params.status);
-    const query = qs.toString();
-    return await authedJson<ListSmsMessagesResponse>(
-      `/api/sms/messages${query ? `?${query}` : ""}`,
-      { method: "GET" },
-      "Failed to load SMS messages",
+    return await authedJson<SendTestSmsResponse>(
+      "/api/sms/test",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          phone: input.phone.trim(),
+          ...(input.message?.trim() ? { message: input.message.trim() } : {}),
+        }),
+      },
+      "Failed to send test SMS",
       SmsApiError,
     );
-  } catch {
-    await delay();
-    void params;
-    return {
-      messages: [],
-      pagination: {
-        page: params.page ?? 1,
-        limit: params.limit ?? 10,
-        total: 0,
-        totalPages: 1,
-      },
-    };
+  } catch (err) {
+    if (err instanceof SmsApiError && err.status === 503) {
+      throw new SmsApiError(smsApiErrorMessage(err, "Failed to send test SMS"), err.status, err.body);
+    }
+    throw err;
   }
 }
 
@@ -187,26 +114,19 @@ export async function sendSms(input: SendSmsInput): Promise<SendSmsResponse> {
     );
   } catch (err) {
     if (err instanceof SmsApiError && err.status === 503) {
-      throw new SmsApiError(
-        extractMessage(err.body, "SMS is not configured on the server."),
-        err.status,
-        err.body,
-      );
+      throw new SmsApiError(smsApiErrorMessage(err, "Failed to send SMS"), err.status, err.body);
     }
-    await delay();
-    return {
-      message: "Demo mode: no SMS was sent.",
-      summary: { sent: 0, failed: 0, skipped: 1 },
-      results: [],
-      skipped: [{ reason: "demo", recipientType: input.recipientType }],
-    };
+    throw err;
   }
 }
 
 export function smsApiErrorMessage(err: unknown, fallback: string): string {
   if (err instanceof SmsApiError) {
     if (err.status === 503) {
-      return extractMessage(err.body, "SMS is not configured on the server.");
+      const code = extractErrorCode(err.body);
+      if (code === "NOT_CONFIGURED") return SMS_ARKESEL_NOT_CONFIGURED_MESSAGE;
+      if (code === "NO_SENDER") return SMS_NO_SENDER_MESSAGE;
+      return extractMessage(err.body, SMS_ARKESEL_NOT_CONFIGURED_MESSAGE);
     }
     return err.message || fallback;
   }

@@ -18,9 +18,6 @@ type BookingsOverviewStripProps = {
   loading?: boolean;
 };
 
-const STRIP_CARD_CLASS =
-  "group relative flex flex-col overflow-hidden rounded-xl border border-[#2a2a2a] bg-[#171717] px-3.5 py-3 shadow-sm transition hover:border-[#333333] hover:bg-[#1f1f1f]";
-
 function OverviewCard({
   item,
   loading,
@@ -32,38 +29,32 @@ function OverviewCard({
   const isZero = !loading && item.value === "0";
 
   return (
-    <article className={STRIP_CARD_CLASS}>
-      <span
-        className="pointer-events-none absolute -right-4 -top-4 h-20 w-20 rounded-full bg-white/5 opacity-60 blur-2xl transition group-hover:opacity-80"
-        aria-hidden
-      />
+    <article className="dashboard-stat-card group">
+      <span className="dashboard-stat-card-glow" aria-hidden />
 
-      <div className="flex items-center justify-between gap-2">
-        <div className="min-w-0">
-          <p className="text-[13px] font-semibold leading-tight tracking-tight text-zinc-50">
-            {item.label}
-          </p>
-          <p className="mt-0.5 text-[10px] leading-snug text-zinc-500">{item.hint}</p>
+      <div className="relative z-[1] min-w-0 pr-8">
+        <p className="dashboard-stat-card-title">{item.label}</p>
+        <p className="dashboard-stat-card-hint">{item.hint}</p>
+
+        <div className="dashboard-stat-card-foot">
+          {loading ? (
+            <span className="dashboard-stat-card-value-skeleton" aria-hidden />
+          ) : (
+            <p
+              className={cn(
+                "dashboard-stat-card-value",
+                isZero && "text-zinc-300 dark:text-zinc-600",
+              )}
+            >
+              {item.value}
+            </p>
+          )}
         </div>
-        <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#2a2a2a]">
-          <Icon className="h-3.5 w-3.5 text-zinc-500" strokeWidth={1.75} aria-hidden />
-        </span>
       </div>
 
-      <div className="mt-2.5">
-        {loading ? (
-          <span className="inline-block h-6 w-8 animate-pulse rounded bg-[#2a2a2a]" aria-hidden />
-        ) : (
-          <p
-            className={cn(
-              "font-display text-[1.35rem] font-normal leading-none tabular-nums text-zinc-50",
-              isZero && "text-zinc-600",
-            )}
-          >
-            {item.value}
-          </p>
-        )}
-      </div>
+      <span className="dashboard-stat-card-corner-icon" aria-hidden>
+        <Icon strokeWidth={1.75} />
+      </span>
     </article>
   );
 }

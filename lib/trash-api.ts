@@ -143,13 +143,16 @@ function mapTrashPhotoToMediaRow(photo: ApiTrashPhoto, retentionDays: number): T
 }
 
 export function mapListTrashApiResponse(
-  body: ListTrashApiResponse,
+  body: ListTrashApiResponse | null | undefined,
   clientNameById?: Map<string, string>,
 ): ListFoldersTrashResponse {
+  const safeBody = body && typeof body === "object" ? body : {};
   const retentionDays =
-    typeof body.retentionDays === "number" && body.retentionDays > 0 ? body.retentionDays : 30;
+    typeof safeBody.retentionDays === "number" && safeBody.retentionDays > 0
+      ? safeBody.retentionDays
+      : 30;
 
-  const folders: TrashFolderRow[] = (body.galleries ?? [])
+  const folders: TrashFolderRow[] = (safeBody.galleries ?? [])
     .map((g) => {
       const id = strId(g.id);
       if (!id) return null;
@@ -162,7 +165,7 @@ export function mapListTrashApiResponse(
     })
     .filter((row): row is TrashFolderRow => row != null);
 
-  const deletedMedia: TrashMediaRow[] = (body.photos ?? [])
+  const deletedMedia: TrashMediaRow[] = (safeBody.photos ?? [])
     .map((p) => mapTrashPhotoToMediaRow({ ...p, id: strId(p.id), galleryId: strId(p.galleryId) }, retentionDays))
     .filter((row) => row.folderId && row.mediaId);
 

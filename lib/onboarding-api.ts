@@ -10,6 +10,7 @@ import { authedFetch, extractMessage, HttpError, parseJson } from "@/lib/http";
 
 export type OnboardingResponse = {
   message?: string;
+  requiresEmailVerification?: boolean;
   user: ApiAuthUser;
   suggestedCompanySlug?: string | null;
   studioUrlSuffix?: string | null;
@@ -150,13 +151,20 @@ function appendOnboardingFormFields(
     smsSenderId: string;
     primaryDeliverable?: PrimaryDeliverableValue;
     referralCode?: string;
+    email?: string;
     logoFile?: File | null;
+    brandLogoFile?: File | null;
     logoDataUrl?: string;
+    clearBrandLogo?: boolean;
   },
 ) {
   form.append("companyName", input.companyName.trim());
   form.append("phone", input.phone.trim());
   form.append("smsSenderId", input.smsSenderId.trim().toUpperCase());
+  const email = input.email?.trim().toLowerCase();
+  if (email) {
+    form.append("email", email);
+  }
   const country = input.country?.trim();
   if (country) {
     form.append("country", country);
@@ -169,10 +177,13 @@ function appendOnboardingFormFields(
   if (referral) {
     form.append("referralCode", referral);
   }
-  if (input.logoFile) {
-    form.append("logo", input.logoFile);
+  const brandLogo = input.brandLogoFile ?? input.logoFile;
+  if (brandLogo) {
+    form.append("brandLogo", brandLogo);
   } else if (input.logoDataUrl?.trim()) {
-    form.append("logoDataUrl", input.logoDataUrl.trim());
+    form.append("brandLogoDataUrl", input.logoDataUrl.trim());
+  } else if (input.clearBrandLogo) {
+    form.append("clearBrandLogo", "true");
   }
 }
 
@@ -192,7 +203,9 @@ export async function completeOnboarding(input: {
   smsSenderId: string;
   primaryDeliverable: PrimaryDeliverableValue;
   referralCode?: string;
+  email?: string;
   logoFile?: File | null;
+  brandLogoFile?: File | null;
   logoDataUrl?: string;
 }): Promise<OnboardingResponse> {
   const form = new FormData();
@@ -235,8 +248,11 @@ export async function updateOnboarding(input: {
   smsSenderId: string;
   primaryDeliverable?: PrimaryDeliverableValue;
   referralCode?: string;
+  email?: string;
   logoFile?: File | null;
+  brandLogoFile?: File | null;
   logoDataUrl?: string;
+  clearBrandLogo?: boolean;
 }): Promise<OnboardingResponse> {
   const form = new FormData();
   appendOnboardingFormFields(form, input);

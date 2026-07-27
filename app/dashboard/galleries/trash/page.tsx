@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { ArrowLeft, ChevronDown, Clock, FileImage, FolderOpen, Loader2, RotateCcw, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronRight, Clock, FileImage, FolderOpen, Loader2, RotateCcw, Trash2 } from "lucide-react";
 import { FolderCoverVisual } from "@/components/photographer/folder-cover-visual";
 import {
   FoldersApiError,
@@ -23,11 +23,6 @@ import {
 import { listClients } from "@/lib/clients-api";
 import { getSettings, getSettingsDefaultCoverUrl } from "@/lib/settings-api";
 import { useToast } from "@/components/toast-provider";
-import {
-  DashboardPageHeader,
-  dashboardPageHeaderDescriptionClassName,
-  dashboardPageHeaderTitleClassName,
-} from "@/components/dashboard/dashboard-page-header";
 import { cn } from "@/lib/utils";
 
 function trashMediaKey(row: TrashMediaRow): string {
@@ -523,44 +518,62 @@ export default function GalleriesTrashPage() {
   const fullyEmpty = data && !hasFolderTrash && !hasMediaTrash;
 
   return (
-    <div className="dashboard-page space-y-4">
-      <Link
-        href="/dashboard/galleries"
-        className="inline-flex items-center gap-2 text-sm font-medium text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
-      >
-        <ArrowLeft className="h-4 w-4" aria-hidden />
-        Back to galleries
-      </Link>
-
-      <DashboardPageHeader innerClassName="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0">
-          <h1 className={dashboardPageHeaderTitleClassName()}>Trash</h1>
-          <p className={dashboardPageHeaderDescriptionClassName()}>
-            Trashed galleries and files can be restored until each row&apos;s deadline. Items past
-            the retention window are removed automatically.
-            {data != null && data.retentionDays > 0 ? (
-              <span className="mt-2 block text-xs text-zinc-500 dark:text-zinc-500">
-                Default window: {data.retentionDays} days.
-              </span>
-            ) : null}
-          </p>
-        </div>
+    <div className="dashboard-page space-y-6">
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <nav aria-label="Breadcrumb">
+          <ol className="flex flex-wrap items-center gap-1.5 text-sm">
+            <li>
+              <Link
+                href="/dashboard"
+                className="font-medium text-zinc-400 transition hover:text-zinc-600 dark:text-zinc-500 dark:hover:text-zinc-300"
+              >
+                Dashboard
+              </Link>
+            </li>
+            <li className="text-zinc-300 dark:text-zinc-600" aria-hidden>
+              <ChevronRight className="h-3.5 w-3.5" strokeWidth={2} />
+            </li>
+            <li>
+              <Link
+                href="/dashboard/galleries"
+                className="font-semibold text-zinc-600 transition hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200"
+              >
+                Galleries
+              </Link>
+            </li>
+            <li className="text-zinc-300 dark:text-zinc-600" aria-hidden>
+              <ChevronRight className="h-3.5 w-3.5" strokeWidth={2} />
+            </li>
+            <li className="font-semibold text-zinc-900 dark:text-zinc-50">Trash</li>
+          </ol>
+        </nav>
         {data && !fullyEmpty ? (
-          <div className="flex shrink-0 flex-wrap gap-2">
-            <button
-              type="button"
-              disabled={rowBusy}
-              onClick={() => void onPurgeAllTrash()}
-              className={cn(
-                "inline-flex min-h-9 items-center justify-center rounded-full border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 transition",
-                "hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-45 dark:border-red-400/40 dark:bg-red-500/15 dark:text-red-100 dark:hover:bg-red-500/25",
-              )}
-            >
-              {purging ? "Deleting…" : "Empty trash"}
-            </button>
-          </div>
+          <button
+            type="button"
+            disabled={rowBusy}
+            onClick={() => void onPurgeAllTrash()}
+            className={cn(
+              "inline-flex shrink-0 rounded-lg border border-red-200 bg-red-50 px-3.5 py-2 text-xs font-semibold text-red-700 transition",
+              "hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-45 dark:border-red-400/40 dark:bg-red-500/15 dark:text-red-100 dark:hover:bg-red-500/25",
+            )}
+          >
+            {purging ? "Deleting…" : "Empty trash"}
+          </button>
         ) : null}
-      </DashboardPageHeader>
+      </header>
+
+      <div
+        role="status"
+        className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-100"
+      >
+        <p>
+          Trashed galleries and files can be restored until each row&apos;s deadline. Items past
+          the retention window are removed automatically.
+        </p>
+        {(data?.retentionDays ?? 0) > 0 ? (
+          <p className="mt-2 text-sm font-medium">Default window: {data?.retentionDays} days.</p>
+        ) : null}
+      </div>
 
       {data && !fullyEmpty && selectedCount > 0 ? (
         <div className="flex items-center justify-between gap-3 rounded-lg border border-zinc-200/90 bg-zinc-50/90 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-900/50 sm:px-4">

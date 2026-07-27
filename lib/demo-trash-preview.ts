@@ -269,12 +269,23 @@ export function buildDemoTrashPreview(): ListFoldersTrashResponse {
   };
 }
 
-export function mergeTrashWithDemoPreview(api: ListFoldersTrashResponse): ListFoldersTrashResponse {
+export function mergeTrashWithDemoPreview(
+  api: ListFoldersTrashResponse | null | undefined,
+): ListFoldersTrashResponse {
+  const safeApi: ListFoldersTrashResponse = api ?? {
+    retentionDays: 30,
+    count: 0,
+    folders: [],
+    deletedMedia: [],
+    deletedMediaTotal: 0,
+    deletedMediaPreviewLimit: 0,
+  };
+
   if (!isTrashPreviewEnabled()) {
-    const folders = filterRestorableTrash(api.folders);
-    const deletedMedia = filterRestorableTrash(api.deletedMedia);
+    const folders = filterRestorableTrash(safeApi.folders);
+    const deletedMedia = filterRestorableTrash(safeApi.deletedMedia);
     return {
-      ...api,
+      ...safeApi,
       count: folders.length,
       folders,
       deletedMedia,
@@ -283,25 +294,28 @@ export function mergeTrashWithDemoPreview(api: ListFoldersTrashResponse): ListFo
   }
 
   const preview = buildDemoTrashPreview();
-  const folderIds = new Set(api.folders.map((r) => r.folder._id));
-  const mediaKeys = new Set(api.deletedMedia.map((m) => trashPreviewMediaKey(m.folderId, m.mediaId)));
+  const folderIds = new Set(safeApi.folders.map((r) => r.folder._id));
+  const mediaKeys = new Set(safeApi.deletedMedia.map((m) => trashPreviewMediaKey(m.folderId, m.mediaId)));
 
   const merged: ListFoldersTrashResponse = {
-    retentionDays: api.retentionDays || preview.retentionDays,
+    retentionDays: safeApi.retentionDays || preview.retentionDays,
     count: 0,
     folders: filterRestorableTrash([
-      ...api.folders,
+      ...safeApi.folders,
       ...preview.folders.filter((r) => !folderIds.has(r.folder._id)),
     ]),
     deletedMedia: filterRestorableTrash([
-      ...api.deletedMedia,
+      ...safeApi.deletedMedia,
       ...preview.deletedMedia.filter(
         (m) => !mediaKeys.has(trashPreviewMediaKey(m.folderId, m.mediaId)),
       ),
     ]),
     deletedMediaTotal: 0,
-    deletedMediaPreviewLimit: Math.max(api.deletedMediaPreviewLimit, preview.deletedMediaPreviewLimit),
-    deletedMediaPagingHint: api.deletedMediaPagingHint,
+    deletedMediaPreviewLimit: Math.max(
+      safeApi.deletedMediaPreviewLimit,
+      preview.deletedMediaPreviewLimit,
+    ),
+    deletedMediaPagingHint: safeApi.deletedMediaPagingHint,
   };
   merged.count = merged.folders.length;
   merged.deletedMediaTotal = merged.deletedMedia.length;

@@ -17,15 +17,6 @@ function getPageTitle(pathname: string): string {
   return PAGE_TITLES[pathname] ?? "Admin";
 }
 
-function getInitials(name: string): string {
-  return name
-    .split(" ")
-    .map((n) => n[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
-}
-
 export function Header() {
   const pathname = usePathname();
   const { admin, logout } = useAdminAuth();
@@ -50,8 +41,13 @@ export function Header() {
 
         {admin && (
           <div className="flex items-center gap-2.5 rounded-lg border border-slate-100 bg-slate-50/80 py-1.5 pr-3 pl-1.5">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary text-xs font-bold text-white">
-              {getInitials(admin.name)}
+            <div className="h-8 w-8 shrink-0 overflow-hidden rounded-md bg-slate-200">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/images/user-profile.png"
+                alt=""
+                className="h-full w-full object-cover"
+              />
             </div>
             <div className="hidden min-w-0 sm:block">
               <p className="truncate text-sm font-medium text-slate-900">

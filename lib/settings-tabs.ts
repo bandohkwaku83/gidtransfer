@@ -12,7 +12,7 @@ export const SETTINGS_TABS = [
   {
     id: "profile",
     label: "Profile",
-    description: "Studio profile, workspace overview, and account",
+    description: "Studio identity, contact details, and account",
     icon: UserRound,
   },
   {

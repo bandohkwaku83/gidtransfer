@@ -57,9 +57,11 @@ export function studioSmsFieldsFromApi(
   const smsSenderStatus = parseSmsSenderStatus(raw?.smsSenderStatus);
   const suggestedSmsSenderId =
     raw?.suggestedSmsSenderId?.trim().toUpperCase() || undefined;
+  // Branding is ready as soon as a valid sender ID is saved — no approval step.
   const smsBrandingReady =
     raw?.smsBrandingReady === true ||
-    (smsSenderStatus === "approved" && Boolean(smsSenderId));
+    (Boolean(smsSenderId) &&
+      smsSenderIdValidationMessage(smsSenderId ?? "") === null);
 
   return {
     ...(smsSenderId ? { smsSenderId } : {}),
@@ -78,12 +80,15 @@ export function studioSmsFieldsFromApi(
   };
 }
 
-export function smsSenderStatusLabel(status: SmsSenderStatus): string {
+export function smsSenderStatusLabel(
+  status: SmsSenderStatus,
+  brandingReady = false,
+): string {
+  if (brandingReady && status !== "rejected") return "Ready";
   switch (status) {
     case "pending":
-      return "Pending approval";
     case "approved":
-      return "Approved";
+      return "Ready";
     case "rejected":
       return "Rejected";
     default:
@@ -91,10 +96,15 @@ export function smsSenderStatusLabel(status: SmsSenderStatus): string {
   }
 }
 
-export function smsSenderStatusBadgeClass(status: SmsSenderStatus): string {
+export function smsSenderStatusBadgeClass(
+  status: SmsSenderStatus,
+  brandingReady = false,
+): string {
+  if (brandingReady && status !== "rejected") {
+    return "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400";
+  }
   switch (status) {
     case "pending":
-      return "bg-amber-500/10 text-amber-800 dark:text-amber-300";
     case "approved":
       return "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400";
     case "rejected":
@@ -109,26 +119,20 @@ export function smsSenderStatusMessage(
   platformSender = DEFAULT_PLATFORM_SMS_SENDER,
 ): string {
   const id = fields.smsSenderId?.trim();
-  switch (fields.smsSenderStatus) {
-    case "pending":
-      return id
-        ? `Your SMS name ${id} is awaiting approval. Messages will send from ${platformSender} until approved.`
-        : `Your SMS name is awaiting approval. Messages will send from ${platformSender} until approved.`;
-    case "approved":
-      return id
-        ? `Clients will see ${id} on SMS.`
-        : "Your SMS display name is approved.";
-    case "rejected": {
-      const reason = fields.smsSenderRejectedReason?.trim();
-      return id
-        ? reason
-          ? `${id} was rejected. ${reason} — choose another name.`
-          : `${id} was rejected — choose another name.`
-        : reason
-          ? `Your SMS name was rejected. ${reason} — choose another name.`
-          : "Your SMS name was rejected — choose another name.";
-    }
-    default:
-      return `Set an SMS display name so clients recognize your studio. Until approved, messages send from ${platformSender}.`;
+  if (fields.smsSenderStatus === "rejected") {
+    const reason = fields.smsSenderRejectedReason?.trim();
+    return id
+      ? reason
+        ? `${id} was rejected. ${reason} — choose another name.`
+        : `${id} was rejected — choose another name.`
+      : reason
+        ? `Your SMS name was rejected. ${reason} — choose another name.`
+        : "Your SMS name was rejected — choose another name.";
   }
+  if (fields.smsBrandingReady || id) {
+    return id
+      ? `Clients will see ${id} on SMS.`
+      : "Your SMS display name is ready.";
+  }
+  return `Set an SMS display name so clients recognize your studio. Until then, messages send from ${platformSender}.`;
 }

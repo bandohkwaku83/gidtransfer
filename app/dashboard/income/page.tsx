@@ -2,9 +2,10 @@
 
 import { Table, Tag } from "antd";
 import type { ColumnsType } from "antd/es/table";
+import Link from "next/link";
 import {
+  ChevronRight,
   Pencil,
-  Plus,
   Trash2,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -13,15 +14,11 @@ import { IncomeEntryModal } from "@/components/income/income-entry-modal";
 import { IncomeReportMenu } from "@/components/income/income-report-menu";
 import { useToast } from "@/components/toast-provider";
 import { FormSelect } from "@/components/ui/form-select";
-import {
-  DashboardPageHeader,
-  dashboardPageHeaderCtaClassName,
-  dashboardPageHeaderDescriptionClassName,
-  dashboardPageHeaderTitleClassName,
-} from "@/components/dashboard/dashboard-page-header";
+import { dashboardPageHeaderCtaClassName } from "@/components/dashboard/dashboard-page-header";
 import { formatBookingAmount } from "@/lib/bookings-api";
 import {
   deleteIncome,
+  EMPTY_INCOME_SUMMARY_RESPONSE,
   getIncomeSummary,
   listIncome,
   type IncomeSummaryResponse,
@@ -67,7 +64,9 @@ export default function IncomePage() {
   const { showToast } = useToast();
 
   const [entries, setEntries] = useState<IncomeEntry[]>([]);
-  const [summaryData, setSummaryData] = useState<IncomeSummaryResponse | null>(null);
+  const [summaryData, setSummaryData] = useState<IncomeSummaryResponse>(
+    EMPTY_INCOME_SUMMARY_RESPONSE,
+  );
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<IncomeEntry | null>(null);
@@ -81,7 +80,7 @@ export default function IncomePage() {
       listIncome({ year }),
       getIncomeSummary({ year }),
     ]);
-    setEntries(listRes.entries);
+    setEntries(listRes.entries ?? []);
     setSummaryData(summaryRes);
   }, []);
 
@@ -102,7 +101,7 @@ export default function IncomePage() {
           "error",
         );
         setEntries([]);
-        setSummaryData(null);
+        setSummaryData(EMPTY_INCOME_SUMMARY_RESPONSE);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -311,34 +310,35 @@ export default function IncomePage() {
 
   return (
     <div className="dashboard-page space-y-6">
-      <DashboardPageHeader innerClassName="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="min-w-0">
-          <h1 className={dashboardPageHeaderTitleClassName()}>Income</h1>
-          <p className={dashboardPageHeaderDescriptionClassName()}>
-            Track revenue from bookings, invoices, and payments.
-          </p>
-        </div>
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <nav aria-label="Breadcrumb">
+          <ol className="flex flex-wrap items-center gap-1.5 text-sm">
+            <li>
+              <Link
+                href="/dashboard"
+                className="font-medium text-zinc-400 transition hover:text-zinc-600 dark:text-zinc-500 dark:hover:text-zinc-300"
+              >
+                Dashboard
+              </Link>
+            </li>
+            <li className="text-zinc-300 dark:text-zinc-600" aria-hidden>
+              <ChevronRight className="h-3.5 w-3.5" strokeWidth={2} />
+            </li>
+            <li className="font-semibold text-zinc-900 dark:text-zinc-50">Income</li>
+          </ol>
+        </nav>
         <div className="flex shrink-0 flex-wrap items-center gap-2">
           <IncomeReportMenu entries={entries} selectedYear={selectedYear} />
           <button type="button" className={dashboardPageHeaderCtaClassName()} onClick={openCreate}>
-            <Plus className="h-4 w-4" aria-hidden />
             Add income
           </button>
         </div>
-      </DashboardPageHeader>
+      </header>
 
       <IncomeAnalyticsPanel
-        summary={
-          summaryData?.summary ?? {
-            collectedThisMonth: 0,
-            pendingTotal: 0,
-            invoicedThisMonth: 0,
-            paidBookingsCount: 0,
-            currency: "GHS",
-          }
-        }
-        monthlyRevenue={summaryData?.monthlyRevenue ?? []}
-        byStatus={summaryData?.byStatus ?? []}
+        summary={summaryData.summary}
+        monthlyRevenue={summaryData.monthlyRevenue}
+        byStatus={summaryData.byStatus}
         loading={loading}
       />
 

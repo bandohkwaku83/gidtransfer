@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { ChevronRight, Menu, X } from "lucide-react";
 import { APP_NAME } from "@/lib/branding";
@@ -11,6 +12,7 @@ import { MarketingSocialIconLinks } from "@/components/marketing/marketing-socia
 import { cn } from "@/lib/utils";
 
 const navLinks = [
+  ["/", "Home"],
   ["/features", "Features"],
   ["/pricing", "Pricing"],
   ["/contact", "Contact"],
@@ -23,6 +25,11 @@ const navPillClassName =
 
 const mobileMenuButtonClassName =
   "inline-flex h-10 w-10 items-center justify-center rounded-full bg-white text-slate-900 shadow-[0_8px_32px_-8px_rgba(15,23,42,0.12)] ring-1 ring-slate-900/8 transition hover:bg-slate-50";
+
+function isNavActive(pathname: string, href: string) {
+  if (href === "/") return pathname === "/";
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
 
 function SiteLogo({ className }: { className?: string }) {
   return (
@@ -64,18 +71,30 @@ function NavLink({
   href,
   children,
   onClick,
+  active,
 }: {
   href: string;
   children: React.ReactNode;
   onClick?: () => void;
+  active?: boolean;
 }) {
   return (
     <a
       href={href}
       onClick={onClick}
-      className="text-sm font-medium text-slate-600 transition hover:text-slate-900"
+      aria-current={active ? "page" : undefined}
+      className={cn(
+        "relative text-sm transition hover:text-slate-900",
+        active ? "font-bold text-[#55001F]" : "font-medium text-slate-600",
+      )}
     >
       {children}
+      {active ? (
+        <span
+          aria-hidden
+          className="absolute -bottom-1 left-1/2 h-0.5 w-3 -translate-x-1/2 rounded-full bg-[#55001F]"
+        />
+      ) : null}
     </a>
   );
 }
@@ -86,12 +105,14 @@ function MobileNavMenu({
   signInHref,
   onNavigate,
   className,
+  pathname,
 }: {
   id: string;
   open: boolean;
   signInHref: string;
   onNavigate: () => void;
   className?: string;
+  pathname: string;
 }) {
   return (
     <div
@@ -108,17 +129,34 @@ function MobileNavMenu({
         className="overflow-hidden rounded-3xl bg-white p-2 text-sm shadow-lg ring-1 ring-slate-900/8"
         aria-label="Mobile"
       >
-        {navLinks.map(([href, label]) => (
-          <a
-            key={href}
-            href={href}
-            onClick={onNavigate}
-            className="flex items-center justify-between rounded-2xl px-4 py-3 text-slate-600 transition hover:bg-slate-900/5 hover:text-slate-900"
-          >
-            {label}
-            <ChevronRight className="h-4 w-4 text-slate-400" aria-hidden />
-          </a>
-        ))}
+        {navLinks.map(([href, label]) => {
+          const active = isNavActive(pathname, href);
+          return (
+            <a
+              key={href}
+              href={href}
+              onClick={onNavigate}
+              aria-current={active ? "page" : undefined}
+              className={cn(
+                "flex items-center justify-between rounded-2xl px-4 py-3 transition",
+                active
+                  ? "font-bold text-[#55001F]"
+                  : "text-slate-600 hover:bg-slate-900/5 hover:text-slate-900",
+              )}
+            >
+              <span className="relative">
+                {label}
+                {active ? (
+                  <span
+                    aria-hidden
+                    className="absolute -bottom-1 left-0 h-0.5 w-3 rounded-full bg-[#55001F]"
+                  />
+                ) : null}
+              </span>
+              <ChevronRight className="h-4 w-4 text-slate-400" aria-hidden />
+            </a>
+          );
+        })}
         <SignInButton
           href={signInHref}
           onClick={onNavigate}
@@ -130,6 +168,7 @@ function MobileNavMenu({
 }
 
 export function MarketingHeader({ embedded = false }: { embedded?: boolean }) {
+  const pathname = usePathname() ?? "/";
   const signedIn = usePhotographerSignedIn();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [navVisible, setNavVisible] = useState(true);
@@ -226,7 +265,7 @@ export function MarketingHeader({ embedded = false }: { embedded?: boolean }) {
             aria-label="Primary"
           >
             {navLinks.map(([href, label]) => (
-              <NavLink key={href} href={href}>
+              <NavLink key={href} href={href} active={isNavActive(pathname, href)}>
                 {label}
               </NavLink>
             ))}
@@ -269,6 +308,7 @@ export function MarketingHeader({ embedded = false }: { embedded?: boolean }) {
             open={mobileOpen && !inTopBar}
             signInHref={signInHref}
             onNavigate={() => setMobileOpen(false)}
+            pathname={pathname}
           />
         </div>
       </div>
@@ -282,6 +322,7 @@ export function MarketingHeader({ embedded = false }: { embedded?: boolean }) {
             signInHref={signInHref}
             onNavigate={() => setMobileOpen(false)}
             className="relative z-20 mt-3 md:hidden"
+            pathname={pathname}
           />
         </div>
       ) : (
@@ -296,6 +337,7 @@ export function MarketingHeader({ embedded = false }: { embedded?: boolean }) {
             signInHref={signInHref}
             onNavigate={() => setMobileOpen(false)}
             className="relative z-20 mt-3 md:hidden"
+            pathname={pathname}
           />
         </div>
       )}

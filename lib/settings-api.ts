@@ -72,8 +72,12 @@ export type ApiSettingsStudio = {
   suggestedCompanySlug?: string | null;
   phone: string | null;
   website: string | null;
+  photographerEmail?: string | null;
+  email?: string | null;
   logoSrc: string | null;
   logoUrl: string | null;
+  brandLogo?: string | null;
+  companyLogo?: string | null;
   studioUrl: string | null;
   studioUrlHost: string | null;
   studioUrlSuffix: string | null;
@@ -86,6 +90,7 @@ export type ApiSettingsNotifications = {
 
 export type ApiSettingsAccount = {
   email: string;
+  photographerEmail?: string;
   role: string;
   accountId: string;
 };
@@ -94,6 +99,8 @@ export type ApiSettingsUser = {
   _id: string;
   accountId: string;
   email: string;
+  photographerEmail?: string;
+  emailVerified?: boolean;
   role: string;
   authProvider?: string;
   agreedToTermsAt?: string;
@@ -113,6 +120,10 @@ export type ApiSettingsUser = {
     appHost?: string;
     phone?: string;
     website?: string;
+    brandLogo?: string;
+    companyLogo?: string;
+    logoSrc?: string;
+    logoUrl?: string;
   } & Partial<StudioSmsFields>;
 };
 
@@ -136,16 +147,25 @@ export type SettingsAccountSectionResponse = {
 
 export type SaveSettingsResponse = SettingsPayload & {
   message?: string;
+  requiresEmailVerification?: boolean;
 };
 
 export type UpdateProfileSettingsInput = {
   businessName: string;
   companySlug: string;
   phone: string;
+  email?: string;
   website?: string;
   smsSenderId?: string;
   logoFile?: File | null;
+  brandLogoFile?: File | null;
+  clearBrandLogo?: boolean;
   avatarFile?: File | null;
+};
+
+export type UpdateProfileSettingsResult = SettingsPageData & {
+  requiresEmailVerification?: boolean;
+  message?: string;
 };
 
 export type ApiSettingsBundle = {
@@ -190,8 +210,10 @@ export function settingsErrorMessage(err: unknown, fallback: string): string {
   if (err instanceof SettingsApiError) {
     if (err.status === 409) {
       const msg = err.message?.trim();
+      if (msg && /email already exists/i.test(msg)) return msg;
       if (msg && /sms display name/i.test(msg)) return msg;
-      return "This studio URL is already taken";
+      if (msg && /studio url|already taken/i.test(msg)) return msg;
+      return msg || "This studio URL is already taken";
     }
     return err.message || fallback;
   }
@@ -256,7 +278,9 @@ export function studioSlugFromSettings(
 }
 
 export function studioLogoUrlFromSettings(studio: ApiSettingsStudio): string | undefined {
-  return coerceMediaUrl(studio.logoUrl ?? studio.logoSrc);
+  return coerceMediaUrl(
+    studio.brandLogo ?? studio.companyLogo ?? studio.logoUrl ?? studio.logoSrc,
+  );
 }
 
 function normalizeSettingsPayload(raw: unknown): ApiSettings {
@@ -424,8 +448,12 @@ export function mergePageData(
       companyName: "",
       phone: null,
       website: null,
+      photographerEmail: null,
+      email: null,
       logoSrc: null,
       logoUrl: null,
+      brandLogo: null,
+      companyLogo: null,
       studioUrl: null,
       studioUrlHost: null,
       studioUrlSuffix: null,
@@ -433,6 +461,7 @@ export function mergePageData(
     },
     account: partial.account ?? current?.bundle.account ?? {
       email: "",
+      photographerEmail: "",
       role: "Photographer",
       accountId: "",
     },
@@ -588,18 +617,22 @@ function profileSettingsFormData(input: UpdateProfileSettingsInput): FormData {
   form.append("businessName", input.businessName.trim());
   form.append("companySlug", input.companySlug.trim());
   form.append("phone", input.phone.trim());
+  const email = input.email?.trim().toLowerCase();
+  if (email) form.append("email", email);
   const website = input.website?.trim();
   if (website) form.append("website", website);
   const smsSenderId = input.smsSenderId?.trim();
   if (smsSenderId) form.append("smsSenderId", smsSenderId.toUpperCase());
-  if (input.logoFile) form.append("logo", input.logoFile);
+  const brandLogo = input.brandLogoFile ?? input.logoFile;
+  if (brandLogo) form.append("brandLogo", brandLogo);
+  if (input.clearBrandLogo) form.append("clearBrandLogo", "true");
   if (input.avatarFile) form.append("avatar", input.avatarFile);
   return form;
 }
 
 export async function updateProfileSettings(
   input: UpdateProfileSettingsInput,
-): Promise<SettingsPageData> {
+): Promise<UpdateProfileSettingsResult> {
   const form = profileSettingsFormData(input);
   const body = await authedFormUpload<SaveSettingsResponse>("/api/settings", form, {
     method: "PUT",
@@ -610,7 +643,13 @@ export async function updateProfileSettings(
     throw new SettingsApiError("Profile saved but settings were missing from response", 500, body);
   }
   persistSettingsSession(body);
-  return pageDataFromPayload(body);
+  return {
+    ...pageDataFromPayload(body),
+    ...(body.message ? { message: body.message } : {}),
+    ...(body.requiresEmailVerification
+      ? { requiresEmailVerification: true }
+      : {}),
+  };
 }
 
 export async function fetchSettingsPageData(): Promise<SettingsPageData> {

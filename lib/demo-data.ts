@@ -1,5 +1,7 @@
 import type { GalleryCoverFrame } from "@/lib/gallery-cover-frame";
 import type { GalleryImageLayout } from "@/lib/gallery-image-layout";
+import type { GalleryStreamingFields } from "@/lib/gallery-media-streaming";
+import type { PublicPhotoAi } from "@/lib/share-gallery-api";
 import { ALL_SETS_PILL_ID } from "@/lib/gallery-set-filter";
 
 export type SelectionState = "UNSELECTED" | "SELECTED";
@@ -40,7 +42,8 @@ export type DemoAsset = {
   isVideo?: boolean;
   rejectedByClient?: boolean;
   rejectionComment?: string;
-};
+  ai?: PublicPhotoAi;
+} & GalleryStreamingFields;
 
 export type DemoFinalAsset = {
   id: string;
@@ -53,7 +56,7 @@ export type DemoFinalAsset = {
   /** Payment lock — client share hides full-res download until unlock. */
   locked?: boolean;
   outstandingBalanceGhs?: number | null;
-};
+} & GalleryStreamingFields;
 
 export type DemoProject = {
   id: string;

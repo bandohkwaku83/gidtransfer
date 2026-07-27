@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import {
   ArrowRight,
@@ -238,22 +239,39 @@ function SignInButton({
   );
 }
 
+function isNavActive(pathname: string, href: string) {
+  if (href === "/") return pathname === "/";
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
+
 function NavLink({
   href,
   children,
   onClick,
+  active,
 }: {
   href: string;
   children: React.ReactNode;
   onClick?: () => void;
+  active?: boolean;
 }) {
   return (
     <a
       href={href}
       onClick={onClick}
-      className="text-sm font-medium text-slate-600 transition hover:text-slate-900"
+      aria-current={active ? "page" : undefined}
+      className={cn(
+        "relative text-sm transition hover:text-slate-900",
+        active ? "font-bold text-[#55001F]" : "font-medium text-slate-600",
+      )}
     >
       {children}
+      {active ? (
+        <span
+          aria-hidden
+          className="absolute -bottom-1 left-1/2 h-0.5 w-3 -translate-x-1/2 rounded-full bg-[#55001F]"
+        />
+      ) : null}
     </a>
   );
 }
@@ -304,6 +322,7 @@ function HandUnderline({ className }: { className?: string }) {
 }
 
 export function HomePageClient() {
+  const pathname = usePathname() ?? "/";
   const signedIn = usePhotographerSignedIn();
   const signInHref = signedIn ? marketingSignInHref() : "/login";
   const signUpHref = signedIn ? marketingSignUpHref() : "/login?screen=signup";
@@ -388,9 +407,18 @@ export function HomePageClient() {
             className={cn("pointer-events-auto hidden md:flex", navPillClassName)}
             aria-label="Primary"
           >
-            <NavLink href="/features">Features</NavLink>
-            <NavLink href="/pricing">Pricing</NavLink>
-            <NavLink href="/contact">Contact</NavLink>
+            <NavLink href="/" active={isNavActive(pathname, "/")}>
+              Home
+            </NavLink>
+            <NavLink href="/features" active={isNavActive(pathname, "/features")}>
+              Features
+            </NavLink>
+            <NavLink href="/pricing" active={isNavActive(pathname, "/pricing")}>
+              Pricing
+            </NavLink>
+            <NavLink href="/contact" active={isNavActive(pathname, "/contact")}>
+              Contact
+            </NavLink>
             <SignInButton href={signInHref} />
           </nav>
 
@@ -431,20 +459,38 @@ export function HomePageClient() {
             aria-label="Mobile"
           >
             {[
+              ["/", "Home"],
               ["/features", "Features"],
               ["/pricing", "Pricing"],
               ["/contact", "Contact"],
-            ].map(([href, label]) => (
-              <a
-                key={href}
-                href={href}
-                onClick={() => setMobileOpen(false)}
-                className="flex items-center justify-between rounded-2xl px-4 py-3 text-slate-600 transition hover:bg-slate-900/5 hover:text-slate-900"
-              >
-                {label}
-                <ChevronRight className="h-4 w-4 text-slate-400" aria-hidden />
-              </a>
-            ))}
+            ].map(([href, label]) => {
+              const active = isNavActive(pathname, href);
+              return (
+                <a
+                  key={href}
+                  href={href}
+                  onClick={() => setMobileOpen(false)}
+                  aria-current={active ? "page" : undefined}
+                  className={cn(
+                    "flex items-center justify-between rounded-2xl px-4 py-3 transition",
+                    active
+                      ? "font-bold text-[#55001F]"
+                      : "text-slate-600 hover:bg-slate-900/5 hover:text-slate-900",
+                  )}
+                >
+                  <span className="relative">
+                    {label}
+                    {active ? (
+                      <span
+                        aria-hidden
+                        className="absolute -bottom-1 left-0 h-0.5 w-3 rounded-full bg-[#55001F]"
+                      />
+                    ) : null}
+                  </span>
+                  <ChevronRight className="h-4 w-4 text-slate-400" aria-hidden />
+                </a>
+              );
+            })}
             <SignInButton
               href={signInHref}
               onClick={() => setMobileOpen(false)}
@@ -509,20 +555,38 @@ export function HomePageClient() {
                 aria-label="Mobile"
               >
                 {[
+                  ["/", "Home"],
                   ["/features", "Features"],
                   ["/pricing", "Pricing"],
                   ["/contact", "Contact"],
-                ].map(([href, label]) => (
-                  <a
-                    key={href}
-                    href={href}
-                    onClick={() => setMobileOpen(false)}
-                    className="flex items-center justify-between rounded-2xl px-4 py-3 text-slate-600 transition hover:bg-slate-900/5 hover:text-slate-900"
-                  >
-                    {label}
-                    <ChevronRight className="h-4 w-4 text-slate-400" aria-hidden />
-                  </a>
-                ))}
+                ].map(([href, label]) => {
+                  const active = isNavActive(pathname, href);
+                  return (
+                    <a
+                      key={href}
+                      href={href}
+                      onClick={() => setMobileOpen(false)}
+                      aria-current={active ? "page" : undefined}
+                      className={cn(
+                        "flex items-center justify-between rounded-2xl px-4 py-3 transition",
+                        active
+                          ? "font-bold text-[#55001F]"
+                          : "text-slate-600 hover:bg-slate-900/5 hover:text-slate-900",
+                      )}
+                    >
+                      <span className="relative">
+                        {label}
+                        {active ? (
+                          <span
+                            aria-hidden
+                            className="absolute -bottom-1 left-0 h-0.5 w-3 rounded-full bg-[#55001F]"
+                          />
+                        ) : null}
+                      </span>
+                      <ChevronRight className="h-4 w-4 text-slate-400" aria-hidden />
+                    </a>
+                  );
+                })}
                 <SignInButton
                   href={signInHref}
                   onClick={() => setMobileOpen(false)}

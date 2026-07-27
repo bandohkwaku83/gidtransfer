@@ -29,68 +29,51 @@ const KPI_ICONS = {
   "Paid bookings": CalendarDays,
 } as const;
 
-const KPI_CARD_CLASS =
-  "group relative flex flex-col overflow-hidden rounded-xl border border-[#2a2a2a] bg-[#171717] px-3.5 py-3 shadow-sm transition hover:border-[#333333] hover:bg-[#1f1f1f]";
-
-const KPI_ICON_WRAP = "bg-[#2a2a2a]";
-const KPI_ICON_COLOR = "text-zinc-500";
-
 function KpiCard({ kpi, loading }: { kpi: IncomeKpiTrend; loading?: boolean }) {
   const Icon = KPI_ICONS[kpi.label as keyof typeof KPI_ICONS] ?? CircleDollarSign;
   const DeltaIcon = kpi.deltaPositive ? TrendingUp : TrendingDown;
   const isZero = !loading && (kpi.value === "0" || kpi.value === "GH₵0");
 
   return (
-    <article className={KPI_CARD_CLASS}>
-      <span
-        className="pointer-events-none absolute -right-4 -top-4 h-20 w-20 rounded-full bg-white/5 opacity-60 blur-2xl transition group-hover:opacity-80"
-        aria-hidden
-      />
+    <article className="dashboard-stat-card group">
+      <span className="dashboard-stat-card-glow" aria-hidden />
 
-      <div className="flex items-center justify-between gap-2">
-        <div className="min-w-0">
-          <p className="text-[13px] font-semibold leading-tight tracking-tight text-zinc-50">
-            {kpi.label}
-          </p>
-          <p className="mt-0.5 text-[10px] leading-snug text-zinc-500">{kpi.hint}</p>
-        </div>
-        <span
-          className={cn(
-            "inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full",
-            KPI_ICON_WRAP,
+      <div className="relative z-[1] min-w-0 pr-8">
+        <p className="dashboard-stat-card-title">{kpi.label}</p>
+        <p className="dashboard-stat-card-hint">{kpi.hint}</p>
+
+        <div className="mt-2.5 flex items-end justify-between gap-2">
+          {loading ? (
+            <span className="dashboard-stat-card-value-skeleton" aria-hidden />
+          ) : (
+            <p
+              className={cn(
+                "dashboard-stat-card-value",
+                isZero && "text-zinc-300 dark:text-zinc-600",
+              )}
+            >
+              {kpi.value}
+            </p>
           )}
-        >
-          <Icon className={cn("h-3.5 w-3.5", KPI_ICON_COLOR)} strokeWidth={1.75} aria-hidden />
-        </span>
+          {!loading && kpi.delta ? (
+            <span
+              className={cn(
+                "inline-flex shrink-0 items-center gap-0.5 rounded-full px-2 py-0.5 text-[10px] font-semibold",
+                kpi.deltaPositive
+                  ? "bg-emerald-500/10 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400"
+                  : "bg-red-500/10 text-red-700 dark:bg-red-500/15 dark:text-red-400",
+              )}
+            >
+              <DeltaIcon className="h-3 w-3" aria-hidden />
+              {kpi.delta}
+            </span>
+          ) : null}
+        </div>
       </div>
 
-      <div className="mt-2.5 flex items-end justify-between gap-2">
-        {loading ? (
-          <span className="inline-block h-6 w-8 animate-pulse rounded bg-[#2a2a2a]" aria-hidden />
-        ) : (
-          <p
-            className={cn(
-              "font-display text-[1.35rem] font-normal leading-none tabular-nums text-zinc-50",
-              isZero && "text-zinc-600",
-            )}
-          >
-            {kpi.value}
-          </p>
-        )}
-        {!loading && kpi.delta ? (
-          <span
-            className={cn(
-              "inline-flex shrink-0 items-center gap-0.5 rounded-full px-2 py-0.5 text-[10px] font-semibold",
-              kpi.deltaPositive
-                ? "bg-emerald-500/15 text-emerald-400"
-                : "bg-red-500/15 text-red-400",
-            )}
-          >
-            <DeltaIcon className="h-3 w-3" aria-hidden />
-            {kpi.delta}
-          </span>
-        ) : null}
-      </div>
+      <span className="dashboard-stat-card-corner-icon" aria-hidden>
+        <Icon strokeWidth={1.75} />
+      </span>
     </article>
   );
 }
@@ -270,9 +253,9 @@ export function IncomeAnalyticsPanel({
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {loading
           ? Array.from({ length: 4 }).map((_, i) => (
-              <div key={i} className={cn(KPI_CARD_CLASS, "animate-pulse")} aria-hidden>
-                <div className="h-8 w-24 rounded bg-[#2a2a2a]" />
-                <div className="mt-4 h-7 w-16 rounded bg-[#2a2a2a]" />
+              <div key={i} className="dashboard-stat-card animate-pulse" aria-hidden>
+                <div className="h-8 w-24 rounded bg-brand/10 dark:bg-zinc-800" />
+                <div className="mt-4 h-7 w-16 rounded bg-brand/10 dark:bg-zinc-800" />
               </div>
             ))
           : kpiTrends.map((kpi) => <KpiCard key={kpi.label} kpi={kpi} />)}

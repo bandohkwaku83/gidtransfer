@@ -7,7 +7,6 @@ import {
   onboardingRequiredMarkClass,
 } from "@/lib/onboarding-field-styles";
 import {
-  DEFAULT_PLATFORM_SMS_SENDER,
   SMS_SENDER_ID_MAX_LENGTH,
   smsSenderIdValidationMessage,
 } from "@/lib/sms-sender";
@@ -72,7 +71,6 @@ export function SmsSenderIdField({
           )}
         >
           Up to {SMS_SENDER_ID_MAX_LENGTH} letters and numbers — shown as the sender on client texts.
-          Until carrier approval, messages send from {DEFAULT_PLATFORM_SMS_SENDER}.
         </p>
         <FormInput
           autoComplete="off"

@@ -1,7 +1,7 @@
 "use client";
 
 import { Dropdown, type MenuProps } from "antd";
-import { ChevronDown, FileDown, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import { useToast } from "@/components/toast-provider";
 import { dashboardPageHeaderCtaSecondaryClassName } from "@/components/dashboard/dashboard-page-header";
@@ -65,9 +65,7 @@ export function IncomeReportMenu({ entries, selectedYear, className }: Props) {
           <span className="inline-flex items-center gap-2">
             {generating === period ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
-            ) : (
-              <FileDown className="h-3.5 w-3.5" aria-hidden />
-            )}
+            ) : null}
             {incomeReportMenuLabel(period)}
           </span>
         ),
@@ -88,16 +86,17 @@ export function IncomeReportMenu({ entries, selectedYear, className }: Props) {
     >
       <button
         type="button"
-        className={cn(dashboardPageHeaderCtaSecondaryClassName(), "gap-2", className)}
+        className={cn(dashboardPageHeaderCtaSecondaryClassName(), className)}
         aria-label="Generate income report"
       >
         {generating ? (
-          <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+          <>
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+            Generating…
+          </>
         ) : (
-          <FileDown className="h-4 w-4" aria-hidden />
+          "Generate report"
         )}
-        Generate report
-        <ChevronDown className="h-4 w-4 opacity-70" aria-hidden />
       </button>
     </Dropdown>
   );

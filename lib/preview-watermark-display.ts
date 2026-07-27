@@ -1,8 +1,14 @@
+import { progressiveGridSrc } from "@/lib/gallery-media-streaming";
+
 type PreviewMedia = {
   previewUrl?: string;
   displayUrl?: string;
   url?: string;
   thumbUrl: string;
+  gridUrl?: string;
+  posterUrl?: string;
+  isVideo?: boolean;
+  derivativesReady?: boolean;
 };
 
 function hasBakedPreviewWatermark(asset: PreviewMedia): boolean {
@@ -21,9 +27,12 @@ export function bestGalleryMediaSrc(asset: PreviewMedia): string {
   );
 }
 
-/** Thumbnail URL for grid tiles — prefers {@link PreviewMedia.thumbUrl} (API `gridUrl`). */
+/**
+ * Thumbnail URL for grid tiles — prefers progressive `thumbUrl` / `gridUrl`,
+ * falls back to `url` while derivatives process. Videos use poster / grid poster.
+ */
 export function clientGalleryGridSrc(asset: PreviewMedia): string {
-  return asset.thumbUrl.trim() || bestGalleryMediaSrc(asset);
+  return progressiveGridSrc(asset) || bestGalleryMediaSrc(asset);
 }
 
 /** Lightbox / fullscreen URL — prefers API `viewUrl` mapped to preview/display fields. */

@@ -128,8 +128,6 @@ function IssueDetailPanel({
 }: {
   report: IssueReport;
 }) {
-  const reporterInitial = report.userEmail.charAt(0).toUpperCase();
-
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -155,8 +153,13 @@ function IssueDetailPanel({
       <div className="border-t border-slate-100 pt-6">
         <SectionLabel icon={User} label="Reporter" />
         <div className="flex items-start gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary-light text-sm font-semibold text-primary">
-            {reporterInitial}
+          <div className="h-10 w-10 shrink-0 overflow-hidden rounded-full bg-slate-200">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/images/user-profile.png"
+              alt=""
+              className="h-full w-full object-cover"
+            />
           </div>
           <div className="min-w-0 flex-1">
             <p className="font-medium text-slate-900">{report.userEmail}</p>

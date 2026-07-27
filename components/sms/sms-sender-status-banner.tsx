@@ -39,10 +39,10 @@ export function SmsSenderStatusBanner({
         <span
           className={cn(
             "inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
-            smsSenderStatusBadgeClass(fields.smsSenderStatus),
+            smsSenderStatusBadgeClass(fields.smsSenderStatus, fields.smsBrandingReady),
           )}
         >
-          {smsSenderStatusLabel(fields.smsSenderStatus)}
+          {smsSenderStatusLabel(fields.smsSenderStatus, fields.smsBrandingReady)}
         </span>
       </div>
       <p className="mt-2 text-xs leading-relaxed text-zinc-600 dark:text-zinc-400">{message}</p>

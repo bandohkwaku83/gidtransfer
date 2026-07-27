@@ -27,6 +27,7 @@ export { EmailNotVerifiedError } from "@/lib/http";
 export type ApiAuthUser = {
   _id: string;
   email: string;
+  photographerEmail?: string;
   emailVerified?: boolean;
   emailVerifiedAt?: string | null;
   authProvider?: AuthProvider;
@@ -41,6 +42,8 @@ export type ApiAuthUser = {
     logoDataUrl?: string;
     logoUrl?: string;
     logoSrc?: string;
+    brandLogo?: string;
+    companyLogo?: string;
     studioUrl?: string;
     studioUrlSuffix?: string;
     primaryDeliverable?: string;
@@ -225,7 +228,7 @@ export function mapApiUserToAuthUser(
   user: ApiAuthUser,
   extras?: { studioUrl?: string | null; studioUrlSuffix?: string | null },
 ): AuthUser {
-  const email = user.email.trim();
+  const email = (user.photographerEmail ?? user.email).trim();
   const studio = user.studio
     ? {
         companyName: user.studio.companyName ?? "",
@@ -244,10 +247,18 @@ export function mapApiUserToAuthUser(
                 user.studio.studioUrlSuffix?.trim() || extras?.studioUrlSuffix?.trim(),
             }
           : {}),
-        ...(user.studio.logoSrc || user.studio.logoUrl || user.studio.logoDataUrl
+        ...(user.studio.logoSrc ||
+        user.studio.logoUrl ||
+        user.studio.logoDataUrl ||
+        user.studio.brandLogo ||
+        user.studio.companyLogo
           ? {
               logoDataUrl:
-                user.studio.logoSrc ?? user.studio.logoUrl ?? user.studio.logoDataUrl,
+                user.studio.brandLogo ??
+                user.studio.companyLogo ??
+                user.studio.logoSrc ??
+                user.studio.logoUrl ??
+                user.studio.logoDataUrl,
             }
           : {}),
         ...(user.studio.country?.trim() ? { country: user.studio.country.trim() } : {}),

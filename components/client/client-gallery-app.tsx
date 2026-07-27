@@ -21,11 +21,11 @@ import {
   MoreVertical,
   PlayCircle,
   Share2,
+  EyeOff,
   Volume2,
   VolumeX,
 } from "lucide-react";
 import {
-  clientInitials,
   canDownloadShareFinal,
   editedCardClass,
   finalDisplaySrc,
@@ -45,6 +45,13 @@ import {
   uploadItemClass,
   type GridLayout,
 } from "@/components/client/share-gallery-bits";
+import { GalleryPhotoSearchBar } from "@/components/gallery/gallery-photo-search-bar";
+import {
+  EMPTY_GALLERY_PHOTO_SEARCH,
+  galleryPhotoSearchActive,
+  type GalleryPhotoSearchFilters,
+} from "@/lib/gallery-photo-search";
+import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { useToast } from "@/components/toast-provider";
 import { FormTextArea } from "@/components/ui/form-input";
 import type { DemoAsset, SelectionState } from "@/lib/demo-data";
@@ -52,9 +59,14 @@ import { folderCoverObjectPositionStyle, type ApiFolder } from "@/lib/folders-ap
 import { galleryFontStack, useGalleryGoogleFonts } from "@/lib/gallery-typography";
 import {
   readAllowDownloadsFromApiBody,
+  applyShareGalleryAiSuggestions,
+  controlShareGalleryAiSuggestions,
+  duplicateGroupHiddenPhotoIds,
   fetchShareFinalDownloadBlob,
   tryNavigatorShareFinalPhoto,
   getShareGallery,
+  getShareGalleryAiSuggestions,
+  searchShareGalleryPhotos,
   downloadShareFinalsZip,
   patchShareGalleryFinalComment,
   postShareGalleryFinalFlag,
@@ -62,10 +74,14 @@ import {
   postShareGalleryUnlock,
   postShareGalleryAccessEmail,
   submitShareGallerySelectionsToPhotographer,
+  toggleShareGalleryPhotoReject,
   type NormalizedShareGallery,
   ShareGalleryError,
   isShareGalleryPasswordRequiredError,
   syncShareGallerySelections,
+  type AiSuggestionControlAction,
+  type PublicGalleryDuplicateGroup,
+  type PublicGalleryPhoto,
   type PublicGalleryKey,
   type ShareGalleryFinal,
   publicGallerySessionId,
@@ -81,6 +97,11 @@ import {
 import { GalleryAccessGate } from "@/components/client/gallery-access-gate";
 import { GalleryEmailGate } from "@/components/client/gallery-email-gate";
 import { ClientGalleryAssetGrid } from "@/components/client/client-gallery-asset-grid";
+import {
+  GalleryAiToolbar,
+  SuggestedPicksStrip,
+  type GalleryAiFilterState,
+} from "@/components/client/client-gallery-ai-bits";
 import { ClientGallerySetBar } from "@/components/client/client-gallery-set-bar";
 import { ClientPreviewWatermarkOverlay } from "@/components/client/preview-watermark-overlay";
 import { GalleryCoverHero } from "@/components/client/gallery-cover-hero";
@@ -110,6 +131,11 @@ import {
   clientGalleryLightboxSrc,
   shouldShowClientPreviewWatermarkOverlay,
 } from "@/lib/preview-watermark-display";
+import { DashOrNativeVideo } from "@/components/media/dash-or-native-video";
+import {
+  mediaNeedsClientRefresh,
+  videoPosterSrc,
+} from "@/lib/gallery-media-streaming";
 
 type GalleryPhotoTab = "all" | "selected" | "edited" | "blog";
 
@@ -185,6 +211,43 @@ export function ClientGalleryApp({ publicKey }: { publicKey: PublicGalleryKey })
     label: string;
     suggestOpenExternally: boolean;
   } | null>(null);
+  const [duplicateGroups, setDuplicateGroups] = useState<PublicGalleryDuplicateGroup[]>([]);
+  const [applyAiBusy, setApplyAiBusy] = useState(false);
+  const [aiControlBusy, setAiControlBusy] = useState(false);
+  const [aiFilters, setAiFilters] = useState<GalleryAiFilterState>({
+    suggestedOnly: false,
+    hideSkipped: true,
+    hideBlurry: false,
+    showSimilarShots: false,
+  });
+  const [photoSearch, setPhotoSearch] = useState<GalleryPhotoSearchFilters>(
+    EMPTY_GALLERY_PHOTO_SEARCH,
+  );
+  const [photoSearchAssets, setPhotoSearchAssets] = useState<DemoAsset[] | null>(null);
+  const [photoSearchBusy, setPhotoSearchBusy] = useState(false);
+  const [photoSearchHasMore, setPhotoSearchHasMore] = useState(false);
+  const [photoSearchPage, setPhotoSearchPage] = useState(1);
+  const [photoSearchLoadingMore, setPhotoSearchLoadingMore] = useState(false);
+  const debouncedPhotoSearchQ = useDebouncedValue(photoSearch.q, 300);
+  const photoSearchFilters = useMemo(
+    (): GalleryPhotoSearchFilters => ({
+      ...photoSearch,
+      q: debouncedPhotoSearchQ,
+    }),
+    [photoSearch, debouncedPhotoSearchQ],
+  );
+  const photoSearchIsActive = galleryPhotoSearchActive(photoSearchFilters);
+  const photoSearchRequestKey = useMemo(
+    () =>
+      JSON.stringify({
+        q: photoSearchFilters.q.trim(),
+        scene: photoSearchFilters.scene.trim(),
+        suggested: photoSearchFilters.suggested,
+        blurry: photoSearchFilters.blurry,
+        minQuality: photoSearchFilters.minQuality,
+      }),
+    [photoSearchFilters],
+  );
 
   const preferInlineFinalSave = usePreferInlineFinalSave();
   const shareHints = useShareSaveHints();
@@ -208,6 +271,10 @@ export function ClientGalleryApp({ publicKey }: { publicKey: PublicGalleryKey })
     setVisibleMediaLimit(SHARE_GALLERY_INITIAL_VISIBLE);
     setEmailAccessGranted(hasGalleryEmailAccess(sessionId));
     setGalleryGridKey(0);
+    setPhotoSearch(EMPTY_GALLERY_PHOTO_SEARCH);
+    setPhotoSearchAssets(null);
+    setPhotoSearchPage(1);
+    setPhotoSearchHasMore(false);
   }, [sessionId]);
 
   useEffect(() => {
@@ -589,6 +656,252 @@ export function ClientGalleryApp({ publicKey }: { publicKey: PublicGalleryKey })
   const selectionLimit = gallery?.selectionLimit ?? null;
   const selectionAtLimit =
     selectionLimit != null && selectedCount >= selectionLimit;
+  const selectionsRemaining =
+    gallery?.counts?.selectionsRemaining ??
+    (selectionLimit != null ? Math.max(0, selectionLimit - selectedCount) : null);
+  const aiSelection = gallery?.aiSelection;
+  const showAiUi = aiSelection?.enabled === true;
+
+  const mergeAiPhotoRows = useCallback((rows: PublicGalleryPhoto[]) => {
+    if (rows.length === 0) return;
+    setAssets((prev) => {
+      const byId = new Map(rows.map((row) => [row.id, row]));
+      return prev.map((asset) => {
+        const row = byId.get(asset.id);
+        if (!row) return asset;
+        const next: DemoAsset = { ...asset };
+        if (row.ai) next.ai = row.ai;
+        if (row.rejectedByClient) next.rejectedByClient = true;
+        else if (row.rejectedByClient === false) delete next.rejectedByClient;
+        if (row.selectedByClient) next.selection = "SELECTED";
+        return next;
+      });
+    });
+  }, []);
+
+  const aiRunStatus = aiSelection?.runStatus;
+  const showAiSearchFilters =
+    showAiUi &&
+    ((aiSelection?.readyCount ?? 0) > 0 ||
+      aiRunStatus === "running" ||
+      aiRunStatus === "paused" ||
+      (aiSelection?.suggestedCount ?? 0) > 0);
+  const showAiSuggestions =
+    showAiUi &&
+    aiRunStatus !== "terminated" &&
+    (aiSelection?.suggestedCount ?? 0) > 0;
+
+  useEffect(() => {
+    if (loadState !== "ok" || !showAiUi || aiRunStatus !== "running") return;
+
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    async function pollAiSuggestions() {
+      try {
+        const data = await getShareGalleryAiSuggestions(publicKey);
+        if (cancelled) return;
+        if (!data) {
+          setGallery((current) =>
+            current ? { ...current, aiSelection: undefined } : current,
+          );
+          setDuplicateGroups([]);
+          return;
+        }
+        setGallery((current) =>
+          current ? { ...current, aiSelection: data.aiSelection } : current,
+        );
+        setDuplicateGroups(data.duplicateGroups);
+        mergeAiPhotoRows(data.suggestions);
+        if (data.aiSelection.runStatus === "running") {
+          timer = setTimeout(() => void pollAiSuggestions(), 3000);
+        }
+      } catch {
+        if (!cancelled) {
+          timer = setTimeout(() => void pollAiSuggestions(), 5000);
+        }
+      }
+    }
+
+    void pollAiSuggestions();
+
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [aiRunStatus, loadState, mergeAiPhotoRows, publicKey, showAiUi]);
+
+  useEffect(() => {
+    if (loadState !== "ok" || photoTab !== "all") return;
+    if (!photoSearchIsActive) {
+      setPhotoSearchAssets(null);
+      setPhotoSearchHasMore(false);
+      setPhotoSearchPage(1);
+      setPhotoSearchBusy(false);
+      return;
+    }
+
+    let cancelled = false;
+    setPhotoSearchBusy(true);
+    setPhotoSearchPage(1);
+    setVisibleMediaLimit(SHARE_GALLERY_INITIAL_VISIBLE);
+
+    async function run() {
+      try {
+        const result = await searchShareGalleryPhotos(publicKey, {
+          sessionId,
+          page: 1,
+          limit: 48,
+          ...(photoSearchFilters.q.trim()
+            ? { q: photoSearchFilters.q.trim() }
+            : {}),
+          ...(photoSearchFilters.scene.trim()
+            ? { scene: photoSearchFilters.scene.trim() }
+            : {}),
+          ...(photoSearchFilters.suggested ? { suggested: true } : {}),
+          ...(photoSearchFilters.blurry ? { blurry: true } : {}),
+          ...(photoSearchFilters.minQuality != null
+            ? { minQuality: photoSearchFilters.minQuality }
+            : {}),
+        });
+        if (cancelled) return;
+        setPhotoSearchAssets(toDemoAssets(result.assets));
+        setPhotoSearchHasMore(result.pagination.hasMore);
+        setPhotoSearchPage(result.pagination.page ?? 1);
+      } catch {
+        if (!cancelled) {
+          setPhotoSearchAssets([]);
+          setPhotoSearchHasMore(false);
+        }
+      } finally {
+        if (!cancelled) setPhotoSearchBusy(false);
+      }
+    }
+
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    loadState,
+    photoSearchIsActive,
+    photoSearchRequestKey,
+    photoSearchFilters,
+    photoTab,
+    publicKey,
+    sessionId,
+  ]);
+
+  const loadMorePhotoSearch = useCallback(async () => {
+    if (!photoSearchIsActive || photoSearchLoadingMore || !photoSearchHasMore) return;
+    setPhotoSearchLoadingMore(true);
+    try {
+      const nextPage = photoSearchPage + 1;
+      const result = await searchShareGalleryPhotos(publicKey, {
+        sessionId,
+        page: nextPage,
+        limit: 48,
+        ...(photoSearchFilters.q.trim()
+          ? { q: photoSearchFilters.q.trim() }
+          : {}),
+        ...(photoSearchFilters.scene.trim()
+          ? { scene: photoSearchFilters.scene.trim() }
+          : {}),
+        ...(photoSearchFilters.suggested ? { suggested: true } : {}),
+        ...(photoSearchFilters.blurry ? { blurry: true } : {}),
+        ...(photoSearchFilters.minQuality != null
+          ? { minQuality: photoSearchFilters.minQuality }
+          : {}),
+      });
+      setPhotoSearchAssets((prev) => [
+        ...(prev ?? []),
+        ...toDemoAssets(result.assets),
+      ]);
+      setPhotoSearchHasMore(result.pagination.hasMore);
+      setPhotoSearchPage(result.pagination.page ?? nextPage);
+    } catch {
+      /* keep current results */
+    } finally {
+      setPhotoSearchLoadingMore(false);
+    }
+  }, [
+    photoSearchFilters,
+    photoSearchHasMore,
+    photoSearchIsActive,
+    photoSearchLoadingMore,
+    photoSearchPage,
+    publicKey,
+    sessionId,
+  ]);
+
+  /** Refresh progressive thumbs / DASH posters while backend packaging is in flight. */
+  const pendingMediaKey = useMemo(() => {
+    const ids = [
+      ...assets.filter((a) => mediaNeedsClientRefresh(a)).map((a) => a.id),
+      ...(gallery?.finals ?? [])
+        .filter((f) =>
+          mediaNeedsClientRefresh({
+            isVideo: f.isVideo,
+            dashStatus: f.dashStatus,
+            streamingReady: f.streamingReady,
+          }),
+        )
+        .map((f) => `f:${f.id}`),
+    ].sort();
+    return ids.join(",");
+  }, [assets, gallery?.finals]);
+
+  useEffect(() => {
+    if (loadState !== "ok" || !pendingMediaKey) return;
+
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let intervalMs = 2500;
+
+    async function pollMediaReady() {
+      try {
+        const merged = await getShareGallery(publicKey, undefined, { sessionId });
+        if (cancelled) return;
+        setGallery(merged);
+        setAssets(toDemoAssets(merged.assets.filter((a) => !a.removedFromBrowse)));
+        const stillPending =
+          merged.assets.some((a) => mediaNeedsClientRefresh(a)) ||
+          merged.finals.some((f) =>
+            mediaNeedsClientRefresh({
+              isVideo: f.isVideo,
+              dashStatus: f.dashStatus,
+              streamingReady: f.streamingReady,
+            }),
+          );
+        if (stillPending) {
+          intervalMs = Math.min(Math.round(intervalMs * 1.35), 10_000);
+          timer = setTimeout(() => void pollMediaReady(), intervalMs);
+        }
+      } catch {
+        if (!cancelled) {
+          timer = setTimeout(() => void pollMediaReady(), 5000);
+        }
+      }
+    }
+
+    timer = setTimeout(() => void pollMediaReady(), intervalMs);
+
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [loadState, pendingMediaKey, publicKey, sessionId]);
+
+  const suggestedStripAssets = useMemo(() => {
+    if (!showAiSuggestions) return [];
+    return assets
+      .filter((a) => a.ai?.suggested === true && !a.rejectedByClient)
+      .sort(
+        (a, b) =>
+          (b.ai?.suggestionScore ?? -1) - (a.ai?.suggestionScore ?? -1),
+      );
+  }, [assets, showAiSuggestions]);
+
   const editedCount = gallery?.finals.length ?? 0;
   const uploadsCount = gallery?.counts?.uploads ?? assets.length;
 
@@ -623,6 +936,54 @@ export function ClientGalleryApp({ publicKey }: { publicKey: PublicGalleryKey })
     return assets;
   }, [assets, photoTab, gallery?.selectionAssets]);
 
+  const browseAssets = useMemo(() => {
+    if (photoTab !== "all") return tabAssets;
+    const base =
+      photoSearchIsActive && photoSearchAssets != null ? photoSearchAssets : tabAssets;
+    if (!showAiSuggestions && !photoSearchIsActive) return base;
+    let list = base;
+    if (showAiSuggestions && aiFilters.hideSkipped) {
+      list = list.filter((a) => !a.rejectedByClient);
+    }
+    // When API search is active, suggested/blurry are server-side; skip client re-filter.
+    if (!photoSearchIsActive && showAiSuggestions) {
+      if (aiFilters.suggestedOnly) {
+        list = list.filter((a) => a.ai?.suggested === true);
+      }
+      if (aiFilters.hideBlurry) {
+        list = list.filter((a) => !a.ai?.isBlurry);
+      }
+    }
+    if (
+      showAiSuggestions &&
+      !aiFilters.showSimilarShots &&
+      duplicateGroups.length > 0
+    ) {
+      const hidden = duplicateGroupHiddenPhotoIds(duplicateGroups);
+      list = list.filter((a) => !hidden.has(a.id));
+    }
+    if (!photoSearchIsActive && showAiSuggestions && aiFilters.suggestedOnly) {
+      list = [...list].sort(
+        (a, b) =>
+          (b.ai?.suggestionScore ?? -1) - (a.ai?.suggestionScore ?? -1),
+      );
+    }
+    return list;
+  }, [
+    aiFilters,
+    duplicateGroups,
+    photoSearchAssets,
+    photoSearchIsActive,
+    photoTab,
+    showAiSuggestions,
+    tabAssets,
+  ]);
+
+  const gridSourceAssets =
+    (showAiSuggestions || photoSearchIsActive) && photoTab === "all"
+      ? browseAssets
+      : tabAssets;
+
   const useStackedSetSections =
     photoTab === "all" && setFilter === "all" && gallerySets.length > 0;
 
@@ -633,17 +994,17 @@ export function ClientGalleryApp({ publicKey }: { publicKey: PublicGalleryKey })
       if (set.counts && set.counts.uploads === 0 && set.counts.finals === 0) {
         continue;
       }
-      const setAssets = tabAssets.filter((a) => readMediaSetId(a) === set.id);
+      const setAssets = gridSourceAssets.filter((a) => readMediaSetId(a) === set.id);
       if (setAssets.length > 0) {
         sections.push({ id: set.id, title: set.name, assets: setAssets });
       }
     }
-    const unsorted = tabAssets.filter((a) => readMediaSetId(a) === null);
+    const unsorted = gridSourceAssets.filter((a) => readMediaSetId(a) === null);
     if (unsorted.length > 0) {
       sections.push({ id: "__unsorted__", title: "Other", assets: unsorted });
     }
     return sections.length > 0 ? sections : null;
-  }, [useStackedSetSections, gallerySets, tabAssets]);
+  }, [useStackedSetSections, gallerySets, gridSourceAssets]);
 
   const setBarCountItems = useMemo(() => {
     if (photoTab === "edited") return gallery?.finals ?? [];
@@ -651,8 +1012,8 @@ export function ClientGalleryApp({ publicKey }: { publicKey: PublicGalleryKey })
   }, [photoTab, tabAssets, gallery?.finals]);
 
   const visibleAssets = useMemo(
-    () => filterMediaByGallerySet(tabAssets, setFilter),
-    [tabAssets, setFilter],
+    () => filterMediaByGallerySet(gridSourceAssets, setFilter),
+    [gridSourceAssets, setFilter],
   );
 
   const tabFinals = useMemo(() => gallery?.finals ?? [], [gallery?.finals]);
@@ -668,18 +1029,31 @@ export function ClientGalleryApp({ publicKey }: { publicKey: PublicGalleryKey })
   );
 
   const displayedAssets = useMemo(
-    () => visibleAssets.slice(0, visibleMediaLimit),
-    [visibleAssets, visibleMediaLimit],
+    () =>
+      photoSearchIsActive
+        ? visibleAssets
+        : visibleAssets.slice(0, visibleMediaLimit),
+    [photoSearchIsActive, visibleAssets, visibleMediaLimit],
   );
 
   const hasMoreFinals = visibleFinals.length > visibleMediaLimit;
-  const hasMoreAssets = visibleAssets.length > visibleMediaLimit;
+  const hasMoreAssets = photoSearchIsActive
+    ? photoSearchHasMore
+    : visibleAssets.length > visibleMediaLimit;
   const remainingFinalsCount = Math.max(0, visibleFinals.length - visibleMediaLimit);
-  const remainingAssetsCount = Math.max(0, visibleAssets.length - visibleMediaLimit);
+  const remainingAssetsCount = photoSearchIsActive
+    ? photoSearchHasMore
+      ? 48
+      : 0
+    : Math.max(0, visibleAssets.length - visibleMediaLimit);
 
   const loadMoreGalleryMedia = useCallback(() => {
+    if (photoSearchIsActive) {
+      void loadMorePhotoSearch();
+      return;
+    }
     setVisibleMediaLimit((n) => n + SHARE_GALLERY_LOAD_MORE_COUNT);
-  }, []);
+  }, [loadMorePhotoSearch, photoSearchIsActive]);
 
   const downloadableFinals = useMemo(
     () =>
@@ -1171,10 +1545,130 @@ export function ClientGalleryApp({ publicKey }: { publicKey: PublicGalleryKey })
     }
   }
 
+  async function handleAiControl(action: AiSuggestionControlAction) {
+    if (!showAiUi || aiControlBusy || syncBusy) return;
+    setAiControlBusy(true);
+    try {
+      const data = await controlShareGalleryAiSuggestions(publicKey, action);
+      setGallery((current) =>
+        current ? { ...current, aiSelection: data.aiSelection } : current,
+      );
+      if (action === "terminate") {
+        setDuplicateGroups([]);
+        setAssets((prev) =>
+          prev.map((asset) => {
+            if (!asset.ai?.suggested) return asset;
+            return { ...asset, ai: { ...asset.ai, suggested: false } };
+          }),
+        );
+        setAiFilters((prev) => ({ ...prev, suggestedOnly: false }));
+      }
+      if (action === "start" || action === "resume") {
+        try {
+          const status = await getShareGalleryAiSuggestions(publicKey);
+          if (status) {
+            setGallery((current) =>
+              current
+                ? { ...current, aiSelection: status.aiSelection }
+                : current,
+            );
+            setDuplicateGroups(status.duplicateGroups);
+            mergeAiPhotoRows(status.suggestions);
+          }
+        } catch {
+          /* polling will retry while running */
+        }
+      }
+    } catch (e) {
+      showToast(
+        e instanceof ShareGalleryError
+          ? e.message
+          : e instanceof Error
+            ? e.message
+            : `Could not ${action} AI suggestions.`,
+        "error",
+      );
+    } finally {
+      setAiControlBusy(false);
+    }
+  }
+
+  async function handleApplyAiSuggestions() {
+    if (
+      !showAiSuggestions ||
+      editingLocked ||
+      applyAiBusy ||
+      syncBusy ||
+      aiControlBusy
+    ) {
+      return;
+    }
+    setApplyAiBusy(true);
+    try {
+      const result = await applyShareGalleryAiSuggestions(publicKey, {
+        replaceExisting: false,
+      });
+      await refetchGallery();
+      showToast(
+        result.appliedCount > 0
+          ? `Added ${result.appliedCount} AI suggestion${result.appliedCount === 1 ? "" : "s"} to your selections.`
+          : result.message,
+        "success",
+      );
+    } catch (e) {
+      showToast(
+        e instanceof ShareGalleryError
+          ? e.message
+          : e instanceof Error
+            ? e.message
+            : "Could not apply AI suggestions.",
+        "error",
+      );
+    } finally {
+      setApplyAiBusy(false);
+    }
+  }
+
+  async function toggleReject(id: string) {
+    if (editingLocked || syncBusy) return;
+    const asset = assets.find((a) => a.id === id);
+    if (!asset) return;
+    setSyncBusy(true);
+    try {
+      await toggleShareGalleryPhotoReject(publicKey, id);
+      setAssets((prev) =>
+        prev.map((a) => {
+          if (a.id !== id) return a;
+          const nextRejected = !a.rejectedByClient;
+          return {
+            ...a,
+            rejectedByClient: nextRejected ? true : undefined,
+            selection: nextRejected ? ("UNSELECTED" as SelectionState) : a.selection,
+          };
+        }),
+      );
+    } catch (e) {
+      showToast(
+        e instanceof ShareGalleryError
+          ? e.message
+          : e instanceof Error
+            ? e.message
+            : "Could not update skip status.",
+        "error",
+      );
+    } finally {
+      setSyncBusy(false);
+    }
+  }
+
   const lbAsset =
     lightboxId ? assets.find((a) => a.id === lightboxId) ?? null : null;
   const lbAssetHasComment = Boolean(lbAsset?.clientComment?.trim());
   const lbAssetIsVideo = lbAsset ? isClientAssetVideo(lbAsset) : false;
+  const lbDuplicateGroup =
+    lbAsset != null
+      ? duplicateGroups.find((group) => group.photoIds.includes(lbAsset.id)) ?? null
+      : null;
   const lbNavIndex = lbAsset
     ? lightboxNavAssets.findIndex((a) => a.id === lbAsset.id)
     : -1;
@@ -1442,10 +1936,16 @@ export function ClientGalleryApp({ publicKey }: { publicKey: PublicGalleryKey })
                 <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-5">
                   <div className="flex min-w-0 items-center gap-2.5">
                     <div
-                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-brand to-indigo-700 text-xs font-bold text-white shadow-md dark:to-violet-900 sm:h-10 sm:w-10 sm:text-sm"
+                      className="h-9 w-9 shrink-0 overflow-hidden rounded-lg bg-zinc-200 shadow-md dark:bg-zinc-700 sm:h-10 sm:w-10"
                       aria-hidden
                     >
-                      {clientInitials(gallery.clientName)}
+                      <Image
+                        src="/images/user-profile.png"
+                        alt=""
+                        width={40}
+                        height={40}
+                        className="h-full w-full object-cover"
+                      />
                     </div>
                     <div className="min-w-0">
                       <p className="text-[9px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
@@ -1649,6 +2149,37 @@ export function ClientGalleryApp({ publicKey }: { publicKey: PublicGalleryKey })
       </header>
 
       <main className="mx-auto max-w-[1920px] bg-white px-4 py-8 pb-12 sm:px-5 dark:bg-zinc-950">
+        {isPhotoGridTab && photoTab === "all" ? (
+          <GalleryPhotoSearchBar
+            className="mb-5"
+            value={photoSearch}
+            onChange={setPhotoSearch}
+            showAiFilters={showAiSearchFilters}
+            searching={photoSearchBusy}
+            placeholder="Search photos…"
+          />
+        ) : null}
+        {showAiUi && aiSelection && isPhotoGridTab && photoTab === "all" ? (
+          <>
+            <GalleryAiToolbar
+              aiSelection={aiSelection}
+              selectionLimit={selectionLimit}
+              selectionsRemaining={selectionsRemaining}
+              editingLocked={editingLocked}
+              applyBusy={applyAiBusy}
+              syncBusy={syncBusy}
+              controlBusy={aiControlBusy}
+              filters={aiFilters}
+              onFiltersChange={setAiFilters}
+              onApplySuggestions={() => void handleApplyAiSuggestions()}
+              onControl={(action) => void handleAiControl(action)}
+              showAdvancedFilters={showAiSearchFilters}
+            />
+            {showAiSuggestions ? (
+              <SuggestedPicksStrip assets={suggestedStripAssets} onOpen={openLb} />
+            ) : null}
+          </>
+        ) : null}
         {photoTab === "blog" && gallery ? (
           <LazyGalleryBlogClientSection
             folderId={gallery.folderId}
@@ -1733,13 +2264,18 @@ export function ClientGalleryApp({ publicKey }: { publicKey: PublicGalleryKey })
                         }
                       >
                         {showUnlockedVideo ? (
-                          <video
-                            src={f.url}
-                            {...(f.lockedPreviewUrl ? { poster: f.lockedPreviewUrl } : {})}
-                            muted
-                            playsInline
-                            preload="metadata"
-                            aria-label={f.name}
+                          // Poster tile — full playback is in the lightbox.
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={
+                              videoPosterSrc(f) ||
+                              f.lockedPreviewUrl ||
+                              f.url
+                            }
+                            alt={f.name}
+                            loading={index < 12 ? "eager" : "lazy"}
+                            decoding="async"
+                            draggable={!locked}
                             className={
                               collage
                                 ? "block h-auto w-full cursor-zoom-in bg-black"
@@ -1893,7 +2429,11 @@ export function ClientGalleryApp({ publicKey }: { publicKey: PublicGalleryKey })
           <p className="text-center text-sm text-zinc-500 dark:text-zinc-400">
             {photoTab === "selected"
               ? "You have not selected any media yet."
-              : "No media in this gallery yet."}
+              : photoSearchIsActive
+                ? photoSearchBusy
+                  ? "Searching…"
+                  : "No photos match your search."
+                : "No media in this gallery yet."}
           </p>
         ) : uploadSections ? (
           <div className="space-y-10">
@@ -1921,6 +2461,7 @@ export function ClientGalleryApp({ publicKey }: { publicKey: PublicGalleryKey })
                     onOpen={openLb}
                     onToggleSelect={toggleSelect}
                     onOpenComment={openPhotoComment}
+                    onToggleReject={showAiUi ? toggleReject : undefined}
                     indexOffset={indexOffset}
                   />
                 </section>
@@ -1941,12 +2482,18 @@ export function ClientGalleryApp({ publicKey }: { publicKey: PublicGalleryKey })
             onOpen={openLb}
             onToggleSelect={toggleSelect}
             onOpenComment={openPhotoComment}
+            onToggleReject={showAiUi ? toggleReject : undefined}
           />
           {hasMoreAssets ? (
             <GalleryViewMoreButton
               onClick={loadMoreGalleryMedia}
               remainingCount={remainingAssetsCount}
             />
+          ) : null}
+          {photoSearchLoadingMore ? (
+            <p className="mt-2 text-center text-xs text-zinc-500 dark:text-zinc-400">
+              Loading more…
+            </p>
           ) : null}
           </>
         )}
@@ -2002,6 +2549,18 @@ export function ClientGalleryApp({ publicKey }: { publicKey: PublicGalleryKey })
           zoom={zoom}
           onZoomChange={setZoom}
           footer={
+            <div className="flex flex-col gap-2">
+              {lbDuplicateGroup && lbDuplicateGroup.photoIds.length > 1 ? (
+                <p className="text-center text-xs text-white/75">
+                  {lbDuplicateGroup.photoIds.length} similar photos
+                  {lbAsset.ai?.isBestInGroup || lbDuplicateGroup.recommendedPhotoId === lbAsset.id
+                    ? " — showing the recommended one"
+                    : ""}
+                </p>
+              ) : null}
+              {lbAsset.ai?.suggestionReason ? (
+                <p className="text-center text-xs text-white/70">{lbAsset.ai.suggestionReason}</p>
+              ) : null}
             <div className="flex flex-wrap items-center justify-center gap-2 sm:justify-between">
               <p className="hidden text-xs text-white/60 sm:block">
                 Double-click or scroll to zoom · drag when zoomed
@@ -2054,13 +2613,33 @@ export function ClientGalleryApp({ publicKey }: { publicKey: PublicGalleryKey })
                     {lbAsset.selection === "SELECTED" ? "Selected" : "Select photo"}
                   </button>
                 ) : null}
+                {showAiUi && !editingLocked ? (
+                  <button
+                    type="button"
+                    disabled={syncBusy}
+                    onClick={() => void toggleReject(lbAsset.id)}
+                    className={cn(
+                      "inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-semibold transition",
+                      lbAsset.rejectedByClient
+                        ? "bg-zinc-500 text-white shadow-lg"
+                        : "border border-white/25 bg-white/10 text-white hover:bg-white/15",
+                    )}
+                  >
+                    <EyeOff className="size-4 stroke-[1.5]" aria-hidden />
+                    {lbAsset.rejectedByClient ? "Unskip" : "Skip photo"}
+                  </button>
+                ) : null}
               </div>
+            </div>
             </div>
           }
         >
           {lbAssetIsVideo ? (
-            <video
-              src={clientGalleryLightboxSrc(lbAsset, previewWatermarkEnabled)}
+            <DashOrNativeVideo
+              src={lbAsset.url?.trim() || clientGalleryLightboxSrc(lbAsset, previewWatermarkEnabled)}
+              poster={videoPosterSrc(lbAsset)}
+              dashUrl={lbAsset.dashUrl}
+              dashStatus={lbAsset.dashStatus}
               controls
               playsInline
               preload="metadata"
@@ -2218,15 +2797,18 @@ export function ClientGalleryApp({ publicKey }: { publicKey: PublicGalleryKey })
           }
         >
           {!finalLb.locked && isShareFinalVideo(finalLb) ? (
-            <video
+            <DashOrNativeVideo
               src={finalLb.url}
-              {...(finalLb.lockedPreviewUrl ? { poster: finalLb.lockedPreviewUrl } : {})}
+              poster={videoPosterSrc(finalLb) || finalLb.lockedPreviewUrl || ""}
+              dashUrl={finalLb.dashUrl}
+              dashStatus={finalLb.dashStatus}
               controls
               playsInline
               preload="metadata"
               aria-label={finalLb.name}
               className={cn(
                 lightboxMediaClass,
+                "bg-black",
                 gallery.rightsProtection && "select-none",
               )}
               onContextMenu={(e) => {

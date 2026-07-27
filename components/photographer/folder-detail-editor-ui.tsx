@@ -4,7 +4,6 @@ import { useEffect, useMemo, useRef, useState, type ComponentType, type ReactNod
 import Link from "next/link";
 import {
   ArrowLeft,
-  Calendar,
   Check,
   CheckCircle2,
   ChevronDown,
@@ -23,6 +22,7 @@ import {
   Mail,
   MessageCircle,
   Monitor,
+  MoreHorizontal,
   Pencil,
   Music2,
   Palette,
@@ -200,6 +200,17 @@ function FontSelect({
       />
     </label>
   );
+}
+
+function statusDotClass(s: FolderStatus): string {
+  switch (s) {
+    case "COMPLETED":
+      return "bg-emerald-500";
+    case "SELECTION_PENDING":
+      return "bg-amber-500";
+    default:
+      return "bg-zinc-400";
+  }
 }
 
 function statusBadgeLight(s: FolderStatus): string {
@@ -515,8 +526,8 @@ export function FolderEditorChrome({
     }
   };
 
-  const outlineActionClass =
-    "inline-flex items-center gap-1.5 rounded-lg border border-[#55001F] bg-white px-3.5 py-2 text-[13px] font-medium text-zinc-900 shadow-sm transition hover:bg-[#55001F]/5 disabled:cursor-not-allowed disabled:opacity-45 dark:border-[#55001F] dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-[#55001F]/10";
+  const iconActionClass =
+    "inline-flex h-9 w-9 items-center justify-center rounded-full text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900 disabled:cursor-not-allowed disabled:opacity-40 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100";
 
   const handleShareMenuClick = ({ key }: { key: string }) => {
     if (key === "copy") {
@@ -548,115 +559,110 @@ export function FolderEditorChrome({
   };
 
   return (
-    <header>
-      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 py-3">
+    <header className="px-5 pt-5 sm:px-6 sm:pt-6">
+      <div className="flex items-start gap-3 sm:gap-4">
         <Link
           href="/dashboard/galleries"
-          className="inline-flex items-center gap-1 text-[13px] text-zinc-500 transition hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200"
+          aria-label="Back to galleries"
+          className="mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-zinc-200/80 bg-white text-zinc-500 transition hover:border-zinc-300 hover:bg-zinc-50 hover:text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
         >
-          <ArrowLeft className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden />
-          Galleries
+          <ArrowLeft className="h-4 w-4" strokeWidth={1.75} aria-hidden />
         </Link>
-        <div className="flex flex-wrap items-center gap-2.5">
-          <Dropdown
-            trigger={["click"]}
-            placement="bottomRight"
-            menu={{
-              items: moreMenuItems,
-              onClick: handleMoreMenuClick,
-            }}
-          >
-            <button type="button" className={outlineActionClass}>
-              More
-              <ChevronDown className="h-3.5 w-3.5 text-zinc-500" strokeWidth={2} aria-hidden />
-            </button>
-          </Dropdown>
 
-          <button
-            type="button"
-            disabled={!shareActive || !shareUrl}
-            title={shareActive && shareUrl ? undefined : "Share link not available yet"}
-            onClick={() => {
-              if (!shareActive || !shareUrl) return;
-              window.open(shareUrl, "_blank", "noopener,noreferrer");
-            }}
-            className={outlineActionClass}
-          >
-            <Eye
-              className={cn(
-                "h-4 w-4",
-                shareActive && shareUrl
-                  ? "text-zinc-600 dark:text-zinc-400"
-                  : "text-zinc-400",
-              )}
-              strokeWidth={1.75}
-              aria-hidden
-            />
-            Live view
-          </button>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
+            <div className="min-w-0">
+              <h1 className="truncate text-[1.375rem] font-semibold tracking-tight text-zinc-900 dark:text-zinc-50 sm:text-[1.5rem]">
+                {title}
+              </h1>
+              <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-zinc-500 dark:text-zinc-400">
+                {client ? <span className="truncate">{client}</span> : null}
+                {client && eventDateLabel ? (
+                  <span className="text-zinc-300 dark:text-zinc-600" aria-hidden>
+                    ·
+                  </span>
+                ) : null}
+                {eventDateLabel ? <span>{eventDateLabel}</span> : null}
+                {(client || eventDateLabel) ? (
+                  <span className="text-zinc-300 dark:text-zinc-600" aria-hidden>
+                    ·
+                  </span>
+                ) : null}
+                <span
+                  className={cn(
+                    "inline-flex items-center gap-1.5 text-[12px] font-medium",
+                    statusBadgeLight(folderStatus),
+                  )}
+                >
+                  <span
+                    className={cn("h-1.5 w-1.5 rounded-full", statusDotClass(folderStatus))}
+                    aria-hidden
+                  />
+                  {statusLabel(folderStatus)}
+                </span>
+              </div>
+            </div>
 
-          <div className="inline-flex overflow-hidden rounded-lg bg-brand text-white shadow-sm">
-            <button
-              type="button"
-              disabled={!shareActive || busy}
-              onClick={() => onCopyShare?.()}
-              className="inline-flex items-center gap-2 px-4 py-2 text-[13px] font-semibold transition hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <Send className="h-4 w-4 shrink-0" strokeWidth={1.75} aria-hidden />
-              Share
-            </button>
-            <span className="w-px self-stretch bg-white/25" aria-hidden />
-            <Dropdown
-              trigger={["click"]}
-              placement="bottomRight"
-              disabled={!onCopyShare}
-              menu={{
-                items: shareMenuItems,
-                onClick: handleShareMenuClick,
-              }}
-            >
+            <div className="flex shrink-0 items-center gap-1 sm:gap-1.5">
+              <Dropdown
+                trigger={["click"]}
+                placement="bottomRight"
+                menu={{
+                  items: moreMenuItems,
+                  onClick: handleMoreMenuClick,
+                }}
+              >
+                <button type="button" className={iconActionClass} aria-label="More actions">
+                  <MoreHorizontal className="h-4 w-4" strokeWidth={1.75} aria-hidden />
+                </button>
+              </Dropdown>
+
               <button
                 type="button"
-                className="inline-flex h-full items-center justify-center px-3 py-2 transition hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-50"
-                aria-label="Share options"
+                disabled={!shareActive || !shareUrl}
+                title={shareActive && shareUrl ? "Open live gallery" : "Share link not available yet"}
+                onClick={() => {
+                  if (!shareActive || !shareUrl) return;
+                  window.open(shareUrl, "_blank", "noopener,noreferrer");
+                }}
+                className={iconActionClass}
+                aria-label="Live view"
               >
-                <ChevronDown className="h-4 w-4" strokeWidth={2.5} aria-hidden />
+                <Eye className="h-4 w-4" strokeWidth={1.75} aria-hidden />
               </button>
-            </Dropdown>
+
+              <div className="ml-1 inline-flex h-9 overflow-hidden rounded-full bg-brand text-white shadow-[0_1px_2px_rgba(85,0,31,0.25)]">
+                <button
+                  type="button"
+                  disabled={!shareActive || busy}
+                  onClick={() => onCopyShare?.()}
+                  className="inline-flex items-center gap-2 px-3.5 text-[13px] font-semibold transition hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-50 sm:px-4"
+                >
+                  <Send className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} aria-hidden />
+                  Share
+                </button>
+                <span className="w-px self-stretch bg-white/20" aria-hidden />
+                <Dropdown
+                  trigger={["click"]}
+                  placement="bottomRight"
+                  disabled={!onCopyShare}
+                  menu={{
+                    items: shareMenuItems,
+                    onClick: handleShareMenuClick,
+                  }}
+                >
+                  <button
+                    type="button"
+                    className="inline-flex h-full items-center justify-center px-2.5 transition hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-50"
+                    aria-label="Share options"
+                  >
+                    <ChevronDown className="h-3.5 w-3.5" strokeWidth={2.5} aria-hidden />
+                  </button>
+                </Dropdown>
+              </div>
+            </div>
           </div>
         </div>
-      </div>
-
-      <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3 pb-4">
-        <div className="min-w-0">
-          <h1 className="truncate text-[1.35rem] font-medium leading-snug tracking-tight text-zinc-900 dark:text-zinc-50">
-            {title}
-          </h1>
-          {client || eventDateLabel ? (
-            <p className="mt-1 flex flex-wrap items-center gap-x-2 text-[13px] text-zinc-500 dark:text-zinc-400">
-              {client ? <span>{client}</span> : null}
-              {client && eventDateLabel ? (
-                <span className="text-zinc-300 dark:text-zinc-600" aria-hidden>
-                  ·
-                </span>
-              ) : null}
-              {eventDateLabel ? (
-                <span className="inline-flex items-center gap-1">
-                  <Calendar className="h-3.5 w-3.5 shrink-0 opacity-70" aria-hidden />
-                  {eventDateLabel}
-                </span>
-              ) : null}
-            </p>
-          ) : null}
-        </div>
-        <span
-          className={cn(
-            "shrink-0 text-[12px] font-medium tracking-wide",
-            statusBadgeLight(folderStatus),
-          )}
-        >
-          {statusLabel(folderStatus)}
-        </span>
       </div>
     </header>
   );
@@ -683,39 +689,39 @@ export function FolderEditorTabBar({
     shortLabel: string;
     icon: ComponentType<{ className?: string; "aria-hidden"?: boolean }>;
   }[] = [
-    { key: "dashboard", label: "Gallery dashboard", shortLabel: "Dashboard", icon: LayoutGrid },
+    { key: "dashboard", label: "Dashboard", shortLabel: "Home", icon: LayoutGrid },
     { key: "gallery", label: "Design", shortLabel: "Design", icon: Palette },
-    { key: "uploads", label: "Upload raw", shortLabel: "Upload raw", icon: Upload },
-    { key: "selection", label: "Client selection", shortLabel: "Selection", icon: CheckCircle2 },
-    { key: "finals", label: "Final images", shortLabel: "Finals", icon: ImageIcon },
+    { key: "uploads", label: "Uploads", shortLabel: "Uploads", icon: Upload },
+    { key: "selection", label: "Selection", shortLabel: "Picks", icon: CheckCircle2 },
+    { key: "finals", label: "Finals", shortLabel: "Finals", icon: ImageIcon },
     // { key: "blog", label: "Blog", shortLabel: "Blog", icon: FileText },
   ];
 
   function tabClass(active: boolean) {
     return cn(
-      "inline-flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[12px] font-medium transition sm:px-3",
+      "inline-flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-[13px] font-medium transition",
       active
-        ? "bg-brand text-white"
-        : "text-zinc-600 hover:bg-white hover:text-zinc-900",
+        ? "bg-zinc-900 text-white shadow-sm dark:bg-zinc-100 dark:text-zinc-900"
+        : "text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200",
     );
   }
 
   function previewClass(active: boolean) {
     return cn(
-      "inline-flex h-8 w-9 items-center justify-center rounded-md transition",
+      "inline-flex h-8 w-8 items-center justify-center rounded-full transition",
       active
-        ? "bg-brand text-white"
-        : "text-zinc-500 hover:bg-white hover:text-zinc-800",
+        ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
+        : "text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200",
     );
   }
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-brand/10 bg-[#F1EBF0] px-2 py-1.5 sm:px-2.5">
+    <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-zinc-100 px-3 py-3 dark:border-zinc-800/80 sm:px-4">
       <div className="min-w-0 flex-1 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         <div
           role="tablist"
           aria-label="Gallery workspace"
-          className="inline-flex gap-0.5 rounded-lg bg-[#f5f5f5] p-0.5"
+          className="inline-flex items-center gap-0.5"
         >
           {items.map(({ key, label, shortLabel, icon: Icon }) => {
             const active = tab === key;
@@ -740,16 +746,19 @@ export function FolderEditorTabBar({
                 onClick={() => onTabChange(key)}
                 className={tabClass(active)}
               >
-                <Icon className="h-3.5 w-3.5 shrink-0 opacity-80" aria-hidden />
+                <Icon
+                  className={cn("h-3.5 w-3.5 shrink-0", active ? "opacity-90" : "opacity-65")}
+                  aria-hidden
+                />
                 <span className="hidden sm:inline">{label}</span>
                 <span className="sm:hidden">{shortLabel}</span>
                 {count != null && count > 0 ? (
                   <span
                     className={cn(
-                      "inline-flex min-w-[1.15rem] items-center justify-center rounded-full px-1.5 py-px text-[10px] font-semibold tabular-nums leading-none",
+                      "inline-flex min-w-[1.15rem] items-center justify-center rounded-full px-1 py-px text-[10px] font-semibold tabular-nums leading-none",
                       active
-                        ? "bg-white/20 text-white"
-                        : "bg-zinc-200/80 text-zinc-600",
+                        ? "bg-white/15 text-white dark:bg-zinc-900/10 dark:text-zinc-800"
+                        : "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400",
                     )}
                   >
                     {count}
@@ -763,7 +772,7 @@ export function FolderEditorTabBar({
 
       {showPreviewToggle ? (
         <div
-          className="inline-flex shrink-0 items-center gap-0.5 rounded-lg bg-[#f5f5f5] p-0.5"
+          className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-zinc-100 p-0.5 dark:bg-zinc-800"
           role="group"
           aria-label="Preview viewport"
         >

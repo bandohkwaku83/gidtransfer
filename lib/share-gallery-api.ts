@@ -1,3 +1,9 @@
+import {
+  appendGalleryPhotoSearchParams,
+  readGalleryPhotoSearchMeta,
+  type GalleryPhotoSearchFilters,
+  type GalleryPhotoSearchMeta,
+} from "@/lib/gallery-photo-search";
 import { API_BASE_URL, apiUrl, sameOriginUploadsUrl } from "@/lib/api";
 import { getBackendApiUrl } from "@/lib/backend-proxy";
 import { extractMessage, HttpError, parseJson } from "@/lib/http";
@@ -19,6 +25,10 @@ import {
 } from "@/lib/galleries-api";
 import { normalizeGallerySets, type ApiGallerySet } from "@/lib/gallery-sets-api";
 import { readSetsBarSettingsFromApiBody } from "@/lib/gallery-set-filter";
+import {
+  pickStreamingFields,
+  type GalleryStreamingFields,
+} from "@/lib/gallery-media-streaming";
 
 export type ShareGalleryAsset = {
   id: string;
@@ -36,6 +46,7 @@ export type ShareGalleryAsset = {
   mimeType?: string;
   rejectedByClient?: boolean;
   rejectionComment?: string;
+  ai?: PublicPhotoAi;
   clientComment?: string;
   photographerReply?: string;
   /** Gallery set (subsection) this upload belongs to. */
@@ -44,7 +55,7 @@ export type ShareGalleryAsset = {
   derivativesReady?: boolean;
   /** Selected photo removed from uploads browse — still shown on Selections tab. */
   removedFromBrowse?: boolean;
-};
+} & GalleryStreamingFields;
 
 export type ShareGalleryFinal = {
   id: string;
@@ -74,7 +85,7 @@ export type ShareGalleryFinal = {
   flaggedAt?: string | null;
   /** Gallery set (subsection) this final belongs to. */
   setId?: string | null;
-};
+} & GalleryStreamingFields;
 
 export type ShareGalleryStudio = {
   companyName?: string;
@@ -104,6 +115,68 @@ export type PublicGalleryPhoto = {
   removedFromBrowse?: boolean;
   selectedAt?: string | null;
   rejectedAt?: string | null;
+  ai?: PublicPhotoAi;
+} & GalleryStreamingFields;
+
+export type AiRunStatus = "idle" | "running" | "paused" | "terminated";
+
+export type GalleryAiSelection = {
+  enabled: boolean;
+  runStatus: AiRunStatus;
+  startedAt: string | null;
+  pausedAt: string | null;
+  terminatedAt: string | null;
+  ready: boolean;
+  readyCount: number;
+  pendingCount: number;
+  suggestedCount: number;
+  queuedCount: number;
+};
+
+export type AiSuggestionControlAction = "start" | "pause" | "resume" | "terminate";
+
+export type AiSuggestionControlResponse = {
+  message: string;
+  queued?: number;
+  aiSelection: GalleryAiSelection;
+};
+
+export type PublicPhotoAi = {
+  status: "pending" | "processing" | "ready" | "failed" | "skipped";
+  suggested: boolean;
+  qualityScore: number | null;
+  sceneLabel: string | null;
+  tags: string[];
+  issues: string[];
+  faceCount: number | null;
+  eyesOpen: boolean | null;
+  isBlurry: boolean;
+  duplicateGroupId: string | null;
+  isBestInGroup: boolean;
+  suggestionScore: number | null;
+  suggestionReason: string | null;
+};
+
+export type PublicGalleryDuplicateGroup = {
+  groupId: string;
+  photoIds: string[];
+  recommendedPhotoId: string;
+};
+
+export type AiSuggestionsResponse = {
+  aiSelection: GalleryAiSelection;
+  suggestions: PublicGalleryPhoto[];
+  duplicateGroups: PublicGalleryDuplicateGroup[];
+  selectionLimit: number | null;
+};
+
+export type ApplyAiSuggestionsResponse = {
+  message: string;
+  appliedCount: number;
+  selectionLimit: number | null;
+  selectionsUsed: number;
+  selectionsRemaining: number | null;
+  photos: PublicGalleryPhoto[];
 };
 
 /** Row shape from `GET /api/public/token/:shareToken` → `finals[]`. */
@@ -198,6 +271,7 @@ export type PublicGalleryResponse = {
     selectionLimit?: number | null;
     selectionsRemaining?: number | null;
   };
+  aiSelection?: GalleryAiSelection;
 };
 
 export type NormalizedShareGallery = {
@@ -271,6 +345,8 @@ export type NormalizedShareGallery = {
     flaggedFinals?: number;
     selectionsRemaining?: number | null;
   };
+  /** Server-side AI selection summary when enabled. */
+  aiSelection?: GalleryAiSelection;
 };
 
 type Raw = Record<string, unknown>;
@@ -778,6 +854,184 @@ function readSetIdFromRow(o: Raw): string | null | undefined {
   return String(raw);
 }
 
+function readOptionalNumber(v: unknown): number | null {
+  if (v === null || v === undefined) return null;
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  if (typeof v === "string" && v.trim()) {
+    const n = Number(v.trim());
+    if (Number.isFinite(n)) return n;
+  }
+  return null;
+}
+
+function readStringArray(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  return v.map((item) => String(item)).filter(Boolean);
+}
+
+const PHOTO_AI_STATUSES = new Set([
+  "pending",
+  "processing",
+  "ready",
+  "failed",
+  "skipped",
+]);
+
+function photoAiFromRow(o: Raw): PublicPhotoAi | undefined {
+  const aiRaw = o.ai;
+  if (!aiRaw || typeof aiRaw !== "object" || Array.isArray(aiRaw)) return undefined;
+  const ai = aiRaw as Raw;
+  const statusRaw = str(ai.status).toLowerCase();
+  const status = PHOTO_AI_STATUSES.has(statusRaw)
+    ? (statusRaw as PublicPhotoAi["status"])
+    : "pending";
+  return {
+    status,
+    suggested: bool(ai.suggested),
+    qualityScore: readOptionalNumber(ai.qualityScore ?? ai.quality_score),
+    sceneLabel: str(ai.sceneLabel) || str(ai.scene_label) || null,
+    tags: readStringArray(ai.tags),
+    issues: readStringArray(ai.issues),
+    faceCount: readOptionalNumber(ai.faceCount ?? ai.face_count),
+    eyesOpen:
+      typeof ai.eyesOpen === "boolean"
+        ? ai.eyesOpen
+        : typeof ai.eyes_open === "boolean"
+          ? ai.eyes_open
+          : null,
+    isBlurry: bool(ai.isBlurry) || bool(ai.is_blurry),
+    duplicateGroupId:
+      str(ai.duplicateGroupId) ||
+      str(ai.duplicate_group_id) ||
+      null,
+    isBestInGroup: bool(ai.isBestInGroup) || bool(ai.is_best_in_group),
+    suggestionScore: readOptionalNumber(ai.suggestionScore ?? ai.suggestion_score),
+    suggestionReason:
+      str(ai.suggestionReason) ||
+      str(ai.suggestion_reason) ||
+      null,
+  };
+}
+
+const AI_RUN_STATUSES = new Set<AiRunStatus>([
+  "idle",
+  "running",
+  "paused",
+  "terminated",
+]);
+
+function readOptionalIsoTimestamp(v: unknown): string | null {
+  if (v === null || v === undefined) return null;
+  if (typeof v === "string" && v.trim()) return v.trim();
+  return null;
+}
+
+function readAiSelectionFromBody(root: Raw): GalleryAiSelection | undefined {
+  const raw = root.aiSelection ?? root.ai_selection;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const o = raw as Raw;
+  const enabled = bool(o.enabled);
+  const readyCount =
+    typeof o.readyCount === "number"
+      ? o.readyCount
+      : typeof o.ready_count === "number"
+        ? o.ready_count
+        : 0;
+  const pendingCount =
+    typeof o.pendingCount === "number"
+      ? o.pendingCount
+      : typeof o.pending_count === "number"
+        ? o.pending_count
+        : 0;
+  const suggestedCount =
+    typeof o.suggestedCount === "number"
+      ? o.suggestedCount
+      : typeof o.suggested_count === "number"
+        ? o.suggested_count
+        : 0;
+  const queuedCount =
+    typeof o.queuedCount === "number"
+      ? o.queuedCount
+      : typeof o.queued_count === "number"
+        ? o.queued_count
+        : 0;
+  const ready =
+    typeof o.ready === "boolean"
+      ? o.ready
+      : pendingCount === 0 && readyCount > 0;
+  const runStatusRaw = str(o.runStatus ?? o.run_status).toLowerCase();
+  const runStatus: AiRunStatus = AI_RUN_STATUSES.has(runStatusRaw as AiRunStatus)
+    ? (runStatusRaw as AiRunStatus)
+    : pendingCount > 0
+      ? "running"
+      : "idle";
+  if (!enabled && readyCount === 0 && pendingCount === 0 && suggestedCount === 0) {
+    return undefined;
+  }
+  return {
+    enabled,
+    runStatus,
+    startedAt: readOptionalIsoTimestamp(o.startedAt ?? o.started_at),
+    pausedAt: readOptionalIsoTimestamp(o.pausedAt ?? o.paused_at),
+    terminatedAt: readOptionalIsoTimestamp(o.terminatedAt ?? o.terminated_at),
+    ready,
+    readyCount,
+    pendingCount,
+    suggestedCount,
+    queuedCount,
+  };
+}
+
+function duplicateGroupFromRow(item: unknown): PublicGalleryDuplicateGroup | null {
+  if (!item || typeof item !== "object") return null;
+  const o = item as Raw;
+  const groupId = str(o.groupId) || str(o.group_id) || str(o.id);
+  if (!groupId) return null;
+  const photoIdsRaw = o.photoIds ?? o.photo_ids;
+  const photoIds = Array.isArray(photoIdsRaw)
+    ? photoIdsRaw.map((id) => String(id)).filter(Boolean)
+    : [];
+  const recommendedPhotoId =
+    str(o.recommendedPhotoId) ||
+    str(o.recommended_photo_id) ||
+    photoIds[0] ||
+    "";
+  if (!recommendedPhotoId) return null;
+  return { groupId, photoIds, recommendedPhotoId };
+}
+
+/** IDs of non-recommended photos in duplicate groups (for collapsed burst view). */
+export function duplicateGroupHiddenPhotoIds(
+  groups: PublicGalleryDuplicateGroup[],
+): Set<string> {
+  const hidden = new Set<string>();
+  for (const group of groups) {
+    for (const id of group.photoIds) {
+      if (id !== group.recommendedPhotoId) hidden.add(id);
+    }
+  }
+  return hidden;
+}
+
+/** Merge `ai` (and selection/reject flags) from API photo rows into share assets. */
+export function mergeShareAssetsWithPhotoRows(
+  assets: ShareGalleryAsset[],
+  rows: PublicGalleryPhoto[],
+): ShareGalleryAsset[] {
+  if (rows.length === 0) return assets;
+  const byId = new Map(rows.map((row) => [row.id, row]));
+  return assets.map((asset) => {
+    const row = byId.get(asset.id);
+    if (!row) return asset;
+    const next: ShareGalleryAsset = { ...asset };
+    if (row.ai) next.ai = row.ai;
+    if (row.rejectedByClient) next.rejectedByClient = true;
+    else if (row.rejectedByClient === false) delete next.rejectedByClient;
+    if (row.selectedByClient) next.selection = "SELECTED";
+    return next;
+  });
+}
+
 function assetFromRow(item: unknown, idx: number): ShareGalleryAsset | null {
   if (!item || typeof item !== "object") return null;
   const o = item as Raw;
@@ -834,17 +1088,23 @@ function assetFromRow(item: unknown, idx: number): ShareGalleryAsset | null {
     mimeType.toLowerCase().startsWith("video/") ||
     /\.(mp4|mov|webm|m4v|avi|mkv|ogv)$/i.test(originalName);
 
-  const mediaUrl = urlResolved || thumbUrl;
-  const previewUrl =
-    isVideo
-      ? mediaUrl
-      : viewUrlResolved && viewUrlResolved !== thumbUrl
-        ? viewUrlResolved
-        : displayUrlResolved && thumbUrl && displayUrlResolved !== thumbUrl
+  const streaming = pickStreamingFields(o);
+  const posterResolved = streaming.posterUrl
+    ? resolvePublicGalleryImageUrl(streaming.posterUrl)
+    : "";
+  const dashUrl = streaming.dashUrl
+    ? resolvePublicGalleryImageUrl(streaming.dashUrl)
+    : "";
+
+  const previewUrl = isVideo
+    ? undefined
+    : viewUrlResolved && viewUrlResolved !== thumbUrl
+      ? viewUrlResolved
+      : displayUrlResolved && thumbUrl && displayUrlResolved !== thumbUrl
+        ? displayUrlResolved
+        : displayUrlResolved && !thumbUrl
           ? displayUrlResolved
-          : displayUrlResolved && !thumbUrl
-            ? displayUrlResolved
-            : undefined;
+          : undefined;
 
   const derivativesReady =
     o.derivativesReady === undefined && o.derivatives_ready === undefined
@@ -875,11 +1135,16 @@ function assetFromRow(item: unknown, idx: number): ShareGalleryAsset | null {
     str(o.photographer_reply) ||
     "";
   const setId = readSetIdFromRow(o);
+  const ai = photoAiFromRow(o);
+
+  const gridPoster =
+    posterResolved || (gridRaw ? resolvePublicGalleryImageUrl(gridRaw) : "");
+  const imageThumb = thumbUrl || urlResolved;
 
   return {
     id,
     originalName,
-    thumbUrl: isVideo ? mediaUrl : thumbUrl || urlResolved,
+    thumbUrl: isVideo ? gridPoster || imageThumb : imageThumb,
     ...(urlResolved ? { url: urlResolved } : {}),
     ...(displayUrlResolved ? { displayUrl: displayUrlResolved } : {}),
     ...(previewUrl ? { previewUrl } : {}),
@@ -892,7 +1157,14 @@ function assetFromRow(item: unknown, idx: number): ShareGalleryAsset | null {
     ...(photographerReply ? { photographerReply } : {}),
     ...(setId !== undefined ? { setId } : {}),
     ...(derivativesReady !== undefined ? { derivativesReady } : {}),
+    ...(posterResolved ? { posterUrl: posterResolved } : {}),
+    ...(dashUrl ? { dashUrl } : {}),
+    ...(streaming.dashStatus ? { dashStatus: streaming.dashStatus } : {}),
+    ...(streaming.streamingReady !== undefined
+      ? { streamingReady: streaming.streamingReady }
+      : {}),
     ...(removedFromBrowse ? { removedFromBrowse: true } : {}),
+    ...(ai ? { ai } : {}),
   };
 }
 
@@ -1011,6 +1283,13 @@ function finalFromRow(item: unknown, idx: number): ShareGalleryFinal | null {
     str(o.flagged_by_client).toLowerCase() === "true";
   const flaggedAt = str(o.flaggedAt) || str(o.flagged_at) || "";
   const setId = readSetIdFromRow(o);
+  const streaming = pickStreamingFields(o);
+  const posterResolved = streaming.posterUrl
+    ? resolvePublicGalleryImageUrl(streaming.posterUrl)
+    : "";
+  const dashUrl = streaming.dashUrl
+    ? resolvePublicGalleryImageUrl(streaming.dashUrl)
+    : "";
 
   return {
     id,
@@ -1024,6 +1303,12 @@ function finalFromRow(item: unknown, idx: number): ShareGalleryFinal | null {
     ...(outstandingBalanceGhs != null ? { outstandingBalanceGhs } : {}),
     ...(clientPaid ? { clientPaid: true } : {}),
     lockedPreviewUrl: lockedPreviewUrl || undefined,
+    ...(posterResolved ? { posterUrl: posterResolved } : {}),
+    ...(dashUrl ? { dashUrl } : {}),
+    ...(streaming.dashStatus ? { dashStatus: streaming.dashStatus } : {}),
+    ...(streaming.streamingReady !== undefined
+      ? { streamingReady: streaming.streamingReady }
+      : {}),
     ...(clientComment ? { clientComment } : {}),
     ...(photographerReply ? { photographerReply } : {}),
     ...(flaggedByClient ? { flaggedByClient: true } : {}),
@@ -1430,6 +1715,8 @@ export function normalizeShareGalleryBody(body: unknown): NormalizedShareGallery
         }
       : undefined;
 
+  const aiSelection = readAiSelectionFromBody(root);
+
   return {
     folderId,
     clientName,
@@ -1467,6 +1754,7 @@ export function normalizeShareGalleryBody(body: unknown): NormalizedShareGallery
     assets,
     finals,
     counts,
+    ...(aiSelection ? { aiSelection } : {}),
   };
 }
 
@@ -1741,6 +2029,117 @@ export async function getShareGallery(
   return normalized;
 }
 
+export type ShareGalleryPhotoSearchOptions = Partial<GalleryPhotoSearchFilters> & {
+  page?: number;
+  limit?: number;
+  signal?: AbortSignal;
+  sessionId?: string;
+};
+
+export type ShareGalleryPhotoSearchResult = {
+  assets: ShareGalleryAsset[];
+  pagination: {
+    hasMore: boolean;
+    page?: number;
+    limit?: number;
+    total?: number;
+    totalPages?: number;
+  };
+  search?: GalleryPhotoSearchMeta;
+};
+
+function normalizePublicPhotoSearchPagination(body: unknown): ShareGalleryPhotoSearchResult["pagination"] {
+  if (!body || typeof body !== "object") return { hasMore: false };
+  const root = body as Record<string, unknown>;
+  const raw = root.pagination;
+  if (!raw || typeof raw !== "object") {
+    const photos = root.photos ?? root.assets;
+    const len = Array.isArray(photos) ? photos.length : 0;
+    return { hasMore: false, total: len };
+  }
+  const pg = raw as Record<string, unknown>;
+  const page = typeof pg.page === "number" && pg.page > 0 ? pg.page : undefined;
+  const limit = typeof pg.limit === "number" && pg.limit > 0 ? pg.limit : undefined;
+  const total = typeof pg.total === "number" && pg.total >= 0 ? pg.total : undefined;
+  const totalPages =
+    typeof pg.totalPages === "number" && pg.totalPages >= 0
+      ? pg.totalPages
+      : typeof pg.total_pages === "number" && pg.total_pages >= 0
+        ? pg.total_pages
+        : undefined;
+  const hasMoreExplicit = pg.hasMore === true || pg.has_more === true;
+  const hasMoreFromPages =
+    page != null && totalPages != null ? page < totalPages : undefined;
+  return {
+    hasMore: hasMoreExplicit || hasMoreFromPages === true,
+    page,
+    limit,
+    total,
+    totalPages,
+  };
+}
+
+/** Public gallery photo search — `GET …/photos/search?q=&scene=&suggested=&…` */
+export async function searchShareGalleryPhotos(
+  key: PublicGalleryKey | string,
+  options: ShareGalleryPhotoSearchOptions = {},
+): Promise<ShareGalleryPhotoSearchResult> {
+  const resolved = resolvePublicGalleryKey(key);
+  const qs = new URLSearchParams();
+  if (options.page != null && options.page > 0) qs.set("page", String(options.page));
+  if (options.limit != null && options.limit > 0) qs.set("limit", String(options.limit));
+  appendGalleryPhotoSearchParams(qs, {
+    q: options.q ?? "",
+    scene: options.scene ?? "",
+    suggested: options.suggested === true,
+    blurry: options.blurry === true,
+    minQuality: options.minQuality ?? null,
+  });
+  const query = qs.toString();
+  const path = `${publicGalleryApiPath(resolved, "/photos/search")}${query ? `?${query}` : ""}`;
+  const fetchOptions = publicGallerySessionOptions(resolved, {
+    signal: options.signal,
+    sessionId: options.sessionId,
+  });
+  const res = await publicFetch(
+    path,
+    { method: "GET", signal: options.signal, cache: "no-store" },
+    fetchOptions,
+  );
+  const body = await parseJson(res);
+  if (res.status === 401 && isShareGalleryPasswordRequiredBody(body)) {
+    if (fetchOptions.sessionId) clearGalleryAccessToken(fetchOptions.sessionId);
+    throw new ShareGalleryPasswordRequiredError(
+      extractMessage(body, "Gallery password required"),
+      body,
+    );
+  }
+  if (!res.ok) {
+    throw new ShareGalleryError(
+      extractMessage(body, `Could not search photos (${res.status})`),
+      res.status,
+      body,
+    );
+  }
+  const assets: ShareGalleryAsset[] = [];
+  if (body && typeof body === "object") {
+    const o = body as Raw;
+    const rows = o.photos ?? o.assets ?? o.items;
+    if (Array.isArray(rows)) {
+      for (let i = 0; i < rows.length; i++) {
+        const asset = assetFromRow(rows[i], i);
+        if (asset) assets.push(asset);
+      }
+    }
+  }
+  const search = readGalleryPhotoSearchMeta(body);
+  return {
+    assets,
+    pagination: normalizePublicPhotoSearchPagination(body),
+    ...(search ? { search } : {}),
+  };
+}
+
 export async function postShareGallerySelection(
   key: PublicGalleryKey | string,
   rawMediaId: string,
@@ -1811,6 +2210,173 @@ export async function toggleShareGalleryPhotoReject(
     "Could not update rejection",
     publicGallerySessionOptions(resolved, { signal }),
   );
+}
+
+/** Start / pause / resume / terminate a client-controlled AI suggestion run. */
+export async function controlShareGalleryAiSuggestions(
+  key: PublicGalleryKey | string,
+  action: AiSuggestionControlAction,
+  signal?: AbortSignal,
+): Promise<AiSuggestionControlResponse> {
+  const resolved = resolvePublicGalleryKey(key);
+  const body = await publicJson<Raw>(
+    publicGalleryApiPath(resolved, `/ai-suggestions/${action}`),
+    { method: "POST", signal },
+    `Could not ${action} AI suggestions`,
+    publicGallerySessionOptions(resolved, { signal }),
+  );
+  const aiSelection = readAiSelectionFromBody(body);
+  if (!aiSelection) {
+    throw new ShareGalleryError(
+      "Invalid AI suggestions control response",
+      500,
+      body,
+    );
+  }
+  const queued =
+    typeof body.queued === "number"
+      ? body.queued
+      : typeof body.queuedCount === "number"
+        ? body.queuedCount
+        : undefined;
+  return {
+    message: str(body.message) || `AI suggestions ${action}`,
+    ...(queued !== undefined ? { queued } : {}),
+    aiSelection,
+  };
+}
+
+/** Poll AI analysis status and suggested picks (`GET .../ai-suggestions`). Returns null when AI is disabled (503). Does not start a run. */
+export async function getShareGalleryAiSuggestions(
+  key: PublicGalleryKey | string,
+  signal?: AbortSignal,
+): Promise<AiSuggestionsResponse | null> {
+  const resolved = resolvePublicGalleryKey(key);
+  const res = await publicFetch(
+    publicGalleryApiPath(resolved, "/ai-suggestions"),
+    { method: "GET", signal },
+    publicGallerySessionOptions(resolved, { signal }),
+  );
+  if (res.status === 503) return null;
+  const body = await parseJson(res);
+  if (!res.ok) {
+    throw new ShareGalleryError(
+      extractMessage(body, `Could not load AI suggestions (${res.status})`),
+      res.status,
+      body,
+    );
+  }
+  if (!body || typeof body !== "object") {
+    throw new ShareGalleryError("Invalid AI suggestions response", res.status, body);
+  }
+  const o = body as Raw;
+  const aiSelection = readAiSelectionFromBody(o);
+  if (!aiSelection) {
+    throw new ShareGalleryError("Invalid AI suggestions response", res.status, body);
+  }
+  const suggestionsRaw = o.suggestions;
+  const suggestions: PublicGalleryPhoto[] = [];
+  if (Array.isArray(suggestionsRaw)) {
+    for (let i = 0; i < suggestionsRaw.length; i++) {
+      const row = assetFromRow(suggestionsRaw[i], i);
+      if (!row) continue;
+      const photo: PublicGalleryPhoto = {
+        id: row.id,
+        originalFilename: row.originalName,
+        url: row.url ?? row.thumbUrl,
+        thumbUrl: row.thumbUrl,
+        ...(row.ai ? { ai: row.ai } : {}),
+        ...(row.rejectedByClient ? { rejectedByClient: true } : {}),
+        selectedByClient: row.selection === "SELECTED",
+      };
+      suggestions.push(photo);
+    }
+  }
+  const duplicateGroups: PublicGalleryDuplicateGroup[] = [];
+  const groupsRaw = o.duplicateGroups ?? o.duplicate_groups;
+  if (Array.isArray(groupsRaw)) {
+    for (const item of groupsRaw) {
+      const group = duplicateGroupFromRow(item);
+      if (group) duplicateGroups.push(group);
+    }
+  }
+  const selectionLimit = parseSelectionLimitFromBody(null, null, o);
+  return {
+    aiSelection,
+    suggestions,
+    duplicateGroups,
+    selectionLimit,
+  };
+}
+
+/** Apply AI suggested heart-picks in one request (`POST .../apply-ai-suggestions`). */
+export async function applyShareGalleryAiSuggestions(
+  key: PublicGalleryKey | string,
+  options?: {
+    replaceExisting?: boolean;
+    photoIds?: string[];
+    signal?: AbortSignal;
+  },
+): Promise<ApplyAiSuggestionsResponse> {
+  const resolved = resolvePublicGalleryKey(key);
+  const signal = options?.signal;
+  const body = await publicJson<Raw>(
+    publicGalleryApiPath(resolved, "/apply-ai-suggestions"),
+    {
+      method: "POST",
+      body: JSON.stringify({
+        replaceExisting: options?.replaceExisting ?? false,
+        ...(options?.photoIds?.length ? { photoIds: options.photoIds } : {}),
+      }),
+      signal,
+    },
+    "Could not apply AI suggestions",
+    publicGallerySessionOptions(resolved, { signal }),
+  );
+  const appliedCount =
+    typeof body.appliedCount === "number"
+      ? body.appliedCount
+      : typeof body.applied_count === "number"
+        ? body.applied_count
+        : 0;
+  const selectionsUsed =
+    typeof body.selectionsUsed === "number"
+      ? body.selectionsUsed
+      : typeof body.selections_used === "number"
+        ? body.selections_used
+        : 0;
+  const selectionsRemainingRaw = body.selectionsRemaining ?? body.selections_remaining;
+  const selectionsRemaining =
+    selectionsRemainingRaw === null
+      ? null
+      : typeof selectionsRemainingRaw === "number"
+        ? selectionsRemainingRaw
+        : null;
+  const selectionLimit = parseSelectionLimitFromBody(null, null, body);
+  const photosRaw = body.photos;
+  const photos: PublicGalleryPhoto[] = [];
+  if (Array.isArray(photosRaw)) {
+    for (let i = 0; i < photosRaw.length; i++) {
+      const row = assetFromRow(photosRaw[i], i);
+      if (!row) continue;
+      photos.push({
+        id: row.id,
+        originalFilename: row.originalName,
+        url: row.url ?? row.thumbUrl,
+        thumbUrl: row.thumbUrl,
+        selectedByClient: true,
+        ...(row.ai ? { ai: row.ai } : {}),
+      });
+    }
+  }
+  return {
+    message: str(body.message) || "AI suggestions applied",
+    appliedCount,
+    selectionLimit,
+    selectionsUsed,
+    selectionsRemaining,
+    photos,
+  };
 }
 
 /** Flag a delivered final for revision (`POST .../finals/:finalId/flag`). */

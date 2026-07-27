@@ -5,7 +5,6 @@ import {
   ChevronRight,
   FileUp,
   Pencil,
-  Plus,
   Search,
   Trash2,
   Users,
@@ -18,13 +17,7 @@ import { CreateClientModal } from "@/components/photographer/create-client-modal
 import { ImportClientsModal } from "@/components/photographer/import-clients-modal";
 import { useToast } from "@/components/toast-provider";
 import { deleteClient, listClients, type ApiClient } from "@/lib/clients-api";
-import {
-  DashboardPageHeader,
-  dashboardPageHeaderChipClassName,
-  dashboardPageHeaderCtaClassName,
-  dashboardPageHeaderDescriptionClassName,
-  dashboardPageHeaderTitleClassName,
-} from "@/components/dashboard/dashboard-page-header";
+import { dashboardPageHeaderCtaClassName } from "@/components/dashboard/dashboard-page-header";
 import { cn } from "@/lib/utils";
 
 export default function ClientsPage() {
@@ -163,35 +156,29 @@ export default function ClientsPage() {
     ? "No clients match your search. Try another name, email, phone, or location."
     : "No clients yet. Add your first contact to use them on galleries and bookings.";
 
-  const clientCountLabel = loading
-    ? null
-    : searchTrimmed
-      ? `${filteredClients.length} of ${clients.length} clients`
-      : clients.length === 1
-        ? "1 client"
-        : `${clients.length} clients`;
-
   return (
     <div className="dashboard-page space-y-6">
-      <DashboardPageHeader innerClassName="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="min-w-0">
-          <h1 className={dashboardPageHeaderTitleClassName()}>Clients</h1>
-          <p className={dashboardPageHeaderDescriptionClassName()}>
-            Contacts you attach to galleries and bookings. Search, edit, and keep details in one
-            place.
-          </p>
-          {clientCountLabel ? (
-            <p className={dashboardPageHeaderChipClassName("mt-3")}>
-              <Users className="h-3.5 w-3.5 text-brand/70" aria-hidden />
-              <span className="font-semibold">{clientCountLabel}</span>
-            </p>
-          ) : null}
-        </div>
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <nav aria-label="Breadcrumb">
+          <ol className="flex flex-wrap items-center gap-1.5 text-sm">
+            <li>
+              <Link
+                href="/dashboard"
+                className="font-medium text-zinc-400 transition hover:text-zinc-600 dark:text-zinc-500 dark:hover:text-zinc-300"
+              >
+                Dashboard
+              </Link>
+            </li>
+            <li className="text-zinc-300 dark:text-zinc-600" aria-hidden>
+              <ChevronRight className="h-3.5 w-3.5" strokeWidth={2} />
+            </li>
+            <li className="font-semibold text-zinc-900 dark:text-zinc-50">Clients</li>
+          </ol>
+        </nav>
         <button type="button" onClick={openCreate} className={dashboardPageHeaderCtaClassName()}>
-          <Plus className="h-4 w-4" aria-hidden />
           Add client
         </button>
-      </DashboardPageHeader>
+      </header>
 
       {error ? (
         <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-200">
@@ -252,9 +239,8 @@ export default function ClientsPage() {
               <button
                 type="button"
                 onClick={openCreate}
-                className="mt-6 inline-flex items-center gap-2 rounded-xl bg-zinc-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white"
+                className="mt-6 rounded-lg bg-zinc-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white"
               >
-                <Plus className="h-4 w-4" aria-hidden />
                 Add your first client
               </button>
             </div>

@@ -40,15 +40,6 @@ const NAV_ITEMS = [
   },
 ];
 
-function getInitials(name: string): string {
-  return name
-    .split(" ")
-    .map((n) => n[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
-}
-
 export function Sidebar({
   badges,
 }: {
@@ -124,8 +115,13 @@ export function Sidebar({
       {admin && (
         <div className="border-t border-slate-100 p-4">
           <div className="flex items-center gap-3 rounded-xl bg-slate-50 p-3">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary text-xs font-bold text-white">
-              {getInitials(admin.name)}
+            <div className="h-9 w-9 shrink-0 overflow-hidden rounded-lg bg-slate-200">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/images/user-profile.png"
+                alt=""
+                className="h-full w-full object-cover"
+              />
             </div>
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-medium text-slate-900">

@@ -51,10 +51,22 @@ export async function fetchStorage(params: {
   const sort = params.sort ?? "size";
   const order = params.order ?? (sort === "name" ? "asc" : "desc");
   const qs = new URLSearchParams({ sort, order });
-  return authedJson<StorageResponse>(
+  const raw = await authedJson<StorageResponse | null>(
     `/api/storage?${qs.toString()}`,
     { method: "GET", signal: params.signal },
     "Failed to load storage",
     StorageApiError,
   );
+  const data = raw && typeof raw === "object" ? raw : null;
+  return {
+    summary: data?.summary ?? {
+      usedBytes: 0,
+      limitBytes: 0,
+      planName: "",
+      percentOfPlan: 0,
+      breakdown: { rawsBytes: 0, selectionsBytes: 0, finalsBytes: 0 },
+    },
+    galleries: Array.isArray(data?.galleries) ? data.galleries : [],
+    sort: data?.sort ?? { by: sort, order },
+  };
 }

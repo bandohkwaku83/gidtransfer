@@ -1,7 +1,7 @@
 "use client";
 
 import { memo } from "react";
-import { Heart, Loader2, MessageCircle, PlayCircle } from "lucide-react";
+import { Heart, Loader2, MessageCircle, PlayCircle, Sparkles, AlertTriangle, EyeOff } from "lucide-react";
 import type { DemoAsset } from "@/lib/demo-data";
 import {
   galleryListClass,
@@ -33,6 +33,15 @@ function tileActionClass(active = false): string {
   );
 }
 
+function formatAiIssueLabel(issue: string): string {
+  const trimmed = issue.trim();
+  if (!trimmed) return issue;
+  return trimmed
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .replace(/\b\w/g, (ch) => ch.toUpperCase());
+}
+
 export type ClientGalleryAssetGridProps = {
   assets: DemoAsset[];
   gridLayout: GridLayout;
@@ -44,6 +53,7 @@ export type ClientGalleryAssetGridProps = {
   onOpen: (id: string) => void;
   onToggleSelect: (id: string) => void;
   onOpenComment: (asset: DemoAsset) => void;
+  onToggleReject?: (id: string) => void;
   indexOffset?: number;
 };
 
@@ -59,6 +69,7 @@ type ClientGalleryAssetTileProps = {
   onOpen: (id: string) => void;
   onToggleSelect: (id: string) => void;
   onOpenComment: (asset: DemoAsset) => void;
+  onToggleReject?: (id: string) => void;
 };
 
 const ClientGalleryAssetTile = memo(function ClientGalleryAssetTile({
@@ -73,6 +84,7 @@ const ClientGalleryAssetTile = memo(function ClientGalleryAssetTile({
   onOpen,
   onToggleSelect,
   onOpenComment,
+  onToggleReject,
 }: ClientGalleryAssetTileProps) {
   const isVideo = isClientAssetVideo(a);
   const mediaSrc = clientGalleryGridSrc(a);
@@ -84,10 +96,28 @@ const ClientGalleryAssetTile = memo(function ClientGalleryAssetTile({
   const isSelected = a.selection === "SELECTED";
   const assetComment = a.clientComment?.trim() ?? "";
   const hasAssetComment = assetComment.length > 0;
-  const thumbsPending = a.derivativesReady === false;
+  // Only block the tile when nothing is displayable yet. If a thumb/poster/url
+  // already exists, keep showing it — packaging can finish in the background.
+  const thumbsPending =
+    !mediaSrc &&
+    (a.derivativesReady === false ||
+      (isVideo &&
+        (a.dashStatus === "pending" ||
+          a.dashStatus === "processing" ||
+          a.streamingReady === false)));
+  const aiSuggested = a.ai?.suggested === true;
+  const aiBlurry = a.ai?.isBlurry === true;
+  const aiIssues = a.ai?.issues ?? [];
+  const aiIssueLabels = aiIssues.map(formatAiIssueLabel).filter(Boolean);
+  const isSkipped = a.rejectedByClient === true;
 
   return (
-    <li className={uploadItemClass(gridLayout, globalIndex, isSelected)}>
+    <li
+      className={cn(
+        uploadItemClass(gridLayout, globalIndex, isSelected),
+        (aiBlurry || isSkipped) && "opacity-60",
+      )}
+    >
       <div className={uploadImageWrapClass(gridLayout, globalIndex)}>
         <button
           type="button"
@@ -99,18 +129,31 @@ const ClientGalleryAssetTile = memo(function ClientGalleryAssetTile({
           onClick={() => onOpen(a.id)}
         >
           {isVideo ? (
-            <video
-              src={mediaSrc}
-              muted
-              playsInline
-              preload="metadata"
-              aria-label={a.originalName}
-              className={
-                isCollageGridLayout(gridLayout)
-                  ? "block h-auto w-full bg-black transition group-hover:brightness-[0.97]"
-                  : "absolute inset-0 h-full w-full bg-black object-cover transition group-hover:brightness-[0.97]"
-              }
-            />
+            mediaSrc ? (
+              // Progressive JPEG poster — avoid loading the master video in the grid.
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={mediaSrc}
+                alt={a.originalName}
+                loading={globalIndex < 12 ? "eager" : "lazy"}
+                decoding="async"
+                draggable={!rightsProtection}
+                className={
+                  isCollageGridLayout(gridLayout)
+                    ? "block h-auto w-full bg-black transition group-hover:brightness-[0.97]"
+                    : "absolute inset-0 h-full w-full bg-black object-cover transition group-hover:brightness-[0.97]"
+                }
+              />
+            ) : (
+              <div
+                className={
+                  isCollageGridLayout(gridLayout)
+                    ? "block aspect-video w-full bg-zinc-900"
+                    : "absolute inset-0 bg-zinc-900"
+                }
+                aria-label={a.originalName}
+              />
+            )
           ) : isCollageGridLayout(gridLayout) ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
@@ -144,6 +187,43 @@ const ClientGalleryAssetTile = memo(function ClientGalleryAssetTile({
           <ClientPreviewWatermarkOverlay text={previewWatermarkLabel} />
         ) : null}
 
+        {aiSuggested ? (
+          <div className="pointer-events-none absolute left-2 top-2 z-10">
+            <span
+              className="inline-flex max-w-[min(100%,9rem)] items-center gap-1 rounded-full border border-white/30 bg-black/55 px-1.5 py-1 text-white shadow-sm backdrop-blur-md"
+              title="AI suggested"
+            >
+              <Sparkles className="h-3.5 w-3.5 shrink-0" aria-hidden />
+              <span className="truncate text-[10px] font-semibold leading-none">
+                Suggested
+              </span>
+            </span>
+          </div>
+        ) : null}
+
+        {aiIssueLabels.length > 0 ? (
+          <div className="absolute right-2 top-2 z-10">
+            <div className="group/ai-issue relative max-w-[min(100%,11rem)]">
+              <span
+                className="inline-flex max-w-full items-center gap-1 rounded-full bg-amber-500/95 px-1.5 py-1 text-white shadow-sm backdrop-blur-sm"
+                aria-label={aiIssueLabels.join(", ")}
+              >
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                <span className="truncate text-[10px] font-semibold leading-none">
+                  {aiIssueLabels[0]}
+                  {aiIssueLabels.length > 1 ? ` +${aiIssueLabels.length - 1}` : ""}
+                </span>
+              </span>
+              <div
+                role="tooltip"
+                className="pointer-events-none absolute right-0 top-full z-20 mt-1.5 hidden w-max max-w-[14rem] rounded-md bg-zinc-950/95 px-2.5 py-1.5 text-left text-[11px] leading-snug text-white shadow-lg group-hover/ai-issue:block group-focus-within/ai-issue:block"
+              >
+                {aiIssueLabels.join(" · ")}
+              </div>
+            </div>
+          </div>
+        ) : null}
+
         {!editingLocked ? (
           <div
             className={cn(
@@ -152,6 +232,21 @@ const ClientGalleryAssetTile = memo(function ClientGalleryAssetTile({
             )}
           >
             <div className="pointer-events-auto flex items-center gap-1.5">
+              {onToggleReject ? (
+                <button
+                  type="button"
+                  disabled={syncBusy}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void onToggleReject(a.id);
+                  }}
+                  className={tileActionClass(isSkipped)}
+                  aria-label={isSkipped ? `Unskip ${a.originalName}` : `Skip ${a.originalName}`}
+                  title={isSkipped ? "Unskip" : "Skip"}
+                >
+                  <EyeOff className="h-4 w-4" aria-hidden="true" />
+                </button>
+              ) : null}
               <button
                 type="button"
                 disabled={syncBusy}
@@ -219,6 +314,7 @@ export const ClientGalleryAssetGrid = memo(function ClientGalleryAssetGrid({
   onOpen,
   onToggleSelect,
   onOpenComment,
+  onToggleReject,
   indexOffset = 0,
 }: ClientGalleryAssetGridProps) {
   return (
@@ -237,6 +333,7 @@ export const ClientGalleryAssetGrid = memo(function ClientGalleryAssetGrid({
           onOpen={onOpen}
           onToggleSelect={onToggleSelect}
           onOpenComment={onOpenComment}
+          onToggleReject={onToggleReject}
         />
       ))}
     </ul>
