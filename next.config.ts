@@ -106,6 +106,14 @@ const nextConfig: NextConfig = {
   experimental: {
     proxyClientMaxBodySize: "100mb",
     optimizePackageImports: ["lucide-react", "antd", "@ant-design/icons"],
+    serverActions: {
+      allowedOrigins: [
+        "gidtransfer.com",
+        "www.gidtransfer.com",
+        "*.gidtransfer.com",
+        "*.up.railway.app",
+      ],
+    },
   },
   turbopack: {
     root: PROJECT_ROOT,

@@ -8,6 +8,18 @@ import {
   photographerAuthUrl,
 } from "@/lib/studio-url";
 
+/**
+ * Next.js treats any POST with a `Next-Action` header as a Server Action.
+ * This app has none — scanners still send `Next-Action: x` (and similar) and
+ * Railway logs fill with "Failed to find Server Action". Drop those probes.
+ */
+function isJunkServerActionProbe(request: NextRequest): boolean {
+  if (request.method !== "POST") return false;
+  const actionId = request.headers.get("next-action")?.trim();
+  if (!actionId) return false;
+  return actionId.length < 16;
+}
+
 function redirectWwwToApex(request: NextRequest, host: string): NextResponse | null {
   const canonicalHost = marketingSiteHost();
   if (!canonicalHost || canonicalHost === "localhost" || canonicalHost.includes(":")) {
@@ -24,6 +36,10 @@ function redirectWwwToApex(request: NextRequest, host: string): NextResponse | n
 }
 
 export function proxy(request: NextRequest) {
+  if (isJunkServerActionProbe(request)) {
+    return new NextResponse(null, { status: 404 });
+  }
+
   const host = request.headers.get("host") ?? "";
   const wwwRedirect = redirectWwwToApex(request, host);
   if (wwwRedirect) return wwwRedirect;
