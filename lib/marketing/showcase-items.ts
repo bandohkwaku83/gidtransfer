@@ -29,7 +29,7 @@ export const showcaseItems = [
   },
   {
     id: "engagement-overlay",
-    src: "/images/gallery-covers/Amoa-Mensa_0571-min.jpg",
+    src: "/images/gallery-covers/GIDO9970.JPG",
     alt: "Amoa & Mensa — engagement",
     title: "Amoa & Mensa",
     tag: "Overlay cover",
