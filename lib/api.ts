@@ -24,10 +24,10 @@ function s3GalleryMediaToUploadsPath(url: string): string | null {
     const parsed = new URL(url.trim());
     if (!parsed.hostname.includes("amazonaws.com")) return null;
     const match = parsed.pathname.match(
-      /^\/(gallery-photos|gallery-finals)\/([^/]+)\/([^/]+)$/,
+      /^\/(gallery-photos|gallery-finals|gallery-videos)\/(.+)$/,
     );
     if (!match) return null;
-    return `/uploads/${match[1]}/${match[2]}/${match[3]}${parsed.search}`;
+    return `/uploads/${match[1]}/${match[2]}${parsed.search}`;
   } catch {
     return null;
   }

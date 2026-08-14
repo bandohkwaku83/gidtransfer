@@ -23,6 +23,8 @@ import {
 } from "@/lib/email-notifications";
 import { studioSmsFieldsFromApi, type StudioSmsFields } from "@/lib/sms-sender";
 import { parseTenantFromHostname } from "@/lib/studio-url";
+import type { PlanFeatures, UserPlan } from "@/lib/plan-entitlements";
+import { normalizePlanId, parsePlanFeatures, parseUserPlan } from "@/lib/plan-entitlements";
 import type { PlanId } from "@/lib/subscription-plan";
 import {
   getDuplicateUploadPreference,
@@ -43,6 +45,8 @@ export type ApiSettingsProfile = {
   email: string;
   avatarSrc: string | null;
   planName: string;
+  planId?: string;
+  features?: PlanFeatures;
   profileComplete: boolean;
   profileStatusLabel: string;
 };
@@ -110,6 +114,7 @@ export type ApiSettingsUser = {
   memberSince?: { date: string; label: string };
   onboardingComplete?: boolean;
   emailNotifications?: EmailNotifications;
+  plan?: UserPlan | Record<string, unknown>;
   studio?: {
     companyName?: string;
     companySlug?: string;
@@ -240,10 +245,12 @@ export function galleriesOverviewDisplay(
 }
 
 export function planNameToPlanId(planName: string): PlanId {
+  const fromId = normalizePlanId(planName);
+  if (fromId) return fromId;
   const n = planName.trim().toLowerCase();
-  if (n.includes("pro")) return "pro";
-  if (n.includes("studio")) return "studio";
-  if (n.includes("starter")) return "starter";
+  if (n.includes("premium") || n.includes("studio")) return "premium";
+  if (n.includes("pro") || n.includes("business")) return "pro";
+  if (n.includes("basic") || n.includes("starter")) return "basic";
   return "free";
 }
 
@@ -428,9 +435,9 @@ export function mergePageData(
   },
 ): SettingsPageData {
   const bundle = buildBundleFromSections({
-    profile: partial.profileSummary && current?.bundle.profile
+    profile: partial.profileSummary && current?.bundle?.profile
       ? mergeProfileSummary(current.bundle.profile, partial.profileSummary)
-      : partial.profile ?? current?.bundle.profile ?? {
+      : partial.profile ?? current?.bundle?.profile ?? {
           displayName: "",
           email: "",
           avatarSrc: null,
@@ -438,12 +445,12 @@ export function mergePageData(
           profileComplete: false,
           profileStatusLabel: "Profile incomplete",
         },
-    overview: partial.overview ?? current?.bundle.overview ?? {
+    overview: partial.overview ?? current?.bundle?.overview ?? {
       galleries: { used: 0, limit: null, label: "0" },
       planStorage: { limitBytes: 0, usedBytes: 0, label: "0 GB", percentOfPlan: 0 },
       memberSince: { date: "", label: "" },
     },
-    studio: partial.studio ?? current?.bundle.studio ?? {
+    studio: partial.studio ?? current?.bundle?.studio ?? {
       businessName: "",
       companyName: "",
       phone: null,
@@ -459,15 +466,15 @@ export function mergePageData(
       studioUrlSuffix: null,
       appHost: null,
     },
-    account: partial.account ?? current?.bundle.account ?? {
+    account: partial.account ?? current?.bundle?.account ?? {
       email: "",
       photographerEmail: "",
       role: "Photographer",
       accountId: "",
     },
-    notifications: partial.notifications ?? current?.bundle.notifications ?? defaultNotifications(),
-    watermark: partial.watermark ?? current?.bundle.watermark,
-    galleryDefaults: partial.galleryDefaults ?? current?.bundle.galleryDefaults,
+    notifications: partial.notifications ?? current?.bundle?.notifications ?? defaultNotifications(),
+    watermark: partial.watermark ?? current?.bundle?.watermark,
+    galleryDefaults: partial.galleryDefaults ?? current?.bundle?.galleryDefaults,
   });
 
   return {
@@ -527,6 +534,16 @@ export function persistSettingsSession(payload: SettingsPayload): void {
   const logoUrl = studioLogoUrlFromSettings(studio);
   const smsFields = studioSmsFieldsFromApi({ ...userStudio, ...studio });
 
+  const profileFeatures = parsePlanFeatures(settings.profile.features);
+  const fromUser = parseUserPlan(user.plan);
+  const plan =
+    fromUser ??
+    parseUserPlan({
+      planId: settings.profile.planId,
+      planName: settings.profile.planName,
+      features: profileFeatures,
+    });
+
   const mapped = mapApiUserToAuthUser(
     {
       _id: user._id,
@@ -534,6 +551,15 @@ export function persistSettingsSession(payload: SettingsPayload): void {
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
       onboardingComplete: user.onboardingComplete,
+      ...(plan
+        ? {
+            plan: {
+              ...plan,
+              features:
+                Object.keys(profileFeatures).length > 0 ? profileFeatures : plan.features,
+            },
+          }
+        : {}),
       studio: {
         companyName:
           studio.companyName?.trim() ||

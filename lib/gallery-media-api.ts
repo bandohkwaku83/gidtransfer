@@ -6,14 +6,18 @@ import {
   type GalleryPhotoSearchMeta,
 } from "@/lib/gallery-photo-search";
 import {
+  isImagePreviewUrl,
   isVideoStreamingPending,
   pickStreamingFields,
+  progressiveGridSrc,
+  videoPosterSrc,
   type GalleryStreamingFields,
 } from "@/lib/gallery-media-streaming";
 import { s3UploadGalleryFinals, s3UploadGalleryPhotos } from "@/lib/gallery-upload-s3";
 import { authedJson } from "@/lib/http";
 import type { ApiFolderMedia, GalleryUploadsPagination } from "@/lib/folders/types";
 import { FoldersApiError } from "@/lib/folders/types";
+import { partitionUploadFiles } from "@/lib/upload-folder-files";
 import type { DuplicateUploadAction } from "@/lib/upload-preferences";
 import type { PublicPhotoAi } from "@/lib/share-gallery-api";
 
@@ -28,6 +32,8 @@ export type ApiGalleryPhoto = {
   gridUrl?: string;
   /** Watermarked client preview (`*-preview-wm.jpg`) when generated. */
   displayUrl?: string;
+  /** Full-screen / lightbox URL (`viewUrl` from API). */
+  viewUrl?: string;
   mimeType?: string;
   contentType?: string;
   sizeBytes?: number;
@@ -79,6 +85,8 @@ export type GalleryUploadsListOptions = {
   page?: number;
   limit?: number;
   ids?: string[];
+  /** Filter uploads by media type (`photo` | `video`). */
+  mediaType?: "photo" | "video";
 } & Partial<GalleryPhotoSearchFilters>;
 
 export type GalleryUploadsListResult = {
@@ -131,12 +139,23 @@ export function galleryPhotoToApiFolderMedia(photo: ApiGalleryPhoto): ApiFolderM
   };
   const url = resolveMediaUrl(photo.url);
   const displayUrl = resolveMediaUrl(photo.displayUrl);
+  const viewUrl =
+    resolveMediaUrl(photo.viewUrl) || displayUrl || undefined;
   const streaming = pickStreamingFields(row as Record<string, unknown>);
   const posterUrl = resolveMediaUrl(streaming.posterUrl ?? row.posterUrl);
   const dashUrl = resolveMediaUrl(streaming.dashUrl ?? row.dashUrl);
-  const gridThumb = resolveGridThumbUrl(
+  let gridThumb = resolveGridThumbUrl(
     row.gridUrl || row.grid_url || row.thumbUrl || row.thumb_url || posterUrl,
   );
+  // While derivatives are pending, API may set gridUrl === url — strip for tiles.
+  if (
+    photo.derivativesReady === false &&
+    gridThumb &&
+    url &&
+    gridThumb === url
+  ) {
+    gridThumb = undefined;
+  }
   const mimeType = photo.mimeType || photo.contentType || "";
   const isVideo =
     photo.isVideo === true ||
@@ -144,13 +163,9 @@ export function galleryPhotoToApiFolderMedia(photo: ApiGalleryPhoto): ApiFolderM
     /\.(mp4|mov|webm|m4v|avi|mkv|ogv)$/i.test(photo.originalFilename) ||
     /\.(mp4|mov|webm|m4v|avi|mkv|ogv)(?:[?#].*)?$/i.test(url ?? "");
   const resolvedThumb = isVideo
-    ? resolveGridThumbUrl(posterUrl || gridThumb) || posterUrl || gridThumb
+    ? [posterUrl, gridThumb].find((candidate) => isImagePreviewUrl(candidate))
     : gridThumb;
-  const previewUrl = isVideo
-    ? undefined
-    : displayUrl && resolvedThumb && displayUrl !== resolvedThumb
-      ? displayUrl
-      : undefined;
+  const previewUrl = isVideo ? undefined : viewUrl || displayUrl || undefined;
   return {
     _id: photo.id,
     id: photo.id,
@@ -160,6 +175,7 @@ export function galleryPhotoToApiFolderMedia(photo: ApiGalleryPhoto): ApiFolderM
     name: photo.originalFilename,
     url,
     ...(displayUrl ? { displayUrl } : {}),
+    ...(viewUrl ? { viewUrl } : {}),
     thumbUrl: resolvedThumb || undefined,
     ...(resolvedThumb ? { gridUrl: resolvedThumb } : {}),
     ...(posterUrl ? { posterUrl } : {}),
@@ -195,19 +211,23 @@ export function galleryPhotoToApiFolderMedia(photo: ApiGalleryPhoto): ApiFolderM
 export function folderUploadGridSrc(
   media: Pick<
     ApiFolderMedia,
-    "gridUrl" | "thumbUrl" | "url" | "thumbnailUrl" | "posterUrl" | "isVideo"
+    | "gridUrl"
+    | "thumbUrl"
+    | "url"
+    | "thumbnailUrl"
+    | "posterUrl"
+    | "isVideo"
+    | "derivativesReady"
   >,
 ): string {
-  if (media.isVideo) {
-    return (
-      (media.posterUrl || "").trim() ||
-      (media.gridUrl || "").trim() ||
-      (media.thumbUrl || media.thumbnailUrl || "").trim()
-    );
-  }
-  const thumb = (media.gridUrl || media.thumbUrl || media.thumbnailUrl || "").trim();
-  const full = (media.url || "").trim();
-  return thumb || full;
+  return progressiveGridSrc({
+    gridUrl: media.gridUrl,
+    thumbUrl: media.thumbUrl || media.thumbnailUrl,
+    url: media.url,
+    posterUrl: media.posterUrl,
+    isVideo: media.isVideo,
+    derivativesReady: media.derivativesReady,
+  });
 }
 
 function galleryPhotoIsVideo(photo: ApiGalleryPhoto): boolean {
@@ -221,6 +241,7 @@ function galleryPhotoIsVideo(photo: ApiGalleryPhoto): boolean {
 
 function galleryPhotoDerivativesPending(photo: ApiGalleryPhoto): boolean {
   if (galleryPhotoIsVideo(photo)) {
+    if (!videoPosterSrc(photo)) return true;
     return isVideoStreamingPending({
       isVideo: true,
       dashStatus: photo.dashStatus,
@@ -235,6 +256,7 @@ export function galleryPhotosPendingDerivatives(photos: ApiGalleryPhoto[]): stri
   return photos
     .filter((photo) => {
       if (galleryPhotoIsVideo(photo)) {
+        if (!videoPosterSrc(photo)) return true;
         return isVideoStreamingPending({
           isVideo: true,
           dashStatus: photo.dashStatus,
@@ -506,6 +528,9 @@ function buildUploadsQuery(options: GalleryUploadsListOptions = {}): string {
   if (options.page != null && options.page > 0) qs.set("page", String(options.page));
   if (options.limit != null && options.limit > 0) qs.set("limit", String(options.limit));
   if (options.ids?.length) qs.set("ids", options.ids.filter(Boolean).join(","));
+  if (options.mediaType === "photo" || options.mediaType === "video") {
+    qs.set("mediaType", options.mediaType);
+  }
   appendGalleryPhotoSearchParams(qs, {
     q: options.q ?? "",
     scene: options.scene ?? "",
@@ -705,6 +730,8 @@ export async function uploadGalleryPhotos(
   galleryId: string,
   files: File[],
   options?: {
+    /** When set, all files go to that endpoint. When omitted, files are partitioned into photos/videos. */
+    mediaKind?: "photos" | "videos";
     onConflict?: DuplicateUploadAction;
     setId?: string | null;
     applyPreviewWatermark?: boolean;
@@ -721,13 +748,55 @@ export async function uploadGalleryPhotos(
     return { ignoredDuplicatesCount: 0, skipped: [], created: [], replaced: [] };
   }
 
-  const merged = await s3UploadGalleryPhotos(galleryId, files, {
+  const sharedOptions = {
     onConflict: duplicateActionToOnConflict(options?.onConflict),
     setId: options?.setId,
     applyPreviewWatermark: options?.applyPreviewWatermark,
     onProgress: options?.onProgress,
     onBatchComplete: options?.onBatchComplete,
-  });
+  };
+
+  if (options?.mediaKind) {
+    const merged = await s3UploadGalleryPhotos(galleryId, files, {
+      ...sharedOptions,
+      mediaKind: options.mediaKind,
+    });
+    const ignoredDuplicatesCount = Array.isArray(merged.skipped) ? merged.skipped.length : 0;
+    return { ...merged, ignoredDuplicatesCount };
+  }
+
+  const { photos, videos } = partitionUploadFiles(files);
+  const merged: GalleryUploadPhotosResult = {
+    created: [],
+    replaced: [],
+    skipped: [],
+  };
+
+  if (photos.length > 0) {
+    const photoResult = await s3UploadGalleryPhotos(galleryId, photos, {
+      ...sharedOptions,
+      mediaKind: "photos",
+    });
+    if (Array.isArray(photoResult.created)) merged.created!.push(...photoResult.created);
+    if (Array.isArray(photoResult.replaced)) merged.replaced!.push(...photoResult.replaced);
+    if (Array.isArray(photoResult.skipped)) merged.skipped!.push(...photoResult.skipped);
+    if (Array.isArray(photoResult.conflicts) && photoResult.conflicts.length) {
+      merged.conflicts = [...(merged.conflicts ?? []), ...photoResult.conflicts];
+    }
+  }
+
+  if (videos.length > 0) {
+    const videoResult = await s3UploadGalleryPhotos(galleryId, videos, {
+      ...sharedOptions,
+      mediaKind: "videos",
+    });
+    if (Array.isArray(videoResult.created)) merged.created!.push(...videoResult.created);
+    if (Array.isArray(videoResult.replaced)) merged.replaced!.push(...videoResult.replaced);
+    if (Array.isArray(videoResult.skipped)) merged.skipped!.push(...videoResult.skipped);
+    if (Array.isArray(videoResult.conflicts) && videoResult.conflicts.length) {
+      merged.conflicts = [...(merged.conflicts ?? []), ...videoResult.conflicts];
+    }
+  }
 
   const ignoredDuplicatesCount = Array.isArray(merged.skipped) ? merged.skipped.length : 0;
   return { ...merged, ignoredDuplicatesCount };

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import {
   Avatar,
@@ -17,6 +18,8 @@ import {
   Tag,
   Typography,
   Flex,
+  Input,
+  InputNumber,
 } from "antd";
 import type { TableColumnsType } from "antd";
 import {
@@ -25,6 +28,7 @@ import {
   MailOutlined,
   MessageOutlined,
   StopOutlined,
+  ThunderboltOutlined,
 } from "@ant-design/icons";
 import {
   getPhotographer,
@@ -33,15 +37,20 @@ import {
   verifyPhotographerEmail,
   communicate,
 } from "@/lib/admin/photographers";
+import { getPhotographerGalleries } from "@/lib/admin/galleries";
+import { setLimitOverride } from "@/lib/admin/billing";
+import { emptyPhotographerTrash } from "@/lib/admin/trash";
 import { getCommunicationsConfig } from "@/lib/admin/communications";
 import { getErrorMessage } from "@/lib/admin/admin-client";
 import type {
   CommunicationConfig,
+  GalleryListItem,
   PhotographerDetail,
   Session,
 } from "@/lib/admin/types";
 import { ConfirmDialog } from "@/components/admin/ui/ConfirmDialog";
 import { ComposeDrawer } from "@/components/admin/ui/ComposeDrawer";
+import { StatusChip } from "@/components/admin/ui/StatusChip";
 import { formatDateTime, truncate } from "@/lib/admin/format";
 import { useToast } from "@/lib/admin/use-admin-toast";
 
@@ -55,7 +64,11 @@ function statusTagColor(status: string) {
   if (["pending", "open"].includes(normalized)) {
     return "warning";
   }
-  if (["inactive", "rejected", "failed", "cancelled", "expired"].includes(normalized)) {
+  if (
+    ["inactive", "rejected", "failed", "cancelled", "expired"].includes(
+      normalized,
+    )
+  ) {
     return "error";
   }
   return "default";
@@ -68,21 +81,36 @@ export default function PhotographerDetailPage() {
   const [photographer, setPhotographer] = useState<PhotographerDetail | null>(
     null,
   );
+  const [galleries, setGalleries] = useState<GalleryListItem[]>([]);
   const [config, setConfig] = useState<CommunicationConfig | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [confirmAction, setConfirmAction] = useState<
-    "deactivate" | "activate" | "verify-email" | null
+    "deactivate" | "activate" | "verify-email" | "empty-trash" | null
   >(null);
+  const [overrideOpen, setOverrideOpen] = useState(false);
+  const [clearOverrideOpen, setClearOverrideOpen] = useState(false);
+  const [reason, setReason] = useState("");
+  const [overrideDraft, setOverrideDraft] = useState({
+    storageGb: 200,
+    maxGalleries: null as number | null,
+    expiresInDays: 30,
+  });
   const [actionLoading, setActionLoading] = useState(false);
   const [composeOpen, setComposeOpen] = useState(false);
 
   const load = () => {
     setLoading(true);
-    Promise.all([getPhotographer(userId), getCommunicationsConfig()])
-      .then(([detail, commConfig]) => {
+    Promise.all([
+      getPhotographer(userId),
+      getCommunicationsConfig(),
+      getPhotographerGalleries(userId, { limit: 20 }),
+    ])
+      .then(([detail, commConfig, galleryData]) => {
         setPhotographer(detail);
         setConfig(commConfig);
+        setGalleries(galleryData.items);
+        setError("");
       })
       .catch((err) => setError(getErrorMessage(err)))
       .finally(() => setLoading(false));
@@ -94,6 +122,10 @@ export default function PhotographerDetailPage() {
 
   const handleConfirmAction = async () => {
     if (!photographer || !confirmAction) return;
+    if (confirmAction === "empty-trash" && reason.trim().length < 3) {
+      toast("Reason is required (min 3 characters)", "error");
+      return;
+    }
     setActionLoading(true);
     try {
       if (confirmAction === "activate") {
@@ -105,8 +137,60 @@ export default function PhotographerDetailPage() {
       } else if (confirmAction === "verify-email") {
         await verifyPhotographerEmail(userId);
         toast("Email marked as verified");
+      } else if (confirmAction === "empty-trash") {
+        await emptyPhotographerTrash(userId, reason.trim());
+        toast("Studio trash emptied");
       }
       setConfirmAction(null);
+      setReason("");
+      load();
+    } catch (err) {
+      toast(getErrorMessage(err), "error");
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleSetOverride = async () => {
+    if (reason.trim().length < 3) {
+      toast("Reason is required (min 3 characters)", "error");
+      return;
+    }
+    setActionLoading(true);
+    try {
+      await setLimitOverride(userId, {
+        reason: reason.trim(),
+        storageLimitBytes: Math.round(
+          overrideDraft.storageGb * 1024 * 1024 * 1024,
+        ),
+        maxGalleries: overrideDraft.maxGalleries,
+        expiresInDays: overrideDraft.expiresInDays,
+      });
+      toast("Limit override applied");
+      setOverrideOpen(false);
+      setReason("");
+      load();
+    } catch (err) {
+      toast(getErrorMessage(err), "error");
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleClearOverride = async () => {
+    if (reason.trim().length < 3) {
+      toast("Reason is required (min 3 characters)", "error");
+      return;
+    }
+    setActionLoading(true);
+    try {
+      await setLimitOverride(userId, {
+        clear: true,
+        reason: reason.trim(),
+      });
+      toast("Limit override cleared");
+      setClearOverrideOpen(false);
+      setReason("");
       load();
     } catch (err) {
       toast(getErrorMessage(err), "error");
@@ -162,6 +246,41 @@ export default function PhotographerDetailPage() {
             {isActive ? "Active" : "Inactive"}
           </Tag>
         ),
+      },
+    ],
+    [],
+  );
+
+  const galleryColumns: TableColumnsType<GalleryListItem> = useMemo(
+    () => [
+      {
+        title: "Gallery",
+        key: "name",
+        render: (_, row) => (
+          <Link
+            href={`/admin/galleries/${row.id}`}
+            className="font-medium text-slate-900 hover:text-primary"
+          >
+            {row.name}
+          </Link>
+        ),
+      },
+      {
+        title: "Status",
+        dataIndex: "status",
+        key: "status",
+        render: (status: string) => <StatusChip status={status} />,
+      },
+      {
+        title: "Client",
+        key: "client",
+        render: (_, row) => row.client?.name || "—",
+      },
+      {
+        title: "Updated",
+        dataIndex: "updatedAt",
+        key: "updatedAt",
+        render: (value: string) => formatDateTime(value),
       },
     ],
     [],
@@ -231,9 +350,7 @@ export default function PhotographerDetailPage() {
                 size={64}
                 src={photographer.companyLogo ?? "/images/user-profile.png"}
                 className={
-                  photographer.companyLogo
-                    ? "!bg-white"
-                    : "!bg-slate-200"
+                  photographer.companyLogo ? "!bg-white" : "!bg-slate-200"
                 }
               />
               <div>
@@ -248,6 +365,11 @@ export default function PhotographerDetailPage() {
                     <Tag color="blue">Onboarded</Tag>
                   ) : (
                     <Tag>Not onboarded</Tag>
+                  )}
+                  {photographer.limitOverride && (
+                    <Tag color="purple" icon={<ThunderboltOutlined />}>
+                      Limit override
+                    </Tag>
                   )}
                 </Space>
                 <div className="mt-1">
@@ -307,9 +429,43 @@ export default function PhotographerDetailPage() {
               >
                 Send message
               </Button>
+              <Button onClick={() => setOverrideOpen(true)}>
+                Limit override
+              </Button>
             </Space>
           </div>
         </Card>
+
+        {photographer.limitOverride && (
+          <Card
+            bordered={false}
+            className="border border-violet-200 bg-violet-50 shadow-sm"
+            size="small"
+          >
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="text-sm text-violet-900">
+                <p className="font-semibold">Active limit override</p>
+                <p className="mt-1">
+                  Storage effective: {photographer.storageLimitLabel}
+                  {" · "}
+                  Max galleries:{" "}
+                  {photographer.maxGalleries == null
+                    ? "Unlimited"
+                    : photographer.maxGalleries}
+                  {photographer.limitOverride.expiresAt
+                    ? ` · Expires ${formatDateTime(photographer.limitOverride.expiresAt)}`
+                    : ""}
+                </p>
+                <p className="mt-1 text-violet-700">
+                  Reason: {photographer.limitOverride.reason}
+                </p>
+              </div>
+              <Button danger onClick={() => setClearOverrideOpen(true)}>
+                Clear override
+              </Button>
+            </div>
+          </Card>
+        )}
 
         <Row gutter={[16, 16]}>
           <Col xs={12} sm={6}>
@@ -337,143 +493,195 @@ export default function PhotographerDetailPage() {
           </Col>
         </Row>
 
+        {photographer.galleryCounts && (
+          <div className="flex flex-wrap gap-2">
+            {Object.entries(photographer.galleryCounts).map(([key, value]) => (
+              <span
+                key={key}
+                className="rounded-lg bg-white px-3 py-1.5 text-xs font-medium text-slate-600 shadow-sm ring-1 ring-slate-100"
+              >
+                {key}: {value}
+              </span>
+            ))}
+          </div>
+        )}
+
         <Row gutter={[24, 24]}>
-        <Col xs={24} lg={12}>
-          <Card
-            bordered={false}
-            className="shadow-sm"
-            title="Account"
-            size="small"
-          >
-            <Descriptions column={1} size="small">
-              <Descriptions.Item label="Email">
-                <Space>
-                  {photographer.email}
-                  {photographer.emailVerified ? (
-                    <Tag color="success" icon={<MailOutlined />}>
-                      Verified
-                    </Tag>
-                  ) : (
-                    <Tag color="warning">Unverified</Tag>
-                  )}
-                </Space>
-              </Descriptions.Item>
-              <Descriptions.Item label="Auth provider">
-                <span className="capitalize">{photographer.authProvider}</span>
-              </Descriptions.Item>
-              <Descriptions.Item label="Created">
-                {formatDateTime(photographer.createdAt)}
-              </Descriptions.Item>
-              <Descriptions.Item label="Onboarded at">
-                {formatDateTime(photographer.onboardedAt)}
-              </Descriptions.Item>
-            </Descriptions>
-          </Card>
-        </Col>
-
-        <Col xs={24} lg={12}>
-          <Card
-            bordered={false}
-            className="shadow-sm"
-            title="Studio"
-            size="small"
-          >
-            <Descriptions column={1} size="small">
-              <Descriptions.Item label="Company">
-                {photographer.companyName || "—"}
-              </Descriptions.Item>
-              <Descriptions.Item label="Slug">
-                {photographer.slug || "—"}
-              </Descriptions.Item>
-              <Descriptions.Item label="Country">
-                {photographer.country || "—"}
-              </Descriptions.Item>
-              <Descriptions.Item label="Phone">
-                {photographer.phone || "—"}
-              </Descriptions.Item>
-            </Descriptions>
-          </Card>
-        </Col>
-
-        <Col xs={24} lg={12}>
-          <Card
-            bordered={false}
-            className="shadow-sm"
-            title="Subscription"
-            size="small"
-          >
-            <Descriptions column={1} size="small">
-              <Descriptions.Item label="Plan">
-                {photographer.planName || "—"}
-              </Descriptions.Item>
-              <Descriptions.Item label="Status">
-                {photographer.subscriptionStatus ? (
-                  <Tag color={statusTagColor(photographer.subscriptionStatus)}>
-                    {photographer.subscriptionStatus}
-                  </Tag>
-                ) : (
-                  "—"
-                )}
-              </Descriptions.Item>
-              {photographer.paystackSubscriptionCode && (
-                <Descriptions.Item label="Paystack code">
-                  <Text code>{photographer.paystackSubscriptionCode}</Text>
-                </Descriptions.Item>
-              )}
-              {photographer.smsSenderId && (
-                <Descriptions.Item label="SMS sender">
-                  <Space direction="vertical" size={0}>
-                    <Text code>{photographer.smsSenderId}</Text>
-                    {photographer.smsSenderStatus && (
-                      <Tag
-                        color={statusTagColor(photographer.smsSenderStatus)}
-                        className="!mt-1"
-                      >
-                        {photographer.smsSenderStatus}
+          <Col xs={24} lg={12}>
+            <Card
+              bordered={false}
+              className="shadow-sm"
+              title="Account"
+              size="small"
+            >
+              <Descriptions column={1} size="small">
+                <Descriptions.Item label="Email">
+                  <Space>
+                    {photographer.email}
+                    {photographer.emailVerified ? (
+                      <Tag color="success" icon={<MailOutlined />}>
+                        Verified
                       </Tag>
+                    ) : (
+                      <Tag color="warning">Unverified</Tag>
                     )}
                   </Space>
                 </Descriptions.Item>
-              )}
-            </Descriptions>
-          </Card>
-        </Col>
+                <Descriptions.Item label="Auth provider">
+                  <span className="capitalize">{photographer.authProvider}</span>
+                </Descriptions.Item>
+                <Descriptions.Item label="Created">
+                  {formatDateTime(photographer.createdAt)}
+                </Descriptions.Item>
+                <Descriptions.Item label="Onboarded at">
+                  {formatDateTime(photographer.onboardedAt)}
+                </Descriptions.Item>
+              </Descriptions>
+            </Card>
+          </Col>
 
-        <Col xs={24} lg={12}>
-          <Card
-            bordered={false}
-            className="shadow-sm"
-            title="Usage & activity"
-            size="small"
-          >
-            <Descriptions column={1} size="small">
-              <Descriptions.Item label="Storage">
-                <div className="w-full max-w-xs">
-                  <div className="mb-1 flex justify-between text-xs">
-                    <span>
-                      {photographer.storageLabel} /{" "}
-                      {photographer.storageLimitLabel}
-                    </span>
-                    <span>{Math.round(storagePct)}%</span>
+          <Col xs={24} lg={12}>
+            <Card
+              bordered={false}
+              className="shadow-sm"
+              title="Studio"
+              size="small"
+            >
+              <Descriptions column={1} size="small">
+                <Descriptions.Item label="Company">
+                  {photographer.companyName || "—"}
+                </Descriptions.Item>
+                <Descriptions.Item label="Slug">
+                  {photographer.slug || "—"}
+                </Descriptions.Item>
+                <Descriptions.Item label="Country">
+                  {photographer.country || "—"}
+                </Descriptions.Item>
+                <Descriptions.Item label="Phone">
+                  {photographer.phone || "—"}
+                </Descriptions.Item>
+              </Descriptions>
+            </Card>
+          </Col>
+
+          <Col xs={24} lg={12}>
+            <Card
+              bordered={false}
+              className="shadow-sm"
+              title="Subscription"
+              size="small"
+            >
+              <Descriptions column={1} size="small">
+                <Descriptions.Item label="Plan">
+                  {photographer.planName || "—"}
+                </Descriptions.Item>
+                <Descriptions.Item label="Status">
+                  {photographer.subscriptionStatus ? (
+                    <Tag color={statusTagColor(photographer.subscriptionStatus)}>
+                      {photographer.subscriptionStatus}
+                    </Tag>
+                  ) : (
+                    "—"
+                  )}
+                </Descriptions.Item>
+                <Descriptions.Item label="Max galleries">
+                  {photographer.maxGalleries == null
+                    ? "Unlimited"
+                    : photographer.maxGalleries}
+                </Descriptions.Item>
+                {photographer.paystackSubscriptionCode && (
+                  <Descriptions.Item label="Paystack code">
+                    <Text code>{photographer.paystackSubscriptionCode}</Text>
+                  </Descriptions.Item>
+                )}
+                {photographer.smsSenderId && (
+                  <Descriptions.Item label="SMS sender">
+                    <Space direction="vertical" size={0}>
+                      <Text code>{photographer.smsSenderId}</Text>
+                      {photographer.smsSenderStatus && (
+                        <Tag
+                          color={statusTagColor(photographer.smsSenderStatus)}
+                          className="!mt-1"
+                        >
+                          {photographer.smsSenderStatus}
+                        </Tag>
+                      )}
+                    </Space>
+                  </Descriptions.Item>
+                )}
+              </Descriptions>
+            </Card>
+          </Col>
+
+          <Col xs={24} lg={12}>
+            <Card
+              bordered={false}
+              className="shadow-sm"
+              title="Usage & activity"
+              size="small"
+            >
+              <Descriptions column={1} size="small">
+                <Descriptions.Item label="Storage">
+                  <div className="w-full max-w-xs">
+                    <div className="mb-1 flex justify-between text-xs">
+                      <span>
+                        {photographer.storageLabel} /{" "}
+                        {photographer.storageLimitLabel}
+                      </span>
+                      <span>{Math.round(storagePct)}%</span>
+                    </div>
+                    <Progress
+                      percent={storagePct}
+                      showInfo={false}
+                      strokeColor={storagePct > 90 ? "#ef4444" : undefined}
+                      size="small"
+                    />
                   </div>
-                  <Progress
-                    percent={storagePct}
-                    showInfo={false}
-                    strokeColor={storagePct > 90 ? "#ef4444" : undefined}
-                    size="small"
-                  />
-                </div>
-              </Descriptions.Item>
-              <Descriptions.Item label="Last login">
-                {formatDateTime(photographer.lastLoginAt)}
-              </Descriptions.Item>
-              <Descriptions.Item label="Last seen">
-                {formatDateTime(photographer.lastSeenAt)}
-              </Descriptions.Item>
-            </Descriptions>
-          </Card>
-        </Col>
+                </Descriptions.Item>
+                <Descriptions.Item label="Last login">
+                  {formatDateTime(photographer.lastLoginAt)}
+                </Descriptions.Item>
+                <Descriptions.Item label="Last seen">
+                  {formatDateTime(photographer.lastSeenAt)}
+                </Descriptions.Item>
+              </Descriptions>
+            </Card>
+          </Col>
         </Row>
+
+        <Card
+          bordered={false}
+          className="shadow-sm"
+          title="Galleries"
+          size="small"
+          extra={
+            <Space>
+              <Link
+                href={`/admin/galleries?studioEmail=${encodeURIComponent(photographer.email)}`}
+                className="text-sm text-primary hover:underline"
+              >
+                View all
+              </Link>
+              <Button
+                size="small"
+                danger
+                onClick={() => setConfirmAction("empty-trash")}
+              >
+                Empty trash
+              </Button>
+            </Space>
+          }
+        >
+          <Table<GalleryListItem>
+            rowKey="id"
+            columns={galleryColumns}
+            dataSource={galleries}
+            pagination={false}
+            size="small"
+            locale={{ emptyText: "No galleries" }}
+            scroll={{ x: "max-content" }}
+          />
+        </Card>
 
         {photographer.recentSessions?.length > 0 && (
           <Card
@@ -528,6 +736,128 @@ export default function PhotographerDetailPage() {
         loading={actionLoading}
         onConfirm={handleConfirmAction}
         onCancel={() => setConfirmAction(null)}
+      />
+
+      <ConfirmDialog
+        open={confirmAction === "empty-trash"}
+        title="Empty studio trash"
+        description={
+          <div className="space-y-3">
+            <p>
+              Permanently delete all trashed galleries for this studio. This
+              cannot be undone.
+            </p>
+            <Input.TextArea
+              rows={3}
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="Reason (required)"
+            />
+          </div>
+        }
+        confirmLabel="Empty trash"
+        destructive
+        loading={actionLoading}
+        onConfirm={handleConfirmAction}
+        onCancel={() => {
+          setConfirmAction(null);
+          setReason("");
+        }}
+      />
+
+      <ConfirmDialog
+        open={overrideOpen}
+        title="Set limit override"
+        description={
+          <div className="space-y-3">
+            <p>Temporarily bump storage / gallery limits for this studio.</p>
+            <div>
+              <label className="mb-1 block text-sm font-medium">
+                Storage (GB)
+              </label>
+              <InputNumber
+                className="!w-full"
+                min={1}
+                value={overrideDraft.storageGb}
+                onChange={(v) =>
+                  setOverrideDraft((d) => ({
+                    ...d,
+                    storageGb: Number(v) || 1,
+                  }))
+                }
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium">
+                Max galleries (blank = unlimited)
+              </label>
+              <InputNumber
+                className="!w-full"
+                min={1}
+                value={overrideDraft.maxGalleries ?? undefined}
+                onChange={(v) =>
+                  setOverrideDraft((d) => ({
+                    ...d,
+                    maxGalleries: v == null ? null : Number(v),
+                  }))
+                }
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium">
+                Expires in days
+              </label>
+              <InputNumber
+                className="!w-full"
+                min={1}
+                value={overrideDraft.expiresInDays}
+                onChange={(v) =>
+                  setOverrideDraft((d) => ({
+                    ...d,
+                    expiresInDays: Number(v) || 30,
+                  }))
+                }
+              />
+            </div>
+            <Input.TextArea
+              rows={3}
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="Reason (required)"
+            />
+          </div>
+        }
+        confirmLabel="Apply override"
+        loading={actionLoading}
+        onConfirm={handleSetOverride}
+        onCancel={() => {
+          setOverrideOpen(false);
+          setReason("");
+        }}
+      />
+
+      <ConfirmDialog
+        open={clearOverrideOpen}
+        title="Clear limit override"
+        description={
+          <div className="space-y-3">
+            <p>Revert this studio to its plan limits.</p>
+            <Input.TextArea
+              rows={3}
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="Reason (required)"
+            />
+          </div>
+        }
+        confirmLabel="Clear override"
+        destructive
+        loading={actionLoading}
+        onConfirm={handleClearOverride}
+        onCancel={() => {
+          setClearOverrideOpen(false);
+          setReason("");
+        }}
       />
 
       <ComposeDrawer

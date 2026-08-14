@@ -25,6 +25,8 @@ import {
   SMS_CONFIG_LOAD_FAILED_MESSAGE,
   smsApiErrorMessage,
 } from "@/lib/sms-api";
+import { FeatureUpgradeButton } from "@/components/billing/plan-upgrade-modal";
+import { usePlanEntitlements } from "@/lib/use-plan-entitlements";
 import { cn } from "@/lib/utils";
 
 type SettingsSmsSectionProps = {
@@ -39,6 +41,9 @@ export function SettingsSmsSection({
   onProfileUpdated,
 }: SettingsSmsSectionProps) {
   const { showToast } = useToast();
+  const { can, openUpgrade, handlePlanError } = usePlanEntitlements();
+  const canSms = can("smsNotifications");
+  const canCustomSender = can("customSmsSender");
   const [busy, setBusy] = useState(false);
   const [testBusy, setTestBusy] = useState(false);
   const [smsSenderId, setSmsSenderId] = useState("");
@@ -48,7 +53,7 @@ export function SettingsSmsSection({
   const [configLoadFailed, setConfigLoadFailed] = useState(false);
 
   const studio = auth?.user?.studio;
-  const apiStudio = pageData?.bundle.studio;
+  const apiStudio = pageData?.bundle?.studio;
   const smsFields = studioSmsFieldsFromApi({ ...studio, ...apiStudio });
   const savedSmsSenderId = smsFields.smsSenderId ?? "";
 
@@ -93,6 +98,10 @@ export function SettingsSmsSection({
 
   async function handleSaveName() {
     if (busy || !auth?.user) return;
+    if (!canCustomSender) {
+      openUpgrade({ feature: "customSmsSender" });
+      return;
+    }
     if (smsValidation) {
       showToast(smsValidation, "error");
       return;
@@ -117,6 +126,7 @@ export function SettingsSmsSection({
       onProfileUpdated?.(saved);
       showToast("SMS display name saved.", "success");
     } catch (e) {
+      if (handlePlanError(e)) return;
       showToast(settingsErrorMessage(e, "Could not save SMS display name."), "error");
     } finally {
       setBusy(false);
@@ -125,6 +135,10 @@ export function SettingsSmsSection({
 
   async function handleTestSms() {
     if (testBusy) return;
+    if (!canSms) {
+      openUpgrade({ feature: "smsNotifications" });
+      return;
+    }
     if (configLoadFailed) {
       showToast(SMS_CONFIG_LOAD_FAILED_MESSAGE, "error");
       return;
@@ -144,32 +158,59 @@ export function SettingsSmsSection({
       const res = await sendTestSms({ phone });
       showToast(res.message?.trim() || "Test SMS sent.", "success");
     } catch (e) {
+      if (handlePlanError(e)) return;
       showToast(smsApiErrorMessage(e, "Could not send test SMS."), "error");
     } finally {
       setTestBusy(false);
     }
   }
 
+  const senderFieldLocked = !canCustomSender;
+
   return (
     <section className="space-y-4 rounded-2xl border border-zinc-200 p-5 dark:border-zinc-800">
       <div>
         <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">SMS branding</p>
         <p className="mt-0.5 text-xs text-zinc-500">
-          Choose the sender name clients see on text messages from your studio.
+          {canSms
+            ? "Choose the sender name clients see on text messages from your studio."
+            : "SMS notifications unlock on Basic and above. Custom sender IDs need Pro or Premium."}
         </p>
       </div>
+
+      {!canSms ? (
+        <div className="rounded-xl border border-dashed border-zinc-200 bg-zinc-50/80 px-4 py-3 dark:border-zinc-700 dark:bg-zinc-900/40">
+          <p className="text-sm text-zinc-600 dark:text-zinc-400">
+            Gallery share SMS is available on Basic, Pro, and Premium.
+          </p>
+          <div className="mt-3">
+            <FeatureUpgradeButton feature="smsNotifications" label="Upgrade to Basic+" />
+          </div>
+        </div>
+      ) : null}
 
       <SmsSenderStatusBanner fields={smsFields} platformSender={platformSender} />
 
       <SmsSenderIdField
         value={smsSenderId}
         onChange={setSmsSenderId}
-        disabled={busy}
+        disabled={busy || senderFieldLocked}
         variant="settings"
         error={smsSenderId.trim() ? smsValidation : null}
       />
 
-      {!savedSmsSenderId && suggestion && !smsSenderId ? (
+      {senderFieldLocked ? (
+        <div className="rounded-xl border border-dashed border-zinc-200 bg-zinc-50/80 px-4 py-3 dark:border-zinc-700 dark:bg-zinc-900/40">
+          <p className="text-sm text-zinc-600 dark:text-zinc-400">
+            Custom SMS sender ID (your studio name) is available on Pro and Premium.
+          </p>
+          <div className="mt-3">
+            <FeatureUpgradeButton feature="customSmsSender" label="Upgrade to Pro+" />
+          </div>
+        </div>
+      ) : null}
+
+      {!savedSmsSenderId && suggestion && !smsSenderId && !senderFieldLocked ? (
         <button
           type="button"
           disabled={busy}
@@ -183,15 +224,15 @@ export function SettingsSmsSection({
       <div className="flex flex-wrap items-center justify-end gap-3 border-t border-zinc-100 pt-4 dark:border-zinc-800">
         <button
           type="button"
-          disabled={busy}
+          disabled={busy || senderFieldLocked}
           onClick={syncFromData}
-          className="text-sm font-semibold text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-300"
+          className="text-sm font-semibold text-zinc-500 hover:text-zinc-800 disabled:opacity-50 dark:hover:text-zinc-300"
         >
           Reset
         </button>
         <button
           type="button"
-          disabled={busy || !smsChanged || Boolean(smsValidation)}
+          disabled={busy || senderFieldLocked || !smsChanged || Boolean(smsValidation)}
           onClick={() => void handleSaveName()}
           className="inline-flex items-center gap-2 rounded-xl bg-brand px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-hover disabled:opacity-50"
         >
@@ -206,11 +247,13 @@ export function SettingsSmsSection({
           <div className="min-w-0 flex-1">
             <p className="text-sm font-medium text-zinc-800 dark:text-zinc-200">Send test SMS</p>
             <p className="mt-0.5 text-xs text-zinc-500">
-              {configLoadFailed
-                ? SMS_CONFIG_LOAD_FAILED_MESSAGE
-                : configured
-                  ? "Verify delivery with your business phone or any test number."
-                  : "Test send is disabled until Arkesel is configured on the API."}
+              {!canSms
+                ? "Test SMS requires Basic or higher."
+                : configLoadFailed
+                  ? SMS_CONFIG_LOAD_FAILED_MESSAGE
+                  : configured
+                    ? "Verify delivery with your business phone or any test number."
+                    : "Test send is disabled until Arkesel is configured on the API."}
             </p>
             <label className="mt-3 block">
               <span className={cn(formModalLabelClass, "normal-case")}>Phone number</span>
@@ -218,13 +261,13 @@ export function SettingsSmsSection({
                 value={testPhone}
                 onChange={(e) => setTestPhone(e.target.value)}
                 placeholder="e.g. +233200000000"
-                disabled={testBusy || !configured || configLoadFailed}
+                disabled={testBusy || !canSms || !configured || configLoadFailed}
                 className="mt-2"
               />
             </label>
             <button
               type="button"
-              disabled={testBusy || !configured || configLoadFailed}
+              disabled={testBusy || !canSms || !configured || configLoadFailed}
               onClick={() => void handleTestSms()}
               className="mt-3 inline-flex items-center gap-2 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-200"
             >

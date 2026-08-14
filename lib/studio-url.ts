@@ -279,13 +279,36 @@ export function photographerAuthUrl(pathname: string, host?: string): string {
 }
 
 /**
+ * Login URL on the apex host. Prefer this when resuming a flow (e.g. Paystack)
+ * so we do not force `signedOut=1` and wipe a session that was just created.
+ */
+export function photographerLoginUrl(
+  options?: { returnTo?: string | null; signedOut?: boolean; host?: string },
+): string {
+  const url = new URL(photographerAuthUrl("/login", options?.host));
+  if (options?.signedOut) {
+    url.searchParams.set("signedOut", "1");
+  }
+  const returnTo = options?.returnTo?.trim();
+  if (returnTo?.startsWith("/") && !returnTo.startsWith("//")) {
+    url.searchParams.set("returnTo", returnTo);
+  }
+  return url.toString();
+}
+
+/**
  * Login URL after sign-out or session clear.
  * Ensures apex `localStorage` is wiped even when the user signed out from a studio subdomain.
  */
-export function photographerSignOutUrl(host?: string): string {
-  const url = new URL(photographerAuthUrl("/login", host));
-  url.searchParams.set("signedOut", "1");
-  return url.toString();
+export function photographerSignOutUrl(
+  host?: string,
+  options?: { returnTo?: string | null },
+): string {
+  return photographerLoginUrl({
+    host,
+    returnTo: options?.returnTo,
+    signedOut: true,
+  });
 }
 
 function preferredProtocol(): "http" | "https" {
@@ -336,6 +359,36 @@ export function tenantAppUrl(
 /** Query param used once when moving session from apex host to `{slug}.localhost`. */
 export const AUTH_HANDOFF_PARAM = "_auth";
 
+const HOST_AUTH_HANDOFF_LOCK = "gidostorage_host_auth_handoff";
+
+/** True while apex → tenant navigation is in flight (survives Strict Mode remounts). */
+export function isHostAuthHandoffInFlight(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.sessionStorage.getItem(HOST_AUTH_HANDOFF_LOCK) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function beginHostAuthHandoff(): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(HOST_AUTH_HANDOFF_LOCK, "1");
+  } catch {
+    /* ignore */
+  }
+}
+
+export function endHostAuthHandoff(): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.removeItem(HOST_AUTH_HANDOFF_LOCK);
+  } catch {
+    /* ignore */
+  }
+}
+
 /** Production tenant subdomains need wildcard DNS; local `.localhost` always routes. */
 function tenantSubdomainRoutingEnabled(): boolean {
   const flag = process.env.NEXT_PUBLIC_STUDIO_SUBDOMAINS?.trim().toLowerCase();
@@ -356,7 +409,10 @@ export function redirectToTenantHostIfNeeded(
 ): boolean {
   if (typeof window === "undefined") return false;
   if (!tenantSubdomainRoutingEnabled()) return false;
-  if (!isPhotographerDashboardPath(pathname)) return false;
+
+  // Allow "/dashboard/settings?tab=billing&success=1" — check path only.
+  const pathOnly = pathname.split("?")[0]?.split("#")[0] || pathname;
+  if (!isPhotographerDashboardPath(pathOnly)) return false;
 
   const clean = normalizeStudioSlugInput(slug);
   if (!clean || !isValidStudioSlug(clean)) return false;
@@ -371,6 +427,8 @@ export function redirectToTenantHostIfNeeded(
     const url = new URL(target);
     url.searchParams.set(AUTH_HANDOFF_PARAM, authHandoff.trim());
     target = url.toString();
+    // Lock before clearAuth so a Strict Mode remount cannot race to bare /login.
+    beginHostAuthHandoff();
     clearSourceAuth?.();
   }
 

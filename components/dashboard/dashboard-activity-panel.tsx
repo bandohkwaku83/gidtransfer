@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import {
+  Activity,
   ArrowRight,
   CheckCircle2,
   Heart,
@@ -222,7 +223,7 @@ export function DashboardActivityPanel({
       ) : rows.length === 0 ? (
         <div className="relative mt-8 flex flex-1 flex-col items-center justify-center rounded-xl border border-dashed border-zinc-200/80 bg-zinc-50/50 px-6 py-12 text-center dark:border-zinc-800 dark:bg-zinc-900/30">
           <span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-brand/10 dark:bg-brand/20">
-            <Sparkles className="h-5 w-5 text-brand dark:text-brand-on-dark" aria-hidden />
+            <Activity className="h-5 w-5 text-brand dark:text-brand-on-dark" aria-hidden />
           </span>
           <p className="mt-3 text-sm font-medium text-zinc-700 dark:text-zinc-200">No activity yet</p>
           <p className="mt-1 max-w-xs text-xs text-zinc-500">

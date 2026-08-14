@@ -23,12 +23,11 @@ import {
   PRIMARY_DELIVERABLE_OPTIONS,
   type PrimaryDeliverableValue,
 } from "@/lib/onboarding-api";
-import { FormInput, ContactNumberInput } from "@/components/ui/form-input";
+import { ContactNumberInput } from "@/components/ui/form-input";
 import {
   onboardingAntInputClassName,
   onboardingLabelClass,
   onboardingNativeControlClassName,
-  onboardingPrimaryButtonClassName,
   onboardingRequiredMarkClass,
   onboardingSelectChevronClassName,
 } from "@/lib/onboarding-field-styles";
@@ -74,7 +73,6 @@ function applyOnboardingDraft(
     setLogoDataUrl: (v: string | undefined) => void;
     setSlugManuallyEdited: (v: boolean) => void;
     setPrimaryDeliverable: (v: PrimaryDeliverableValue) => void;
-    setReferralCode: (v: string) => void;
     setSmsSenderId: (v: string) => void;
     setSmsSenderManuallyEdited: (v: boolean) => void;
   },
@@ -85,7 +83,6 @@ function applyOnboardingDraft(
   if (draft?.country) setters.setCountry(parseCountryValue(draft.country));
   const deliver = draft?.primaryDeliverable ?? draft?.primaryDeliver;
   if (deliver) setters.setPrimaryDeliverable(parsePrimaryDeliverable(deliver));
-  if (draft?.referralCode) setters.setReferralCode(draft.referralCode);
   if (draft?.logoSrc || draft?.logoUrl || draft?.logoDataUrl) {
     setters.setLogoDataUrl(draft.logoSrc ?? draft.logoUrl ?? draft.logoDataUrl);
   }
@@ -144,7 +141,6 @@ export default function OnboardingPage() {
   const [primaryDeliverable, setPrimaryDeliverable] = useState<PrimaryDeliverableValue>(
     DEFAULT_PRIMARY_DELIVERABLE,
   );
-  const [referralCode, setReferralCode] = useState("");
   const [smsSenderId, setSmsSenderId] = useState("");
   const [smsSenderManuallyEdited, setSmsSenderManuallyEdited] = useState(false);
   const [slugError, setSlugError] = useState<string | null>(null);
@@ -202,7 +198,6 @@ export default function OnboardingPage() {
           setLogoDataUrl,
           setSlugManuallyEdited,
           setPrimaryDeliverable,
-          setReferralCode,
           setSmsSenderId,
           setSmsSenderManuallyEdited,
         });
@@ -231,7 +226,6 @@ export default function OnboardingPage() {
           if (draft.studioUrl) setStudioUrl(draft.studioUrl);
           const deliver = draft.primaryDeliverable ?? draft.primaryDeliver;
           if (deliver) setPrimaryDeliverable(parsePrimaryDeliverable(deliver));
-          if (draft.referralCode) setReferralCode(draft.referralCode);
           if (draft.smsSenderId) {
             setSmsSenderId(draft.smsSenderId.trim().toUpperCase());
             setSmsSenderManuallyEdited(true);
@@ -316,7 +310,6 @@ export default function OnboardingPage() {
         companySlug: slug,
         smsSenderId: smsSenderId.trim().toUpperCase(),
         primaryDeliverable,
-        referralCode: referralCode.trim() || undefined,
         logoFile,
       });
       const user = persistOnboardingResponse(res);
@@ -337,245 +330,233 @@ export default function OnboardingPage() {
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center">
         <OnboardingBackground />
-        <Loader2 className="relative z-10 h-7 w-7 animate-spin text-white" aria-hidden />
+        <Loader2 className="relative z-10 h-7 w-7 animate-spin text-brand" aria-hidden />
         <span className="sr-only">Loading…</span>
       </div>
     );
   }
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto overscroll-y-contain text-neutral-800">
+    <div className="fixed inset-0 z-50 overflow-y-auto overscroll-y-contain text-zinc-800">
       <OnboardingBackground />
 
-      <div className="relative flex min-h-dvh w-full items-center justify-center p-3 sm:p-4">
-        <div className="w-full max-w-[30rem] py-4 sm:max-w-[36rem]">
-        <div className="rounded-xl bg-white px-5 py-5 shadow-[0_24px_60px_-20px_rgba(15,23,42,0.35)] sm:px-6 sm:py-6">
-          <div className="flex justify-center">
-            <Image
-              src="/svgs/logo.svg"
-              alt={APP_NAME}
-              width={691}
-              height={801}
-              className="h-7 w-auto brightness-0"
-              priority
-            />
-          </div>
+      <div className="relative flex min-h-dvh w-full items-center justify-center px-3 py-6 sm:px-4 sm:py-10">
+        <div className="w-full max-w-[30rem] sm:max-w-[34rem]">
+          <div className="rounded-2xl border border-white/70 bg-white/95 px-5 py-6 shadow-[0_28px_80px_-28px_rgba(15,23,42,0.35)] backdrop-blur-sm sm:px-8 sm:py-8">
+            <div className="flex flex-col items-center text-center">
+              <Image
+                src="/svgs/logo.svg"
+                alt={APP_NAME}
+                width={691}
+                height={801}
+                className="h-7 w-auto brightness-0"
+                priority
+              />
+              <p className="mt-5 text-[11px] font-semibold uppercase tracking-[0.2em] text-brand">
+                Studio setup
+              </p>
+              <h1 className="mt-2 font-display text-2xl font-semibold tracking-tight text-zinc-900 sm:text-[1.75rem]">
+                Tell us about your studio
+              </h1>
 
-          <p className="mt-3 text-center text-[10px] font-medium uppercase tracking-[0.24em] text-neutral-500">
-            Let&apos;s begin with the details
-          </p>
-
-          <div className="mt-4 space-y-4">
-          <StudioUrlField
-            companyName={companyName}
-            onCompanyNameChange={setCompanyName}
-            companySlug={companySlug}
-            onCompanySlugChange={setCompanySlug}
-            slugManuallyEdited={slugManuallyEdited}
-            onSlugManuallyEdited={setSlugManuallyEdited}
-            studioUrlSuffix={studioUrlSuffix}
-            studioUrl={studioUrl}
-            suggestedCompanySlug={suggestedCompanySlug}
-            disabled={busy}
-            slugError={slugError}
-            appearance="minimal"
-            dense
-          />
-
-          <SmsSenderIdField
-            value={smsSenderId}
-            onChange={(value) => {
-              setSmsSenderManuallyEdited(true);
-              setSmsSenderId(value);
-            }}
-            disabled={busy}
-            required
-          />
-
-          <label className="block">
-            <span id="primary-deliver-label" className={onboardingLabelClass}>
-              I primarily deliver
-              <OnboardingRequiredMark />
-            </span>
-            <select
-              id="primary-deliver"
-              value={primaryDeliverable}
-              onChange={(e) =>
-                setPrimaryDeliverable(e.target.value as PrimaryDeliverableValue)
-              }
-              disabled={busy}
-              aria-labelledby="primary-deliver-label"
-              aria-required
-              className={cn(onboardingNativeControlClassName, onboardingSelectChevronClassName)}
-            >
-              {PRIMARY_DELIVERABLE_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="block">
-            <span id="country-label" className={onboardingLabelClass}>
-              Country
-              <OnboardingRequiredMark />
-            </span>
-            <select
-              id="country"
-              value={country}
-              onChange={(e) => setCountry(e.target.value)}
-              disabled={busy}
-              aria-labelledby="country-label"
-              aria-required
-              className={cn(onboardingNativeControlClassName, onboardingSelectChevronClassName)}
-            >
-              <option value="" disabled>
-                Select country
-              </option>
-              {COUNTRY_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="block">
-            <span className={onboardingLabelClass}>
-              Business phone
-              <OnboardingRequiredMark />
-            </span>
-            <ContactNumberInput
-              autoComplete="tel"
-              className={onboardingAntInputClassName}
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              disabled={busy}
-              aria-required
-            />
-          </label>
-
-          <div className="block">
-            <span className={onboardingLabelClass}>Studio logo</span>
-            <label
-              className={cn(
-                "group mt-0.5 block cursor-pointer rounded-lg border border-dashed border-neutral-300 bg-gradient-to-br from-neutral-50/90 to-white p-3 transition",
-                "hover:border-neutral-400 hover:from-neutral-50",
-                logoDataUrl && "border-solid border-neutral-200 bg-white hover:from-white",
-                busy && "pointer-events-none opacity-60",
-              )}
-            >
-              <div className="flex items-center gap-3">
-                <div
+              <div className="relative mt-5">
+                <label
                   className={cn(
-                    "flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-white shadow-sm transition",
-                    logoDataUrl
-                      ? "border-neutral-200"
-                      : "border-neutral-200/80 group-hover:border-neutral-300",
+                    "group relative flex h-24 w-24 cursor-pointer items-center justify-center overflow-hidden rounded-full border-2 border-dashed border-zinc-300 bg-zinc-50 transition",
+                    "hover:border-brand/40 hover:bg-brand-soft/60",
+                    logoDataUrl && "border-solid border-zinc-200 bg-white",
+                    busy && "pointer-events-none opacity-60",
                   )}
                 >
                   {logoDataUrl ? (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={logoDataUrl} alt="" className="h-full w-full object-contain p-1" />
+                    <img
+                      src={logoDataUrl}
+                      alt=""
+                      className="h-full w-full object-cover"
+                    />
                   ) : (
                     <ImagePlus
-                      className="h-5 w-5 text-neutral-400 transition group-hover:text-neutral-600"
+                      className="h-7 w-7 text-zinc-400 transition group-hover:text-brand"
                       strokeWidth={1.5}
                       aria-hidden
                     />
                   )}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-xs font-medium text-neutral-800">
-                    {logoDataUrl ? "Logo ready" : "Add your studio mark"}
-                  </p>
-                  <p className="mt-0.5 text-[10px] leading-snug text-neutral-500">
-                    {logoDataUrl ? "Tap to replace" : "Optional · PNG or JPG, max 5MB"}
-                  </p>
-                </div>
-                <span className="shrink-0 rounded-md bg-neutral-800 px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-white transition group-hover:bg-neutral-900">
-                  {logoDataUrl ? "Change" : "Browse"}
-                </span>
+                  <span className="sr-only">
+                    {logoDataUrl ? "Change studio logo" : "Add studio logo"}
+                  </span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="sr-only"
+                    disabled={busy}
+                    onChange={(e) => {
+                      void onLogoFile(e.target.files?.[0] ?? null);
+                      e.currentTarget.value = "";
+                    }}
+                  />
+                </label>
+                {logoDataUrl ? (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => {
+                      setLogoDataUrl(undefined);
+                      setLogoFile(null);
+                    }}
+                    className="absolute -right-1 -top-1 flex h-7 w-7 items-center justify-center rounded-full border border-zinc-200 bg-white text-xs font-semibold text-zinc-500 shadow-sm transition hover:text-zinc-800 disabled:opacity-50"
+                    aria-label="Remove studio logo"
+                  >
+                    ×
+                  </button>
+                ) : null}
               </div>
-              <input
-                type="file"
-                accept="image/*"
-                className="sr-only"
+              <p className="mt-2 text-xs text-zinc-500">Studio logo · optional</p>
+            </div>
+
+            <div className="mt-7 space-y-5">
+              <StudioUrlField
+                companyName={companyName}
+                onCompanyNameChange={setCompanyName}
+                companySlug={companySlug}
+                onCompanySlugChange={setCompanySlug}
+                slugManuallyEdited={slugManuallyEdited}
+                onSlugManuallyEdited={setSlugManuallyEdited}
+                studioUrlSuffix={studioUrlSuffix}
+                studioUrl={studioUrl}
+                suggestedCompanySlug={suggestedCompanySlug}
                 disabled={busy}
-                onChange={(e) => {
-                  void onLogoFile(e.target.files?.[0] ?? null);
-                  e.currentTarget.value = "";
-                }}
+                slugError={slugError}
+                appearance="minimal"
+                dense
               />
-            </label>
-            {logoDataUrl ? (
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => {
-                  setLogoDataUrl(undefined);
-                  setLogoFile(null);
+
+              <SmsSenderIdField
+                value={smsSenderId}
+                onChange={(value) => {
+                  setSmsSenderManuallyEdited(true);
+                  setSmsSenderId(value);
                 }}
-                className="mt-1.5 text-[11px] font-medium text-neutral-500 underline-offset-2 hover:text-neutral-800 hover:underline disabled:opacity-50"
-              >
-                Remove logo
-              </button>
-            ) : null}
-          </div>
+                disabled={busy}
+                required
+              />
 
-          <label className="block">
-            <span className={onboardingLabelClass}>Referral code</span>
-            <FormInput
-              autoComplete="off"
-              className={onboardingAntInputClassName}
-              value={referralCode}
-              onChange={(e) => setReferralCode(e.target.value)}
-              placeholder="Referral code"
-              disabled={busy}
-            />
-          </label>
-          </div>
+              <label className="block">
+                <span id="primary-deliver-label" className={onboardingLabelClass}>
+                  I primarily deliver
+                  <OnboardingRequiredMark />
+                </span>
+                <select
+                  id="primary-deliver"
+                  value={primaryDeliverable}
+                  onChange={(e) =>
+                    setPrimaryDeliverable(e.target.value as PrimaryDeliverableValue)
+                  }
+                  disabled={busy}
+                  aria-labelledby="primary-deliver-label"
+                  aria-required
+                  className={cn(
+                    onboardingNativeControlClassName,
+                    onboardingSelectChevronClassName,
+                  )}
+                >
+                  {PRIMARY_DELIVERABLE_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
 
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void submit()}
-            className={cn("mt-4", onboardingPrimaryButtonClassName)}
-          >
-            {busy ? "Saving…" : "Continue"}
-          </button>
+              <label className="block">
+                <span id="country-label" className={onboardingLabelClass}>
+                  Country
+                  <OnboardingRequiredMark />
+                </span>
+                <select
+                  id="country"
+                  value={country}
+                  onChange={(e) => setCountry(e.target.value)}
+                  disabled={busy}
+                  aria-labelledby="country-label"
+                  aria-required
+                  className={cn(
+                    onboardingNativeControlClassName,
+                    onboardingSelectChevronClassName,
+                  )}
+                >
+                  <option value="" disabled>
+                    Select country
+                  </option>
+                  {COUNTRY_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
 
-          <p className="mt-2 text-center text-[10px] leading-snug text-neutral-500">
-            By continuing, you agree to {APP_NAME}&apos;s{" "}
-            <Link href="/terms" className="underline-offset-2 hover:underline">
-              Terms of Service
-            </Link>{" "}
-            and{" "}
-            <Link href="/privacy" className="underline-offset-2 hover:underline">
-              Privacy Policy
-            </Link>
-            .
-          </p>
+              <label className="block">
+                <span className={onboardingLabelClass}>
+                  Business phone
+                  <OnboardingRequiredMark />
+                </span>
+                <ContactNumberInput
+                  autoComplete="tel"
+                  className={onboardingAntInputClassName}
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  disabled={busy}
+                  aria-required
+                />
+              </label>
+            </div>
 
-          <div className="mt-2 flex items-center justify-center gap-3 text-[11px] text-neutral-400">
-            <Link href="/" className="transition hover:text-neutral-600">
-              Home
-            </Link>
-            <span aria-hidden>·</span>
             <button
               type="button"
               disabled={busy}
-              onClick={async () => {
-                await logout();
-                window.location.replace(photographerSignOutUrl());
-              }}
-              className="text-red-600 transition hover:text-red-700 disabled:opacity-50"
+              onClick={() => void submit()}
+              className="mt-6 flex w-full items-center justify-center rounded-xl bg-brand px-4 py-3.5 text-sm font-semibold text-white shadow-sm shadow-brand/20 transition hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-70"
             >
-              Sign out
+              {busy ? "Saving…" : "Continue"}
             </button>
+
+            <p className="mt-3 text-center text-xs leading-snug text-zinc-500">
+              By continuing, you agree to {APP_NAME}&apos;s{" "}
+              <Link
+                href="/terms"
+                className="font-medium text-brand underline-offset-2 hover:underline"
+              >
+                Terms of Service
+              </Link>{" "}
+              and{" "}
+              <Link
+                href="/privacy"
+                className="font-medium text-brand underline-offset-2 hover:underline"
+              >
+                Privacy Policy
+              </Link>
+              .
+            </p>
+
+            <div className="mt-3 flex items-center justify-center gap-3 text-xs text-zinc-400">
+              <Link href="/" className="transition hover:text-zinc-600">
+                Home
+              </Link>
+              <span aria-hidden>·</span>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={async () => {
+                  await logout();
+                  window.location.replace(photographerSignOutUrl());
+                }}
+                className="font-medium text-red-600 transition hover:text-red-700 disabled:opacity-50"
+              >
+                Sign out
+              </button>
+            </div>
           </div>
-        </div>
         </div>
       </div>
     </div>
@@ -591,9 +572,10 @@ function OnboardingBackground() {
         fill
         priority
         sizes="100vw"
-        className="object-cover object-bottom blur-sm"
+        className="object-cover object-bottom blur-sm scale-105"
       />
-      <div className="absolute inset-0 bg-[#F5F5F5]/60" aria-hidden />
+      <div className="absolute inset-0 bg-brand-soft/55" />
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_15%,rgba(85,0,31,0.12),transparent_45%),radial-gradient(circle_at_85%_80%,rgba(213,174,101,0.18),transparent_40%)]" />
     </div>
   );
 }

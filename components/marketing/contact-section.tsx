@@ -3,7 +3,6 @@
 import Image from "next/image";
 import { useState } from "react";
 import {
-  ArrowUpRight,
   Check,
   Clock3,
   Mail,
@@ -17,6 +16,7 @@ import {
   type ContactFormValues,
   type ContactTopicId,
 } from "@/lib/marketing/contact";
+import { MarketingCornerButton } from "@/components/marketing/marketing-corner-cta";
 import { cn } from "@/lib/utils";
 
 export const CONTACT_HERO_BACKDROP_ID = "contact-hero-backdrop";
@@ -252,16 +252,9 @@ function ContactMessageForm() {
         />
       </div>
 
-      <button
-        type="submit"
-        className="group inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#55001F] px-5 py-3.5 text-sm font-semibold text-[#D5AE65] shadow-[0_8px_24px_-8px_rgba(85,0,31,0.45)] transition hover:bg-[#6a0027]"
-      >
+      <MarketingCornerButton type="submit" className="w-full justify-center">
         Send my message
-        <ArrowUpRight
-          className="h-4 w-4 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5"
-          aria-hidden
-        />
-      </button>
+      </MarketingCornerButton>
     </form>
   );
 }

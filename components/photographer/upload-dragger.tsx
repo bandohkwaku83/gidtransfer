@@ -1,6 +1,6 @@
 "use client";
 
-import { Upload } from "lucide-react";
+import { Upload, type LucideIcon } from "lucide-react";
 import { useCallback, useId, useRef, useState, type DragEvent } from "react";
 import { collectFilesFromDataTransfer } from "@/lib/upload-folder-files";
 import { cn } from "@/lib/utils";
@@ -18,6 +18,10 @@ type Props = {
   filterFile?: (file: File) => boolean;
   /** Called when files were found but none passed `filterFile`. */
   onFilteredEmpty?: () => void;
+  /** Override the default upload icon. */
+  icon?: LucideIcon;
+  /** If set, click opens this instead of the file picker. Drop still uses onFiles. */
+  onActivate?: () => void;
   onFiles: (files: File[]) => void;
 };
 
@@ -30,6 +34,8 @@ export function UploadDragger({
   allowDirectory = false,
   filterFile,
   onFilteredEmpty,
+  icon: Icon = Upload,
+  onActivate,
   onFiles,
 }: Props) {
   const inputId = useId();
@@ -60,7 +66,7 @@ export function UploadDragger({
   );
 
   const handleDrop = useCallback(
-    async (event: DragEvent<HTMLLabelElement>) => {
+    async (event: DragEvent<HTMLElement>) => {
       event.preventDefault();
       setOver(false);
       if (disabled) return;
@@ -72,32 +78,70 @@ export function UploadDragger({
     [allowDirectory, disabled, emitFiles],
   );
 
-  return (
-    <label
-      htmlFor={inputId}
-      onDragEnter={(e) => {
-        e.preventDefault();
-        setOver(true);
-      }}
-      onDragOver={(e) => {
-        e.preventDefault();
-        setOver(true);
-      }}
-      onDragLeave={(e) => {
-        e.preventDefault();
-        if (e.currentTarget === e.target) setOver(false);
-      }}
-      onDrop={handleDrop}
+  const shellClass = cn(
+    "relative block w-full rounded-xl border border-dashed text-center transition",
+    compact ? "px-4 py-4 sm:text-left" : "px-6 py-10",
+    disabled
+      ? "cursor-not-allowed border-zinc-200 bg-zinc-50 opacity-60 dark:border-zinc-800 dark:bg-zinc-900"
+      : over
+        ? "cursor-pointer border-brand bg-brand-soft dark:border-brand-on-dark dark:bg-brand/20"
+        : "cursor-pointer border-zinc-200/90 bg-brand-soft/40 hover:border-brand/40 hover:bg-brand-soft/70 dark:border-zinc-700 dark:bg-brand/10 dark:hover:border-brand/35 dark:hover:bg-brand/15",
+  );
+
+  const inner = (
+    <div
       className={cn(
-        "relative block rounded-xl border border-dashed text-center transition",
-        compact ? "px-4 py-4 sm:text-left" : "px-6 py-10",
-        disabled
-          ? "cursor-not-allowed border-zinc-200 bg-zinc-50 opacity-60 dark:border-zinc-800 dark:bg-zinc-900"
-          : over
-            ? "cursor-pointer border-brand bg-brand-soft dark:border-brand-on-dark dark:bg-brand/20"
-            : "cursor-pointer border-zinc-200/90 bg-brand-soft/40 hover:border-brand/40 hover:bg-brand-soft/70 dark:border-zinc-700 dark:bg-brand/10 dark:hover:border-brand/35 dark:hover:bg-brand/15",
+        "pointer-events-none relative flex items-center justify-center gap-3",
+        compact && "sm:justify-start",
       )}
     >
+      <span
+        className={cn(
+          "inline-flex shrink-0 items-center justify-center rounded-xl bg-white text-brand shadow-sm ring-1 ring-zinc-900/5 dark:bg-zinc-950 dark:ring-white/10",
+          compact ? "h-9 w-9" : "h-11 w-11",
+        )}
+      >
+        <Icon className={compact ? "h-4 w-4" : "h-5 w-5"} strokeWidth={1.75} aria-hidden />
+      </span>
+      <div className={cn(compact ? "min-w-0 text-left" : "")}>
+        <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">{label}</p>
+        <p className="mt-0.5 text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">{hint}</p>
+      </div>
+    </div>
+  );
+
+  const dragHandlers = {
+    onDragEnter: (e: DragEvent<HTMLElement>) => {
+      e.preventDefault();
+      setOver(true);
+    },
+    onDragOver: (e: DragEvent<HTMLElement>) => {
+      e.preventDefault();
+      setOver(true);
+    },
+    onDragLeave: (e: DragEvent<HTMLElement>) => {
+      e.preventDefault();
+      if (e.currentTarget === e.target) setOver(false);
+    },
+    onDrop: handleDrop,
+  };
+
+  if (onActivate) {
+    return (
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={onActivate}
+        className={shellClass}
+        {...dragHandlers}
+      >
+        {inner}
+      </button>
+    );
+  }
+
+  return (
+    <label htmlFor={inputId} className={shellClass} {...dragHandlers}>
       <input
         ref={inputRef}
         id={inputId}
@@ -108,25 +152,7 @@ export function UploadDragger({
         disabled={disabled}
         onChange={(e) => handleFileList(e.target.files)}
       />
-      <div
-        className={cn(
-          "pointer-events-none relative flex items-center justify-center gap-3",
-          compact && "sm:justify-start",
-        )}
-      >
-        <span
-          className={cn(
-            "inline-flex shrink-0 items-center justify-center rounded-xl bg-white text-brand shadow-sm ring-1 ring-zinc-900/5 dark:bg-zinc-950 dark:ring-white/10",
-            compact ? "h-9 w-9" : "h-11 w-11",
-          )}
-        >
-          <Upload className={compact ? "h-4 w-4" : "h-5 w-5"} strokeWidth={1.75} aria-hidden />
-        </span>
-        <div className={cn(compact ? "min-w-0 text-left" : "")}>
-          <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">{label}</p>
-          <p className="mt-0.5 text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">{hint}</p>
-        </div>
-      </div>
+      {inner}
     </label>
   );
 }

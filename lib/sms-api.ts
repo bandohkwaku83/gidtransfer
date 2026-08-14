@@ -7,8 +7,17 @@ import {
 
 export type SmsConfigResponse = {
   configured: boolean;
+  /** Plan: smsNotifications (Basic+) — when false, SMS send is locked. */
+  available?: boolean;
+  /** Plan: customSmsSender (Pro+) — when false, custom sender field is locked. */
+  customSenderAvailable?: boolean;
   defaultSender: string;
   studio: StudioSmsFields;
+  upgrade?: {
+    feature?: string;
+    requiredPlans?: string[];
+    message?: string;
+  };
 };
 
 export type SendSmsInput = {
@@ -63,8 +72,13 @@ function normalizeSmsConfig(raw: unknown): SmsConfigResponse {
       : DEFAULT_PLATFORM_SMS_SENDER;
   return {
     configured: o.configured === true,
+    available: o.available !== false,
+    customSenderAvailable: o.customSenderAvailable === true,
     defaultSender,
     studio: studioSmsFieldsFromApi(studioRaw),
+    ...(o.upgrade && typeof o.upgrade === "object"
+      ? { upgrade: o.upgrade as SmsConfigResponse["upgrade"] }
+      : {}),
   };
 }
 

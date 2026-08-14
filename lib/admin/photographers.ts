@@ -1,6 +1,8 @@
 import adminApi from "./admin-client";
 import type {
   CommunicationRecipient,
+  GalleryCounts,
+  LimitOverride,
   PaginatedResponse,
   PhotographerDetail,
   PhotographerFilters,
@@ -11,11 +13,12 @@ import type {
 
 interface RawSession {
   id: string;
-  authMethod: string;
+  authMethod?: string;
   ipAddress?: string;
   ip?: string;
-  userAgent: string;
-  loggedInAt: string;
+  userAgent?: string;
+  loggedInAt?: string;
+  createdAt?: string;
   lastSeenAt: string;
   active?: boolean;
   isActive?: boolean;
@@ -51,15 +54,17 @@ interface RawListItem {
 }
 
 interface RawPhotographerDetail {
-  _id: string;
-  accountId: string;
+  _id?: string;
+  id?: string;
+  accountId?: string;
   email: string;
   emailVerified: boolean;
-  authProvider: string;
-  isActive: boolean;
+  authProvider?: string;
+  isActive?: boolean;
   createdAt: string;
   onboardingComplete?: boolean;
   onboardingCompletedAt?: string | null;
+  companyLogo?: string | null;
   studio?: {
     companyName?: string;
     companyLogo?: string | null;
@@ -70,17 +75,23 @@ interface RawPhotographerDetail {
     smsSenderStatus?: string | null;
   };
   subscription?: {
+    planId?: string;
     planName?: string;
     status?: string;
     paystackSubscriptionCode?: string | null;
+    maxGalleries?: number | null;
+    storageLimitBytes?: number;
+    storageLabel?: string;
+    limitOverride?: LimitOverride | null;
   };
   usage?: {
     clientCount?: number;
-    galleries?: { all?: number };
+    galleries?: GalleryCounts | null;
     storageBytes?: number;
     storageLimitBytes?: number;
     storageLabel?: string;
     storageLimitLabel?: string;
+    maxGalleries?: number | null;
   };
   activity?: {
     lastLoginAt?: string | null;
@@ -89,15 +100,17 @@ interface RawPhotographerDetail {
     activeSessions?: number;
   };
   recentSessions?: RawSession[];
+  smsSenderId?: string | null;
+  smsSenderStatus?: string | null;
 }
 
 function mapSession(raw: RawSession): Session {
   return {
     id: raw.id,
-    authMethod: raw.authMethod,
+    authMethod: raw.authMethod ?? "email",
     ip: raw.ipAddress ?? raw.ip ?? "",
-    userAgent: raw.userAgent,
-    loggedInAt: raw.loggedInAt,
+    userAgent: raw.userAgent ?? "",
+    loggedInAt: raw.loggedInAt ?? raw.createdAt ?? "",
     lastSeenAt: raw.lastSeenAt,
     isActive: raw.active ?? raw.isActive ?? false,
   };
@@ -132,35 +145,40 @@ function mapDetail(raw: RawPhotographerDetail): PhotographerDetail {
   const activity = raw.activity ?? {};
 
   return {
-    userId: raw._id,
-    accountId: raw.accountId,
+    userId: String(raw.id ?? raw._id ?? ""),
+    accountId: raw.accountId ?? "",
     email: raw.email,
     emailVerified: raw.emailVerified,
-    authProvider: raw.authProvider,
+    authProvider: raw.authProvider ?? "email",
     companyName: studio.companyName ?? "",
-    companyLogo: studio.companyLogo ?? null,
+    companyLogo: raw.companyLogo ?? studio.companyLogo ?? null,
     slug: studio.companySlug ?? "",
     country: studio.country ?? "",
     phone: studio.phone ?? "",
     onboarded: raw.onboardingComplete ?? false,
     onboardedAt: raw.onboardingCompletedAt ?? null,
     createdAt: raw.createdAt,
-    isActive: raw.isActive,
+    isActive: raw.isActive ?? true,
+    planId: subscription.planId ?? "",
     planName: subscription.planName ?? "",
     subscriptionStatus: subscription.status ?? "",
     paystackSubscriptionCode: subscription.paystackSubscriptionCode ?? null,
+    maxGalleries: usage.maxGalleries ?? subscription.maxGalleries ?? null,
+    limitOverride: subscription.limitOverride ?? null,
     clientsCount: usage.clientCount ?? 0,
     galleriesCount: usage.galleries?.all ?? 0,
+    galleryCounts: usage.galleries ?? null,
     storageUsed: usage.storageBytes ?? 0,
-    storageLimit: usage.storageLimitBytes ?? 0,
+    storageLimit: usage.storageLimitBytes ?? subscription.storageLimitBytes ?? 0,
     storageLabel: usage.storageLabel ?? "0 B",
-    storageLimitLabel: usage.storageLimitLabel ?? "0 B",
+    storageLimitLabel:
+      usage.storageLimitLabel ?? subscription.storageLabel ?? "0 B",
     lastLoginAt: activity.lastLoginAt ?? null,
     lastSeenAt: activity.lastSeenAt ?? null,
     loginCount: activity.loginCount ?? 0,
     activeSessions: activity.activeSessions ?? 0,
-    smsSenderId: studio.smsSenderId ?? null,
-    smsSenderStatus: studio.smsSenderStatus ?? null,
+    smsSenderId: raw.smsSenderId ?? studio.smsSenderId ?? null,
+    smsSenderStatus: raw.smsSenderStatus ?? studio.smsSenderStatus ?? null,
     recentSessions: (raw.recentSessions ?? []).map(mapSession),
   };
 }
@@ -170,7 +188,22 @@ function mapSendResult(data: {
     summary?: SendResult;
     recipients?: CommunicationRecipient[];
   };
+  results?: {
+    sms?: { summary?: SendResult };
+    email?: { summary?: SendResult };
+  };
 }): SendResult {
+  if (data.results) {
+    const sms = data.results.sms?.summary;
+    const email = data.results.email?.summary;
+    return {
+      targeted: (sms?.targeted ?? 0) + (email?.targeted ?? 0),
+      sent: (sms?.sent ?? 0) + (email?.sent ?? 0),
+      failed: (sms?.failed ?? 0) + (email?.failed ?? 0),
+      skipped: (sms?.skipped ?? 0) + (email?.skipped ?? 0),
+    };
+  }
+
   const communication = data.communication;
   const summary = communication?.summary ?? {
     targeted: 0,
@@ -238,16 +271,14 @@ export async function communicate(
         ? ["sms"]
         : ["email"];
 
-  const { data } = await adminApi.post<{
-    communication?: {
-      summary?: SendResult;
-      recipients?: CommunicationRecipient[];
-    };
-  }>(`/api/admin/photographers/${userId}/communicate`, {
-    channels,
-    subject: body.subject,
-    message: body.message,
-  });
+  const { data } = await adminApi.post(
+    `/api/admin/photographers/${userId}/communicate`,
+    {
+      channels,
+      subject: body.subject,
+      message: body.message,
+    },
+  );
 
   return mapSendResult(data);
 }

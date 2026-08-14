@@ -907,6 +907,8 @@ export type UploadFolderMediaFormOptions = {
   setId?: string | null;
   /** When true, backend should generate watermarked preview derivatives for raw uploads. */
   applyPreviewWatermark?: boolean;
+  /** Route to photo or video upload endpoints. Omit to auto-partition mixed files. */
+  mediaKind?: "photos" | "videos";
 };
 
 export type FinalDeliveryUploadFields = {
@@ -963,6 +965,7 @@ export async function uploadFolderRawMedia(
     onConflict: formOptions?.duplicateAction,
     setId: formOptions?.setId,
     applyPreviewWatermark: formOptions?.applyPreviewWatermark,
+    mediaKind: formOptions?.mediaKind,
     onProgress: (loaded, total, lengthComputable, batch) => {
       onProgress?.(loaded, total, lengthComputable, batch);
     },

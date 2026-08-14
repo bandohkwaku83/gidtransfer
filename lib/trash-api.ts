@@ -35,6 +35,7 @@ export type ApiTrashGallery = ApiGallery & {
 
 export type ListTrashApiResponse = {
   retentionDays?: number;
+  restoreAvailable?: boolean;
   counts?: {
     galleries?: number;
     photos?: number;
@@ -179,6 +180,7 @@ export function mapListTrashApiResponse(
     deletedMedia: restorableMedia,
     deletedMediaTotal: restorableMedia.length,
     deletedMediaPreviewLimit: restorableMedia.length,
+    restoreAvailable: safeBody.restoreAvailable !== false,
   };
 }
 

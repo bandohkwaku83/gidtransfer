@@ -15,6 +15,10 @@ import { IncomeReportMenu } from "@/components/income/income-report-menu";
 import { useToast } from "@/components/toast-provider";
 import { FormSelect } from "@/components/ui/form-select";
 import { dashboardPageHeaderCtaClassName } from "@/components/dashboard/dashboard-page-header";
+import {
+  DASHBOARD_TABLE_DEFAULT_PAGE_SIZE,
+  dashboardTablePaginationProps,
+} from "@/components/dashboard/dashboard-table-pagination";
 import { formatBookingAmount } from "@/lib/bookings-api";
 import {
   deleteIncome,
@@ -72,7 +76,7 @@ export default function IncomePage() {
   const [editing, setEditing] = useState<IncomeEntry | null>(null);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
+  const [pageSize, setPageSize] = useState(DASHBOARD_TABLE_DEFAULT_PAGE_SIZE);
   const [selectedYear, setSelectedYear] = useState(() => String(new Date().getFullYear()));
 
   const loadIncome = useCallback(async (year: number) => {
@@ -380,22 +384,17 @@ export default function IncomePage() {
             rowKey="id"
             columns={columns}
             dataSource={filteredEntries}
-            pagination={{
+            pagination={dashboardTablePaginationProps({
               current: page,
               pageSize,
               total: entryCount,
-              showSizeChanger: true,
-              pageSizeOptions: [5, 10, 20],
-              showTotal: (total) => (
-                <span className="text-sm text-zinc-600 dark:text-zinc-400">
-                  Total {total} income {total === 1 ? "entry" : "entries"} in {selectedYear}
-                </span>
-              ),
+              noun: { singular: "income entry", plural: "income entries" },
+              suffix: `in ${selectedYear}`,
               onChange: (nextPage, nextPageSize) => {
                 setPage(nextPage);
                 setPageSize(nextPageSize);
               },
-            }}
+            })}
             locale={{
               emptyText: loading
                 ? "Loading income…"

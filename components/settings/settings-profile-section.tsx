@@ -95,12 +95,12 @@ export function SettingsProfileSection({
   const [signingOut, setSigningOut] = useState(false);
 
   const studio = auth?.user?.studio;
-  const apiStudio = pageData?.bundle.studio;
-  const apiProfile = pageData?.bundle.profile;
-  const apiOverview = pageData?.bundle.overview;
+  const apiStudio = pageData?.bundle?.studio;
+  const apiProfile = pageData?.bundle?.profile;
+  const apiOverview = pageData?.bundle?.overview;
   const savedEmail =
-    pageData?.bundle.account?.photographerEmail?.trim() ||
-    pageData?.bundle.account?.email?.trim() ||
+    pageData?.bundle?.account?.photographerEmail?.trim() ||
+    pageData?.bundle?.account?.email?.trim() ||
     apiStudio?.photographerEmail?.trim() ||
     apiStudio?.email?.trim() ||
     apiProfile?.email?.trim() ||
@@ -109,14 +109,19 @@ export function SettingsProfileSection({
     "";
   const memberSince =
     apiOverview?.memberSince.label ??
-    pageData?.user.memberSince?.label ??
+    pageData?.user?.memberSince?.label ??
     formatMemberSince(auth?.user?.createdAt);
-  const planStorageLabel = apiOverview?.planStorage.label;
-  const planId: PlanId = apiProfile?.planName
-    ? planNameToPlanId(apiProfile.planName)
-    : "free";
+  const planStorageLabel =
+    apiOverview?.planStorage.label ?? auth?.user?.plan?.storageLabel;
+  const planId: PlanId =
+    auth?.user?.plan?.planId ??
+    (apiProfile?.planId ? planNameToPlanId(apiProfile.planId) : undefined) ??
+    (apiProfile?.planName ? planNameToPlanId(apiProfile.planName) : "free");
   const plan = PLANS[planId];
-  const planLabel = apiProfile?.planName?.replace(/\s+plan$/i, "") ?? plan.label;
+  const planLabel =
+    auth?.user?.plan?.planName ??
+    apiProfile?.planName?.replace(/\s+plan$/i, "") ??
+    plan.label;
   const galleriesLabel = galleriesOverviewDisplay(apiOverview?.galleries, {
     used: 0,
     limit: apiOverview ? null : plan.maxGalleries,

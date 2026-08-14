@@ -27,6 +27,7 @@ import { normalizeGallerySets, type ApiGallerySet } from "@/lib/gallery-sets-api
 import { readSetsBarSettingsFromApiBody } from "@/lib/gallery-set-filter";
 import {
   pickStreamingFields,
+  isImagePreviewUrl,
   type GalleryStreamingFields,
 } from "@/lib/gallery-media-streaming";
 
@@ -34,7 +35,9 @@ export type ShareGalleryAsset = {
   id: string;
   originalName: string;
   thumbUrl: string;
-  /** Full-quality file URL — fallback while thumbnails / watermarks process. */
+  /** Grid-optimized progressive thumb when distinct from {@link thumbUrl}. */
+  gridUrl?: string;
+  /** Full-quality file URL — downloads only; never use for grid tiles. */
   url?: string;
   /** Watermarked client preview URL when distinct from {@link thumbUrl}. */
   displayUrl?: string;
@@ -247,6 +250,8 @@ export type PublicGalleryResponse = {
     watermark_preview_enabled?: boolean;
     allowDownloads?: boolean;
     allow_downloads?: boolean;
+    commentsEnabled?: boolean;
+    comments_enabled?: boolean;
   };
   studio?: {
     companyName?: string;
@@ -345,6 +350,8 @@ export type NormalizedShareGallery = {
     flaggedFinals?: number;
     selectionsRemaining?: number | null;
   };
+  /** When false, hide client comment / flag actions (Basic+ on the photographer plan). */
+  commentsEnabled?: boolean;
   /** Server-side AI selection summary when enabled. */
   aiSelection?: GalleryAiSelection;
 };
@@ -1069,8 +1076,8 @@ function assetFromRow(item: unknown, idx: number): ShareGalleryAsset | null {
   const fullUrlRaw = str(o.url) || "";
   const urlResolved = fullUrlRaw
     ? resolvePublicGalleryImageUrl(fullUrlRaw)
-    : viewUrlResolved || thumbUrl;
-  if (!thumbUrl && !urlResolved) return null;
+    : "";
+  if (!thumbUrl && !urlResolved && !viewUrlResolved) return null;
 
   const displayUrlRaw = str(o.displayUrl) || str(o.previewUrl) || viewRaw || "";
   const displayUrlResolved = displayUrlRaw
@@ -1096,15 +1103,10 @@ function assetFromRow(item: unknown, idx: number): ShareGalleryAsset | null {
     ? resolvePublicGalleryImageUrl(streaming.dashUrl)
     : "";
 
+  // Lightbox: viewUrl / displayUrl. Master `url` stays for downloads only.
   const previewUrl = isVideo
     ? undefined
-    : viewUrlResolved && viewUrlResolved !== thumbUrl
-      ? viewUrlResolved
-      : displayUrlResolved && thumbUrl && displayUrlResolved !== thumbUrl
-        ? displayUrlResolved
-        : displayUrlResolved && !thumbUrl
-          ? displayUrlResolved
-          : undefined;
+    : viewUrlResolved || displayUrlResolved || undefined;
 
   const derivativesReady =
     o.derivativesReady === undefined && o.derivatives_ready === undefined
@@ -1139,12 +1141,30 @@ function assetFromRow(item: unknown, idx: number): ShareGalleryAsset | null {
 
   const gridPoster =
     posterResolved || (gridRaw ? resolvePublicGalleryImageUrl(gridRaw) : "");
-  const imageThumb = thumbUrl || urlResolved;
+  // Prefer API grid/thumb. While derivatives are pending, gridUrl may equal the
+  // master — strip that so tiles show a skeleton instead of baseline JPEG.
+  let imageThumb = thumbUrl;
+  if (
+    derivativesReady === false &&
+    urlResolved &&
+    imageThumb &&
+    imageThumb === urlResolved
+  ) {
+    imageThumb = "";
+  }
+  if (isVideo) {
+    imageThumb = isImagePreviewUrl(imageThumb) ? imageThumb : "";
+  }
+  const imagePoster = isImagePreviewUrl(gridPoster) ? gridPoster : "";
+  const resolvedGridUrl = isVideo
+    ? imagePoster || imageThumb || undefined
+    : imageThumb || undefined;
 
   return {
     id,
     originalName,
-    thumbUrl: isVideo ? gridPoster || imageThumb : imageThumb,
+    thumbUrl: isVideo ? imagePoster || imageThumb : imageThumb,
+    ...(resolvedGridUrl ? { gridUrl: resolvedGridUrl } : {}),
     ...(urlResolved ? { url: urlResolved } : {}),
     ...(displayUrlResolved ? { displayUrl: displayUrlResolved } : {}),
     ...(previewUrl ? { previewUrl } : {}),
@@ -1700,6 +1720,21 @@ export function normalizeShareGalleryBody(body: unknown): NormalizedShareGallery
     (root as Raw).watermark_preview_images,
   );
 
+  let commentsEnabled: boolean | undefined;
+  for (const v of [
+    folderPayload.commentsEnabled,
+    (folderPayload as Raw).comments_enabled,
+    folder?.commentsEnabled,
+    (folder as Raw | null)?.comments_enabled,
+    root.commentsEnabled,
+    (root as Raw).comments_enabled,
+  ]) {
+    if (typeof v === "boolean") {
+      commentsEnabled = v;
+      break;
+    }
+  }
+
   const studioRaw =
     root.studio && typeof root.studio === "object" ? (root.studio as Raw) : null;
   const studioLogoRaw = readStudioLogoRaw(studioRaw);
@@ -1747,6 +1782,7 @@ export function normalizeShareGalleryBody(body: unknown): NormalizedShareGallery
     ...(bodyFont ? { bodyFont } : {}),
     ...(allowDownloads !== undefined ? { allowDownloads } : {}),
     watermarkPreviewEnabled,
+    commentsEnabled: commentsEnabled ?? true,
     ...(sets.length > 0 ? { sets } : {}),
     ...(setsAllLabel ? { setsAllLabel } : {}),
     ...(setsAllSortOrder !== undefined ? { setsAllSortOrder } : {}),

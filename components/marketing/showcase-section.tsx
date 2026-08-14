@@ -1,9 +1,9 @@
 "use client";
 
 import Image from "next/image";
-import Link from "next/link";
 import { ShowcaseCarousel } from "@/components/marketing/showcase-carousel";
 import { marketingSignUpHref } from "@/lib/marketing/auth-links";
+import { MarketingCornerCta } from "@/components/marketing/marketing-corner-cta";
 import { usePhotographerSignedIn } from "@/lib/marketing/use-photographer-signed-in";
 import { SHOWCASE_TEXTURE_IMAGE, showcaseItems } from "@/lib/marketing/showcase-items";
 import { cn } from "@/lib/utils";
@@ -54,12 +54,12 @@ export function ShowcaseSection({ embedded = false }: ShowcaseSectionProps) {
                 Every gallery, beautifully presented
               </h1>
             )}
-            <Link
+            <MarketingCornerCta
               href={signUpHref}
-              className="inline-flex w-full shrink-0 items-center justify-center rounded-xl bg-[#55001F] px-5 py-3 text-sm font-semibold text-white shadow-[0_14px_30px_-12px_rgba(85,0,31,0.45)] transition hover:bg-[#440019] sm:w-auto sm:rounded-sm sm:py-2.5"
+              className="w-full shrink-0 justify-center sm:w-auto"
             >
               {signedIn ? "Open studio" : "Start free"}
-            </Link>
+            </MarketingCornerCta>
           </div>
           <div className="mt-4 h-px w-10 bg-slate-200" aria-hidden />
         </div>

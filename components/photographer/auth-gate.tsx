@@ -12,6 +12,8 @@ import {
 } from "@/lib/auth-demo";
 import { userNeedsEmailVerification, verifyEmailPath } from "@/lib/auth-api";
 import {
+  endHostAuthHandoff,
+  isHostAuthHandoffInFlight,
   photographerAuthUrl,
   redirectToTenantHostIfNeeded,
 } from "@/lib/studio-url";
@@ -21,17 +23,28 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    consumeAuthHandoffFromUrl();
+    const consumedHandoff = consumeAuthHandoffFromUrl();
+    if (consumedHandoff) {
+      endHostAuthHandoff();
+    }
 
     const auth = getAuth();
     const token = getAuthToken();
     if (!auth?.user || !token) {
+      // Apex cleared localStorage right before navigating to `{slug}.localhost?_auth=…`.
+      // A Strict Mode remount must not overwrite that navigation with bare /login.
+      if (isHostAuthHandoffInFlight()) {
+        return;
+      }
       window.location.replace(photographerAuthUrl("/login"));
       return;
     }
     refreshAuthFromPersisted();
     const next = getAuth()?.user;
     if (!next) {
+      if (isHostAuthHandoffInFlight()) {
+        return;
+      }
       window.location.replace(photographerAuthUrl("/login"));
       return;
     }
@@ -44,11 +57,13 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
       return;
     }
     const slug = next.studio?.companySlug?.trim();
+    // Keep deep links (e.g. billing success) when moving apex → studio host.
+    const dest = `${window.location.pathname}${window.location.search}` || "/dashboard";
     if (
       slug &&
       redirectToTenantHostIfNeeded(
         slug,
-        "/dashboard",
+        dest,
         {
           studioUrl: next.studio?.studioUrl,
           studioUrlSuffix: next.studio?.studioUrlSuffix,
@@ -59,6 +74,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     ) {
       return;
     }
+    endHostAuthHandoff();
     queueMicrotask(() => setReady(true));
   }, [router]);
 

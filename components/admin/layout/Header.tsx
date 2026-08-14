@@ -7,6 +7,13 @@ import { useAdminAuth } from "@/lib/admin/use-admin-auth";
 const PAGE_TITLES: Record<string, string> = {
   "/admin": "Dashboard",
   "/admin/photographers": "Photographers",
+  "/admin/galleries": "Galleries",
+  "/admin/moderation": "Moderation",
+  "/admin/trash": "Trash",
+  "/admin/crm": "CRM",
+  "/admin/crm/bookings": "Bookings",
+  "/admin/billing": "Billing",
+  "/admin/billing/events": "Billing events",
   "/admin/support": "Support",
   "/admin/communications": "Communications",
   "/admin/sms/sender-ids": "SMS Approvals",
@@ -14,6 +21,8 @@ const PAGE_TITLES: Record<string, string> = {
 
 function getPageTitle(pathname: string): string {
   if (pathname.startsWith("/admin/photographers/")) return "Photographer details";
+  if (pathname.startsWith("/admin/galleries/")) return "Gallery details";
+  if (pathname.startsWith("/admin/crm/studios/")) return "Studio CRM";
   return PAGE_TITLES[pathname] ?? "Admin";
 }
 

@@ -33,7 +33,11 @@ function parseS3Headers(raw: string | null): Record<string, string> {
 
 /**
  * Same-origin relay for presigned S3 PUTs during local dev when bucket CORS
- * is not configured. Production clients should PUT to S3 directly.
+ * is not configured. Prefer `NEXT_PUBLIC_S3_DIRECT_UPLOAD=true` + apply
+ * `scripts/s3-cors.json` so the browser PUTs straight to S3.
+ *
+ * Apply CORS (example):
+ *   aws s3api put-bucket-cors --bucket YOUR_BUCKET --cors-configuration file://scripts/s3-cors.json
  */
 export async function POST(request: Request) {
   if (process.env.NODE_ENV === "production") {

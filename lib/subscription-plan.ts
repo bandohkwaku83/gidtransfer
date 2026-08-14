@@ -1,13 +1,15 @@
 import { getAuth } from "@/lib/auth-demo";
 import { SEED_PROJECTS, loadAllProjects } from "@/lib/demo-data";
 import { FoldersApiError } from "@/lib/folders/types";
+import type { BillingPlanId } from "@/lib/plan-entitlements";
+import { normalizePlanId } from "@/lib/plan-entitlements";
 import {
   computeDemoStorageTotalBytes,
   estimateDemoBytesForNewFinalAssets,
   estimateDemoBytesForNewRawAssets,
 } from "@/lib/usage-api";
 
-export type PlanId = "free" | "starter" | "studio" | "pro";
+export type PlanId = BillingPlanId;
 
 export type PlanDefinition = {
   id: PlanId;
@@ -26,42 +28,70 @@ export const PLANS: Record<PlanId, PlanDefinition> = {
   free: {
     id: "free",
     label: "Free",
-    description: "5 GB storage for getting started.",
+    description: "Try the product with a few clients (30-day trial).",
     storageBytes: 5 * 1024 * 1024 * 1024,
-    maxGalleries: 2,
-    priceLabel: "Free",
-    perks: ["5 GB storage", "2 galleries", "Share links & client selection"],
-  },
-  starter: {
-    id: "starter",
-    label: "Starter",
-    description: "25 GB storage for growing studios.",
-    storageBytes: 25 * 1024 * 1024 * 1024,
     maxGalleries: 3,
-    priceLabel: "GHS 79 / mo",
-    perks: ["25 GB storage", "3 galleries", "Share links & watermarks"],
+    priceLabel: "Free (30-day trial)",
+    perks: [
+      "5 GB Cloud Storage",
+      "Up to 3 galleries",
+      "Client selections & share links",
+      "Text watermarks",
+      "Bookings, CRM & income tracking",
+      "Analytics dashboard",
+    ],
+  },
+  basic: {
+    id: "basic",
+    label: "Basic",
+    description: "Share by SMS and deliver adaptive video.",
+    storageBytes: 25 * 1024 * 1024 * 1024,
+    maxGalleries: 10,
+    priceLabel: "GH₵ 40 / mo",
+    perks: [
+      "25 GB Cloud Storage",
+      "Up to 10 galleries",
+      "Everything in Free, plus:",
+      "SMS notifications",
+      "Adaptive video (DASH)",
+      "Priority support",
+    ],
   },
   pro: {
     id: "pro",
     label: "Pro",
-    description: "100 GB storage for busy photographers.",
+    description: "Branded downloads and deeper insights.",
     storageBytes: 100 * 1024 * 1024 * 1024,
-    maxGalleries: null,
-    priceLabel: "GHS 199 / mo",
-    perks: ["100 GB storage", "Unlimited galleries", "Priority support (coming soon)"],
+    maxGalleries: 50,
+    priceLabel: "GH₵ 70 / mo",
+    perks: [
+      "100 GB Cloud Storage",
+      "Up to 50 galleries",
+      "Everything in Basic, plus:",
+      "Custom SMS sender ID",
+      "Logo watermark on downloads",
+      "Advanced analytics",
+      "Restore from trash",
+    ],
   },
-  studio: {
-    id: "studio",
-    label: "Studio",
-    description: "500 GB storage for high-volume studios.",
-    storageBytes: 500 * 1024 * 1024 * 1024,
+  premium: {
+    id: "premium",
+    label: "Premium",
+    description: "Unlimited galleries and Gallery AI for clients.",
+    storageBytes: 250 * 1024 * 1024 * 1024,
     maxGalleries: null,
-    priceLabel: "GHS 499 / mo",
-    perks: ["500 GB storage", "Unlimited galleries", "Team seats (coming soon)"],
+    priceLabel: "GH₵ 120 / mo",
+    perks: [
+      "250 GB Cloud Storage",
+      "Unlimited galleries",
+      "Everything in Pro, plus:",
+      "Gallery AI (studio + client smart picks)",
+      "Premium support",
+    ],
   },
 };
 
-const PLAN_IDS = new Set<PlanId>(["free", "starter", "studio", "pro"]);
+const PLAN_IDS = new Set<PlanId>(["free", "basic", "pro", "premium"]);
 
 function normEmail(email: string) {
   return email.trim().toLowerCase();
@@ -90,11 +120,16 @@ function accountEmail(): string | undefined {
   return a?.user?.email ?? a?.email;
 }
 
+function coerceStoredPlanId(value: string | undefined): PlanId {
+  if (!value) return "free";
+  const normalized = normalizePlanId(value);
+  return normalized && PLAN_IDS.has(normalized) ? normalized : "free";
+}
+
 export function getSubscriptionPlanIdForEmail(email: string | undefined | null): PlanId {
   if (!email?.trim()) return "free";
   if (typeof window === "undefined") return "free";
-  const stored = readPlanMap()[normEmail(email)];
-  return stored && PLAN_IDS.has(stored) ? stored : "free";
+  return coerceStoredPlanId(readPlanMap()[normEmail(email)]);
 }
 
 export function getSubscriptionPlanId(): PlanId {
@@ -102,6 +137,25 @@ export function getSubscriptionPlanId(): PlanId {
 }
 
 export function getActivePlanDefinition(): PlanDefinition {
+  if (typeof window !== "undefined") {
+    const plan = getAuth()?.user?.plan;
+    if (plan) {
+      return {
+        id: plan.planId,
+        label: plan.planName,
+        description: plan.planLabel,
+        storageBytes: plan.storageLimitBytes,
+        maxGalleries: plan.maxGalleries,
+        priceLabel:
+          plan.priceGhs <= 0
+            ? plan.trialActive
+              ? "Free (trial)"
+              : "Free"
+            : `GH₵ ${plan.priceGhs}${plan.interval === "monthly" ? " / mo" : ""}`,
+        perks: plan.perks,
+      };
+    }
+  }
   return PLANS[getSubscriptionPlanId()];
 }
 
@@ -109,7 +163,7 @@ export function setSubscriptionPlanIdForEmail(email: string, planId: PlanId): vo
   if (typeof window === "undefined") return;
   const key = normEmail(email);
   if (!key) return;
-  const next = { ...readPlanMap(), [key]: planId };
+  const next = { ...readPlanMap(), [key]: coerceStoredPlanId(planId) };
   writePlanMap(next);
 }
 

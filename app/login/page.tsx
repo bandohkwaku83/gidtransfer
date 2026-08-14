@@ -8,22 +8,30 @@ import { ArrowLeft } from "lucide-react";
 import {
   AuthApiError,
   navigateAfterAuth,
+  fetchAuthMe,
   forgotPassword,
   loginWithEmail,
   loginWithGoogle,
+  mapApiUserToAuthUser,
+  mergeApiAuthUser,
   persistAuthResponse,
   registerWithEmail,
+  resendVerification,
   userNeedsEmailVerification,
-  verifyEmailPath,
+  verifyEmail,
 } from "@/lib/auth-api";
-import { getAuth, getAuthToken, clearAuth } from "@/lib/auth-demo";
+import { getAuth, getAuthToken, clearAuth, setAuthSession } from "@/lib/auth-demo";
 import { getGoogleClientId, requestGoogleIdToken } from "@/lib/google-identity";
+import { SignupOtpInput } from "@/components/auth/signup-otp-input";
 import { AuthFormInput, AuthFormPasswordInput } from "@/components/ui/form-input";
 import { redirectToApexAuthIfNeeded } from "@/lib/studio-url";
 import { APP_NAME, PRODUCT_TAGLINE } from "@/lib/branding";
 import { cn } from "@/lib/utils";
 
-type AuthScreen = "signin" | "signup" | "forgot";
+type AuthScreen = "signin" | "signup" | "forgot" | "verify";
+
+const OTP_LENGTH = 6;
+const DEFAULT_RESEND_SECONDS = 60;
 
 const slides = [
   {
@@ -102,7 +110,24 @@ function GoogleMark({ className }: { className?: string }) {
 }
 
 function screenFromSearchParams(searchParams: URLSearchParams): AuthScreen {
-  return searchParams.get("screen") === "signup" ? "signup" : "signin";
+  const screen = searchParams.get("screen");
+  if (screen === "signup") return "signup";
+  if (screen === "verify") return "verify";
+  if (screen === "forgot") return "forgot";
+  return "signin";
+}
+
+function replaceLoginScreen(screen: AuthScreen) {
+  if (typeof window === "undefined") return;
+  const params = new URLSearchParams(window.location.search);
+  if (screen === "signin") params.delete("screen");
+  else params.set("screen", screen);
+  const qs = params.toString();
+  window.history.replaceState(
+    {},
+    "",
+    `${window.location.pathname}${qs ? `?${qs}` : ""}${window.location.hash}`,
+  );
 }
 
 function AuthTab({
@@ -149,9 +174,15 @@ function LoginPageForm() {
   const [googleLoading, setGoogleLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [forgotSuccess, setForgotSuccess] = useState<string | null>(null);
+  const [otp, setOtp] = useState("");
+  const [verifyStatus, setVerifyStatus] = useState<string | null>(null);
+  const [resendCooldown, setResendCooldown] = useState(0);
+  const [verifyReady, setVerifyReady] = useState(screen !== "verify");
 
   const [slideIndex, setSlideIndex] = useState(0);
   const carouselPausedRef = useRef(false);
+  const verifyInFlightRef = useRef(false);
+  const autoSubmittedOtpRef = useRef<string | null>(null);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -173,12 +204,95 @@ function LoginPageForm() {
     const token = getAuthToken();
     if (auth?.user?.email?.trim() && token) {
       if (userNeedsEmailVerification(auth.user)) {
-        router.replace(verifyEmailPath());
+        setEmail(auth.user.email.trim());
+        goToVerify(auth.user.email.trim());
         return;
       }
-      navigateAfterAuth(auth.user, router);
+      // Only auto-enter the app when onboarding is done. Incomplete signups must
+      // stay on the login form so “Sign in” never dumps people on /onboarding.
+      if (
+        auth.user.onboardingComplete &&
+        screenFromSearchParams(params) !== "verify"
+      ) {
+        navigateAfterAuth(auth.user, router);
+        return;
+      }
     }
   }, [router]);
+
+  useEffect(() => {
+    if (screen !== "verify") {
+      setVerifyReady(true);
+      return;
+    }
+
+    let cancelled = false;
+
+    async function initVerify() {
+      const token = getAuthToken();
+      const auth = getAuth();
+      if (!token || !auth?.user?.email?.trim()) {
+        if (!cancelled) {
+          setScreen("signup");
+          replaceLoginScreen("signup");
+          setVerifyReady(true);
+        }
+        return;
+      }
+
+      setEmail(auth.user.email.trim());
+
+      // Already verified in this session — leave verify immediately.
+      if (!userNeedsEmailVerification(auth.user)) {
+        navigateAfterAuth(auth.user, router);
+        return;
+      }
+
+      try {
+        const { user: apiUser } = await fetchAuthMe();
+        if (cancelled) return;
+        const user = mapApiUserToAuthUser(mergeApiAuthUser(apiUser, auth.user));
+        // Never clobber a just-verified session with a stale unverified /me.
+        if (getAuth()?.user?.emailVerified === true) {
+          navigateAfterAuth(getAuth()!.user!, router);
+          return;
+        }
+        setAuthSession({ ...auth, token, user });
+        setEmail(user.email);
+
+        if (!userNeedsEmailVerification(user)) {
+          navigateAfterAuth(user, router);
+          return;
+        }
+      } catch {
+        if (cancelled) return;
+        if (getAuth()?.user?.emailVerified === true) {
+          navigateAfterAuth(getAuth()!.user!, router);
+          return;
+        }
+        if (!userNeedsEmailVerification(auth.user)) {
+          navigateAfterAuth(auth.user, router);
+          return;
+        }
+      }
+
+      if (!cancelled) setVerifyReady(true);
+    }
+
+    setVerifyReady(false);
+    void initVerify();
+    return () => {
+      cancelled = true;
+    };
+  }, [screen, router]);
+
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const id = window.setInterval(() => {
+      setResendCooldown((seconds) => (seconds <= 1 ? 0 : seconds - 1));
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [resendCooldown]);
 
   useEffect(() => {
     const id = window.setInterval(() => {
@@ -197,6 +311,23 @@ function LoginPageForm() {
     if (err instanceof AuthApiError) return err.message;
     if (err instanceof Error && err.message) return err.message;
     return fallback;
+  }
+
+  function goToVerify(nextEmail?: string) {
+    if (nextEmail?.trim()) setEmail(nextEmail.trim());
+    setOtp("");
+    setError(null);
+    setVerifyStatus(null);
+    autoSubmittedOtpRef.current = null;
+    verifyInFlightRef.current = false;
+    setScreen("verify");
+    replaceLoginScreen("verify");
+  }
+
+  function startCountdown(seconds: number) {
+    const next =
+      Number.isFinite(seconds) && seconds > 0 ? Math.ceil(seconds) : DEFAULT_RESEND_SECONDS;
+    setResendCooldown(next);
   }
 
   async function submit() {
@@ -223,7 +354,7 @@ function LoginPageForm() {
         const res = await registerWithEmail(trimmedEmail, password, agreed);
         const user = persistAuthResponse(res);
         if (userNeedsEmailVerification(user) || res.requiresEmailVerification) {
-          router.push(verifyEmailPath());
+          goToVerify(user.email);
           return;
         }
         navigateAfterAuth(user, router);
@@ -233,7 +364,7 @@ function LoginPageForm() {
       const res = await loginWithEmail(trimmedEmail, password);
       const user = persistAuthResponse(res);
       if (userNeedsEmailVerification(user) || res.requiresEmailVerification) {
-        router.push(verifyEmailPath());
+        goToVerify(user.email);
         return;
       }
       navigateAfterAuth(user, router);
@@ -266,6 +397,73 @@ function LoginPageForm() {
     }
   }
 
+  async function submitVerify(code = otp) {
+    if (verifyInFlightRef.current || submitting) return;
+
+    const digits = code.replace(/\D/g, "").slice(0, OTP_LENGTH);
+    if (digits.length < OTP_LENGTH) {
+      setError(`Enter the ${OTP_LENGTH}-digit code from your email.`);
+      return;
+    }
+
+    verifyInFlightRef.current = true;
+    setSubmitting(true);
+    setError(null);
+    try {
+      const res = await verifyEmail(digits);
+      const user = persistAuthResponse(res, { emailJustVerified: true });
+      navigateAfterAuth(user, router);
+    } catch (err) {
+      setError(authErrorMessage(err, "That code is incorrect or expired. Try again."));
+      setOtp("");
+      autoSubmittedOtpRef.current = null;
+    } finally {
+      verifyInFlightRef.current = false;
+      setSubmitting(false);
+    }
+  }
+
+  // Auto-verify as soon as all OTP digits are entered (no button tap required).
+  useEffect(() => {
+    if (screen !== "verify" || !verifyReady) return;
+    const digits = otp.replace(/\D/g, "").slice(0, OTP_LENGTH);
+    if (digits.length !== OTP_LENGTH) {
+      autoSubmittedOtpRef.current = null;
+      return;
+    }
+    if (autoSubmittedOtpRef.current === digits || verifyInFlightRef.current) return;
+    autoSubmittedOtpRef.current = digits;
+    void submitVerify(digits);
+  }, [otp, screen, verifyReady]);
+
+  async function submitResend() {
+    if (submitting || resendCooldown > 0) return;
+    setError(null);
+
+    setSubmitting(true);
+    try {
+      const res = await resendVerification();
+      setVerifyStatus(res.message);
+      startCountdown(res.resendAfterSeconds);
+      setOtp("");
+    } catch (err) {
+      if (err instanceof AuthApiError && err.status === 429) {
+        const seconds =
+          err.body &&
+          typeof err.body === "object" &&
+          typeof (err.body as { resendAfterSeconds?: unknown }).resendAfterSeconds === "number"
+            ? (err.body as { resendAfterSeconds: number }).resendAfterSeconds
+            : DEFAULT_RESEND_SECONDS;
+        startCountdown(seconds);
+        setError(err.message);
+        return;
+      }
+      setError(authErrorMessage(err, "Could not resend the verification code."));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   async function submitGoogle() {
     if (submitting || googleLoading) return;
 
@@ -293,30 +491,47 @@ function LoginPageForm() {
   function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === "Enter") {
       if (screen === "forgot") submitForgot();
+      else if (screen === "verify") void submitVerify();
       else submit();
     }
   }
 
   function openForgot() {
     setScreen("forgot");
+    replaceLoginScreen("forgot");
     setError(null);
     setForgotSuccess(null);
   }
 
   function backToSignIn() {
     setScreen("signin");
+    replaceLoginScreen("signin");
     setError(null);
     setForgotSuccess(null);
+    setOtp("");
+    setVerifyStatus(null);
+  }
+
+  function backToSignUpFromVerify() {
+    clearAuth();
+    setOtp("");
+    setVerifyStatus(null);
+    setError(null);
+    setPassword("");
+    setScreen("signup");
+    replaceLoginScreen("signup");
   }
 
   function switchScreen(next: "signin" | "signup") {
     setScreen(next);
+    replaceLoginScreen(next);
     setError(null);
     setForgotSuccess(null);
   }
 
   const isSignUp = screen === "signup";
   const isForgot = screen === "forgot";
+  const isVerify = screen === "verify";
   const formBusy = submitting || googleLoading;
 
   return (
@@ -458,6 +673,16 @@ function LoginPageForm() {
                     Enter your studio email. If an account exists, we will send reset instructions.
                   </p>
                 </>
+              ) : isVerify ? (
+                <>
+                  <h1 className="mt-6 font-display text-xl font-semibold tracking-tight text-zinc-900 sm:mt-8 sm:text-2xl lg:text-3xl">
+                    Verify your email
+                  </h1>
+                  <p className="mt-2 text-sm leading-relaxed text-zinc-600">
+                    Enter the {OTP_LENGTH}-digit code we sent to{" "}
+                    <span className="font-medium text-zinc-800">{email || "your email"}</span>.
+                  </p>
+                </>
               ) : (
                 <>
                   <div
@@ -493,163 +718,230 @@ function LoginPageForm() {
               )}
 
               <div className="mt-6 space-y-4 pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:mt-7">
-                <>
-                <label className="block text-sm font-medium text-zinc-800">
-                  Email
-                  <AuthFormInput
-                    type="email"
-                    autoComplete="email"
-                    inputMode="email"
-                    className="mt-1.5"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    onKeyDown={onKeyDown}
-                    disabled={formBusy}
-                    placeholder="you@studiomail.com"
-                  />
-                </label>
+                {isVerify ? (
+                  !verifyReady ? (
+                    <p className="text-sm text-zinc-500">Loading…</p>
+                  ) : (
+                    <>
+                      {verifyStatus ? (
+                        <div
+                          role="status"
+                          className="rounded-xl border border-brand-muted bg-brand-soft px-4 py-3 text-sm text-brand-ink"
+                        >
+                          <p>{verifyStatus}</p>
+                        </div>
+                      ) : null}
 
-                {!isForgot ? (
-                  <label className="block text-sm font-medium text-zinc-800">
-                    Password
-                    <AuthFormPasswordInput
-                      autoComplete={isSignUp ? "new-password" : "current-password"}
-                      className="mt-1.5"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      onKeyDown={onKeyDown}
-                      disabled={formBusy}
-                      placeholder="At least 6 characters"
-                    />
-                  </label>
-                ) : null}
+                      <SignupOtpInput
+                        value={otp}
+                        onChange={(value) => {
+                          setOtp(value);
+                          setError(null);
+                        }}
+                        disabled={formBusy}
+                        error={Boolean(error)}
+                        autoFocus
+                      />
 
-                {screen === "signin" && !isForgot ? (
-                  <div className="flex justify-end">
+                      <p className="text-center text-xs text-zinc-500">
+                        Didn&apos;t get a code?{" "}
+                        <button
+                          type="button"
+                          onClick={() => void submitResend()}
+                          disabled={formBusy || resendCooldown > 0}
+                          className="font-semibold text-brand underline-offset-2 hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {resendCooldown > 0 ? `Resend in ${resendCooldown}s` : "Resend code"}
+                        </button>
+                      </p>
+
+                      {error ? (
+                        <div
+                          role="alert"
+                          className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+                        >
+                          {error}
+                        </div>
+                      ) : null}
+
+                      <p className="text-center text-xs text-zinc-500" aria-live="polite">
+                        {submitting
+                          ? "Verifying…"
+                          : `Verifies automatically when all ${OTP_LENGTH} digits are entered.`}
+                      </p>
+
+                      <p className="text-center text-xs text-zinc-500">
+                        Wrong email?{" "}
+                        <button
+                          type="button"
+                          onClick={backToSignUpFromVerify}
+                          disabled={formBusy}
+                          className="font-semibold text-brand underline-offset-2 hover:underline disabled:opacity-50"
+                        >
+                          Back to sign up
+                        </button>
+                      </p>
+                    </>
+                  )
+                ) : (
+                  <>
+                    <label className="block text-sm font-medium text-zinc-800">
+                      Email
+                      <AuthFormInput
+                        type="email"
+                        autoComplete="email"
+                        inputMode="email"
+                        className="mt-1.5"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        onKeyDown={onKeyDown}
+                        disabled={formBusy}
+                        placeholder="you@studiomail.com"
+                      />
+                    </label>
+
+                    {!isForgot ? (
+                      <label className="block text-sm font-medium text-zinc-800">
+                        Password
+                        <AuthFormPasswordInput
+                          autoComplete={isSignUp ? "new-password" : "current-password"}
+                          className="mt-1.5"
+                          value={password}
+                          onChange={(e) => setPassword(e.target.value)}
+                          onKeyDown={onKeyDown}
+                          disabled={formBusy}
+                          placeholder="At least 6 characters"
+                        />
+                      </label>
+                    ) : null}
+
+                    {screen === "signin" && !isForgot ? (
+                      <div className="flex justify-end">
+                        <button
+                          type="button"
+                          onClick={openForgot}
+                          disabled={formBusy}
+                          className="text-xs font-semibold text-brand underline-offset-2 hover:underline disabled:pointer-events-none disabled:opacity-50"
+                        >
+                          Forgot password?
+                        </button>
+                      </div>
+                    ) : null}
+
+                    {isSignUp ? (
+                      <label className="flex cursor-pointer items-start gap-2.5 text-xs leading-relaxed text-zinc-600 sm:text-[13px]">
+                        <input
+                          type="checkbox"
+                          checked={agreed}
+                          onChange={(e) => setAgreed(e.target.checked)}
+                          className="mt-0.5 h-4 w-4 shrink-0 rounded border-zinc-300 text-brand focus:ring-brand"
+                        />
+                        <span className="min-w-0">
+                          I agree to the{" "}
+                          <a
+                            href="/terms"
+                            className="font-medium text-brand underline-offset-2 hover:underline"
+                          >
+                            Terms
+                          </a>{" "}
+                          and{" "}
+                          <a
+                            href="/privacy"
+                            className="font-medium text-brand underline-offset-2 hover:underline"
+                          >
+                            Privacy Policy
+                          </a>
+                          .
+                        </span>
+                      </label>
+                    ) : null}
+
+                    {forgotSuccess ? (
+                      <div
+                        role="status"
+                        className="rounded-xl border border-brand-muted bg-brand-soft px-4 py-3 text-sm text-brand-ink"
+                      >
+                        <p>{forgotSuccess}</p>
+                        {process.env.NODE_ENV === "development" ? (
+                          <p className="mt-2 text-xs text-brand-ink/80">
+                            Development: open your API terminal and look for{" "}
+                            <code className="rounded bg-white/70 px-1 py-0.5 font-mono text-[11px]">
+                              [password-reset]
+                            </code>{" "}
+                            to copy the reset link.
+                          </p>
+                        ) : null}
+                      </div>
+                    ) : null}
+
+                    {error ? (
+                      <div
+                        role="alert"
+                        className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+                      >
+                        {error}
+                      </div>
+                    ) : null}
+
                     <button
                       type="button"
-                      onClick={openForgot}
+                      onClick={isForgot ? submitForgot : submit}
                       disabled={formBusy}
-                      className="text-xs font-semibold text-brand underline-offset-2 hover:underline disabled:pointer-events-none disabled:opacity-50"
+                      aria-busy={submitting}
+                      className="flex w-full items-center justify-center rounded-xl bg-brand px-4 py-3.5 text-sm font-semibold text-white shadow-sm shadow-brand/20 transition hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-70 sm:py-3"
                     >
-                      Forgot password?
+                      {submitting
+                        ? isForgot
+                          ? "Sending…"
+                          : isSignUp
+                            ? "Creating account…"
+                            : "Signing in…"
+                        : isForgot
+                          ? "Send reset instructions"
+                          : isSignUp
+                            ? "Create account"
+                            : "Log in"}
                     </button>
-                  </div>
-                ) : null}
 
-                {isSignUp ? (
-                  <label className="flex cursor-pointer items-start gap-2.5 text-xs leading-relaxed text-zinc-600 sm:text-[13px]">
-                    <input
-                      type="checkbox"
-                      checked={agreed}
-                      onChange={(e) => setAgreed(e.target.checked)}
-                      className="mt-0.5 h-4 w-4 shrink-0 rounded border-zinc-300 text-brand focus:ring-brand"
-                    />
-                    <span className="min-w-0">
-                      I agree to the{" "}
-                      <a
-                        href="/terms"
-                        className="font-medium text-brand underline-offset-2 hover:underline"
-                      >
-                        Terms
-                      </a>{" "}
-                      and{" "}
-                      <a
-                        href="/privacy"
-                        className="font-medium text-brand underline-offset-2 hover:underline"
-                      >
-                        Privacy Policy
-                      </a>
-                      .
-                    </span>
-                  </label>
-                ) : null}
-                </>
+                    {!isForgot ? (
+                      <>
+                        <div className="flex items-center gap-3 py-1">
+                          <span className="h-px flex-1 bg-zinc-200" />
+                          <span className="text-xs font-medium text-zinc-400">or</span>
+                          <span className="h-px flex-1 bg-zinc-200" />
+                        </div>
 
-                {forgotSuccess ? (
-                  <div
-                    role="status"
-                    className="rounded-xl border border-brand-muted bg-brand-soft px-4 py-3 text-sm text-brand-ink"
-                  >
-                    <p>{forgotSuccess}</p>
-                    {process.env.NODE_ENV === "development" ? (
-                      <p className="mt-2 text-xs text-brand-ink/80">
-                        Development: open your API terminal and look for{" "}
-                        <code className="rounded bg-white/70 px-1 py-0.5 font-mono text-[11px]">
-                          [password-reset]
-                        </code>{" "}
-                        to copy the reset link.
+                        <button
+                          type="button"
+                          onClick={submitGoogle}
+                          disabled={formBusy}
+                          aria-busy={googleLoading}
+                          className="flex w-full items-center justify-center gap-2.5 rounded-xl border border-zinc-200 bg-white px-4 py-3.5 text-sm font-semibold text-zinc-800 transition hover:border-zinc-300 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-60 sm:py-3"
+                        >
+                          <GoogleMark className="h-4 w-4" />
+                          {googleLoading
+                            ? "Connecting…"
+                            : isSignUp
+                              ? "Sign up with Google"
+                              : "Continue with Google"}
+                        </button>
+                      </>
+                    ) : null}
+
+                    {isForgot ? (
+                      <p className="text-center text-xs text-zinc-500">
+                        Remember your password?{" "}
+                        <button
+                          type="button"
+                          onClick={backToSignIn}
+                          className="font-semibold text-brand underline-offset-2 hover:underline"
+                        >
+                          Back to log in
+                        </button>
                       </p>
                     ) : null}
-                  </div>
-                ) : null}
-
-                {error ? (
-                  <div
-                    role="alert"
-                    className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
-                  >
-                    {error}
-                  </div>
-                ) : null}
-
-                <button
-                  type="button"
-                  onClick={isForgot ? submitForgot : submit}
-                  disabled={formBusy}
-                  aria-busy={submitting}
-                  className="flex w-full items-center justify-center rounded-xl bg-brand px-4 py-3.5 text-sm font-semibold text-white shadow-sm shadow-brand/20 transition hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-70 sm:py-3"
-                >
-                  {submitting
-                    ? isForgot
-                      ? "Sending…"
-                      : isSignUp
-                        ? "Creating account…"
-                        : "Signing in…"
-                    : isForgot
-                      ? "Send reset instructions"
-                      : isSignUp
-                        ? "Create account"
-                        : "Log in"}
-                </button>
-
-                {!isForgot ? (
-                  <>
-                    <div className="flex items-center gap-3 py-1">
-                      <span className="h-px flex-1 bg-zinc-200" />
-                      <span className="text-xs font-medium text-zinc-400">or</span>
-                      <span className="h-px flex-1 bg-zinc-200" />
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={submitGoogle}
-                      disabled={formBusy}
-                      aria-busy={googleLoading}
-                      className="flex w-full items-center justify-center gap-2.5 rounded-xl border border-zinc-200 bg-white px-4 py-3.5 text-sm font-semibold text-zinc-800 transition hover:border-zinc-300 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-60 sm:py-3"
-                    >
-                      <GoogleMark className="h-4 w-4" />
-                      {googleLoading
-                        ? "Connecting…"
-                        : isSignUp
-                          ? "Sign up with Google"
-                          : "Continue with Google"}
-                    </button>
                   </>
-                ) : null}
-
-                {isForgot ? (
-                  <p className="text-center text-xs text-zinc-500">
-                    Remember your password?{" "}
-                    <button
-                      type="button"
-                      onClick={backToSignIn}
-                      className="font-semibold text-brand underline-offset-2 hover:underline"
-                    >
-                      Back to log in
-                    </button>
-                  </p>
-                ) : null}
+                )}
               </div>
             </div>
           </section>

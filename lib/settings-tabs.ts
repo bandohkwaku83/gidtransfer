@@ -1,7 +1,5 @@
-import type { LucideIcon } from "lucide-react";
 import {
   CreditCard,
-  Gift,
   ImageIcon,
   LifeBuoy,
   SlidersHorizontal,
@@ -32,12 +30,6 @@ export const SETTINGS_TABS = [
     label: "Gallery defaults",
     description: "Covers and client preview behavior",
     icon: SlidersHorizontal,
-  },
-  {
-    id: "refer",
-    label: "Refer a friend",
-    description: "Invite link and rewards",
-    icon: Gift,
   },
   {
     id: "support",

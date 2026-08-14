@@ -4,10 +4,16 @@ import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import type { Pagination } from "@/lib/admin/types";
 
-export function Pagination({ pagination }: { pagination: Pagination }) {
+export function Pagination({
+  pagination,
+}: {
+  pagination: Pagination | null | undefined;
+}) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+
+  if (!pagination || pagination.totalPages <= 1) return null;
 
   const goToPage = (page: number) => {
     const params = new URLSearchParams(searchParams.toString());
@@ -16,10 +22,8 @@ export function Pagination({ pagination }: { pagination: Pagination }) {
   };
 
   const { page, totalPages, total, limit } = pagination;
-  const start = (page - 1) * limit + 1;
+  const start = total === 0 ? 0 : (page - 1) * limit + 1;
   const end = Math.min(page * limit, total);
-
-  if (totalPages <= 1) return null;
 
   return (
     <div className="flex items-center justify-between px-1 py-2">

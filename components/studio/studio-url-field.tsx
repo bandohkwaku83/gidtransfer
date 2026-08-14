@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useMemo, useRef } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { Info, Link2 } from "lucide-react";
 import { FormInput } from "@/components/ui/form-input";
 import {
@@ -56,8 +56,12 @@ export function StudioUrlField({
 }: StudioUrlFieldProps) {
   const slugInputId = useId();
   const suffix = studioUrlSuffix.trim() || ".localhost:3000";
+  const [slugTouched, setSlugTouched] = useState(false);
   const validationError = studioSlugValidationMessage(companySlug);
-  const displayError = slugError || validationError;
+  // Don't paint the empty-slug error on first paint — only after edit/blur or parent submit error.
+  const showValidation =
+    Boolean(slugError) || slugTouched || slugManuallyEdited || companySlug.trim().length > 0;
+  const displayError = slugError || (showValidation ? validationError : null);
   const didInitRef = useRef(false);
 
   useEffect(() => {
@@ -98,8 +102,10 @@ export function StudioUrlField({
     : "";
   const suffixDisplay = suffix.startsWith(".") ? suffix : `.${suffix}`;
 
+  const stackClass = minimal || tight ? "space-y-5" : "space-y-4";
+
   return (
-    <div className={cn(tight ? "space-y-4" : minimal ? "space-y-4" : "space-y-4", className)}>
+    <div className={cn(stackClass, className)}>
       {onCompanyNameChange ? (
         <label className="block">
           <span className={labelClass}>
@@ -142,7 +148,7 @@ export function StudioUrlField({
           >
             <span
               className={cn(
-                "flex h-full shrink-0 items-center border-r border-neutral-200 bg-neutral-50 text-neutral-500",
+                "flex h-full shrink-0 items-center border-r border-neutral-200/80 bg-[#F5F5F5] text-neutral-500",
                 tight ? "px-2.5 text-sm" : "px-3 text-sm",
               )}
             >
@@ -154,8 +160,10 @@ export function StudioUrlField({
               value={companySlug}
               onChange={(e) => {
                 onSlugManuallyEdited(true);
+                setSlugTouched(true);
                 onCompanySlugChange(normalizeStudioSlugInput(e.target.value));
               }}
+              onBlur={() => setSlugTouched(true)}
               placeholder="your-studio"
               disabled={disabled}
               autoComplete="off"
@@ -164,13 +172,13 @@ export function StudioUrlField({
               aria-invalid={Boolean(displayError)}
               aria-describedby={`${slugInputId}-help`}
               className={cn(
-                "h-full min-w-0 flex-1 border-0 bg-white px-2.5 text-sm text-neutral-900 outline-none placeholder:text-neutral-400 disabled:cursor-not-allowed disabled:opacity-60",
+                "h-full min-w-0 flex-1 border-0 bg-[#F5F5F5] px-2.5 text-sm text-neutral-900 outline-none placeholder:text-neutral-400 disabled:cursor-not-allowed disabled:opacity-60",
               )}
             />
             <span
               id={`${slugInputId}-suffix`}
               className={cn(
-                "flex h-full shrink-0 items-center border-l border-neutral-200 bg-neutral-50 text-neutral-500",
+                "flex h-full shrink-0 items-center border-l border-neutral-200/80 bg-[#F5F5F5] text-neutral-500",
                 tight ? "px-2.5 text-sm" : "px-3 text-sm",
               )}
             >
@@ -184,8 +192,10 @@ export function StudioUrlField({
               value={companySlug}
               onChange={(e) => {
                 onSlugManuallyEdited(true);
+                setSlugTouched(true);
                 onCompanySlugChange(normalizeStudioSlugInput(e.target.value));
               }}
+              onBlur={() => setSlugTouched(true)}
               placeholder="bizzles"
               disabled={disabled}
               autoComplete="off"

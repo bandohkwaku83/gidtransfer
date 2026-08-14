@@ -3,6 +3,7 @@ import { loadProjectById } from "@/lib/demo-data";
 import type { DemoAsset, DemoFinalAsset, FolderStatus } from "@/lib/demo-data";
 import type { ApiFolder, ApiFolderMedia } from "@/lib/folders/types";
 import {
+  isImagePreviewUrl,
   pickStreamingFields,
   progressiveGridSrc,
 } from "@/lib/gallery-media-streaming";
@@ -282,9 +283,29 @@ function apiEditStatusToUi(s?: string): "NONE" | "IN_PROGRESS" | "EDITED" {
 
 /** Photographer dashboard grid — progressive JPEG thumbs; video posters. */
 export function demoAssetGridSrc(
-  asset: Pick<DemoAsset, "gridUrl" | "thumbUrl" | "url" | "posterUrl" | "isVideo">,
+  asset: Pick<
+    DemoAsset,
+    "gridUrl" | "thumbUrl" | "url" | "posterUrl" | "isVideo" | "derivativesReady"
+  >,
 ): string {
   return progressiveGridSrc(asset);
+}
+
+/** Photographer lightbox — `viewUrl`/`displayUrl`/`previewUrl`; reserve `url` for downloads. */
+export function demoAssetLightboxSrc(
+  asset: Pick<
+    DemoAsset,
+    "previewUrl" | "displayUrl" | "gridUrl" | "thumbUrl" | "url" | "isVideo"
+  >,
+): string {
+  if (asset.isVideo) return asset.url?.trim() || "";
+  return (
+    asset.previewUrl?.trim() ||
+    asset.displayUrl?.trim() ||
+    asset.gridUrl?.trim() ||
+    asset.thumbUrl?.trim() ||
+    ""
+  );
 }
 
 /** Map API media row → in-app DemoAsset shape for folder detail UI. */
@@ -301,22 +322,27 @@ export function apiFolderMediaToDemoAsset(m: ApiFolderMedia): DemoAsset {
   const posterResolved = posterRaw ? resolveCoverUrl(posterRaw) || posterRaw : "";
   const dashUrlRaw = streaming.dashUrl || m.dashUrl || "";
   const dashUrl = dashUrlRaw ? resolveCoverUrl(dashUrlRaw) || dashUrlRaw : "";
-  const smallThumb = m.gridUrl || m.thumbUrl || m.thumbnailUrl || posterResolved || "";
   const fullUrl = m.url || "";
-  const largePreview = m.displayUrl || fullUrl || m.previewUrl || m.image || "";
-  const thumbResolved = smallThumb ? resolveGridThumbUrl(smallThumb) || smallThumb : "";
-  const largeResolved = largePreview ? resolveCoverUrl(largePreview) || largePreview : "";
-  const resolvedUrl = fullUrl ? resolveCoverUrl(fullUrl) || fullUrl : largeResolved;
+  const resolvedUrl = fullUrl ? resolveCoverUrl(fullUrl) || fullUrl : "";
+  const viewRaw = m.viewUrl || m.displayUrl || m.previewUrl || "";
+  const smallThumbRaw = m.gridUrl || m.thumbUrl || m.thumbnailUrl || posterResolved || "";
+  // Never put the master `url` into thumb/grid — that forces baseline top-to-bottom paint.
+  let thumbResolved = smallThumbRaw
+    ? resolveGridThumbUrl(smallThumbRaw) || smallThumbRaw
+    : "";
+  if (thumbResolved && resolvedUrl && thumbResolved === resolvedUrl) {
+    // Pending placeholder: API may echo url as gridUrl until derivativesReady.
+    if (m.derivativesReady === false) thumbResolved = "";
+  }
+  const viewResolved = viewRaw ? resolveCoverUrl(viewRaw) || viewRaw : "";
   const mimeType = (m.mimeType || m.contentType || m.content_type || "").toLowerCase();
   const isVideo =
     m.isVideo === true ||
     mimeType.startsWith("video/") ||
     /\.(mp4|mov|webm|m4v|avi|mkv|ogv)$/i.test(originalName);
-  const mediaUrl = largeResolved || resolvedUrl;
-  const previewUrl =
-    !isVideo && largeResolved && thumbResolved && largeResolved !== thumbResolved
-      ? largeResolved
-      : undefined;
+  const mediaUrl = viewResolved || resolvedUrl;
+  // Lightbox uses viewUrl/displayUrl (may equal master when watermarking is off).
+  const previewUrl = !isVideo && viewResolved ? viewResolved : undefined;
   const selected =
     m.selected === true ||
     (typeof m.selection === "string" && m.selection.toUpperCase() === "SELECTED") ||
@@ -328,6 +354,8 @@ export function apiFolderMediaToDemoAsset(m: ApiFolderMedia): DemoAsset {
     const nested = (m.raw as ApiFolderMedia).setId;
     if (nested != null && nested !== "") setId = String(nested);
   }
+  const imageThumb = isImagePreviewUrl(thumbResolved) ? thumbResolved : "";
+  const imagePoster = isImagePreviewUrl(posterResolved) ? posterResolved : "";
   const dashStatus = streaming.dashStatus ?? m.dashStatus;
   const streamingReady = streaming.streamingReady ?? m.streamingReady;
   return {
@@ -343,10 +371,11 @@ export function apiFolderMediaToDemoAsset(m: ApiFolderMedia): DemoAsset {
       (typeof (m as Record<string, unknown>).selected_at === "string"
         ? ((m as Record<string, unknown>).selected_at as string)
         : null),
-    thumbUrl: isVideo ? posterResolved || thumbResolved : thumbResolved || resolvedUrl,
-    ...(thumbResolved && !isVideo ? { gridUrl: thumbResolved } : {}),
-    ...(isVideo && (posterResolved || thumbResolved)
-      ? { gridUrl: posterResolved || thumbResolved }
+    // Grid tiles: gridUrl/thumbUrl only — never assign master `url` into thumbUrl.
+    thumbUrl: isVideo ? imagePoster || imageThumb : thumbResolved,
+    ...(!isVideo && thumbResolved ? { gridUrl: thumbResolved } : {}),
+    ...(isVideo && (imagePoster || imageThumb)
+      ? { gridUrl: imagePoster || imageThumb }
       : {}),
     url: isVideo ? mediaUrl || resolvedUrl : resolvedUrl,
     ...(previewUrl ? { previewUrl } : {}),

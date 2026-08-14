@@ -6,11 +6,26 @@ export async function getSmsSenderIds(params: {
   page?: number;
   limit?: number;
 } = {}): Promise<PaginatedResponse<SmsSenderItem>> {
-  const { data } = await adminApi.get<PaginatedResponse<SmsSenderItem>>(
-    "/api/admin/sms/sender-ids",
-    { params },
-  );
-  return data;
+  const { data } = await adminApi.get<{
+    items: SmsSenderItem[];
+    pagination?: PaginatedResponse<SmsSenderItem>["pagination"];
+  }>("/api/admin/sms/sender-ids", { params });
+
+  const items = data.items ?? [];
+  const page = params.page ?? 1;
+  const limit = params.limit ?? (items.length || 50);
+
+  // API may return a flat list without pagination.
+  return {
+    items,
+    pagination: data.pagination ?? {
+      page,
+      limit,
+      total: items.length,
+      totalPages: 1,
+      hasMore: false,
+    },
+  };
 }
 
 export async function approveSmsSender(userId: string): Promise<void> {

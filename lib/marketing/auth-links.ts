@@ -1,24 +1,60 @@
-import { authRedirectPath } from "@/lib/auth-api";
+import {
+  authRedirectPath,
+  userNeedsEmailVerification,
+} from "@/lib/auth-api";
 import { getAuth } from "@/lib/auth-demo";
+import type { AuthUser } from "@/lib/auth-demo";
 
-/** True when the browser has a persisted photographer session (user + JWT). */
-export function isPhotographerSignedIn(): boolean {
-  const auth = getAuth();
-  return Boolean(auth?.user?.email?.trim() && auth?.token?.trim());
-}
-
-function signedInDestination(): string | null {
+function sessionUser(): AuthUser | null {
   const auth = getAuth();
   if (!auth?.user?.email?.trim() || !auth?.token?.trim()) return null;
-  return authRedirectPath(auth.user);
+  return auth.user;
 }
 
-/** Sign-in CTAs — login first, or the studio when already authenticated. */
+/** True when the browser has any persisted photographer JWT (including incomplete signup). */
+export function hasPhotographerSession(): boolean {
+  return sessionUser() != null;
+}
+
+/**
+ * Fully usable studio session — email verified and onboarding finished.
+ * Incomplete signups must not look “signed in” on marketing CTAs.
+ */
+export function isPhotographerSignedIn(): boolean {
+  const user = sessionUser();
+  if (!user) return false;
+  if (userNeedsEmailVerification(user)) return false;
+  return user.onboardingComplete === true;
+}
+
+/** Verified account that still needs the onboarding form. */
+export function hasIncompleteOnboardingSession(): boolean {
+  const user = sessionUser();
+  if (!user) return false;
+  if (userNeedsEmailVerification(user)) return false;
+  return user.onboardingComplete !== true;
+}
+
+/**
+ * Sign-in CTAs always open the login form unless the studio is fully ready
+ * (then go to the dashboard). Never jump straight to onboarding from “Sign in”.
+ */
 export function marketingSignInHref(): string {
-  return signedInDestination() ?? "/login";
+  const user = sessionUser();
+  if (user && isPhotographerSignedIn()) {
+    return authRedirectPath(user);
+  }
+  return "/login";
 }
 
-/** Start-free / get-started CTAs — signup first, or the studio when already authenticated. */
+/**
+ * Start-free / get-started CTAs — resume onboarding when a verified incomplete
+ * session exists; otherwise signup (or dashboard when fully signed in).
+ */
 export function marketingSignUpHref(): string {
-  return signedInDestination() ?? "/login?screen=signup";
+  const user = sessionUser();
+  if (!user) return "/login?screen=signup";
+  if (userNeedsEmailVerification(user)) return "/login?screen=verify";
+  if (user.onboardingComplete) return authRedirectPath(user);
+  return "/onboarding";
 }

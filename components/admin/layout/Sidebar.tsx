@@ -8,6 +8,11 @@ import {
   LifeBuoy,
   MessageSquare,
   Smartphone,
+  Images,
+  Flag,
+  Trash2,
+  Users,
+  CreditCard,
 } from "lucide-react";
 import { useAdminAuth } from "@/lib/admin/use-admin-auth";
 import { Logo } from "@/components/admin/ui/Logo";
@@ -18,6 +23,36 @@ const NAV_ITEMS = [
     label: "Photographers",
     href: "/admin/photographers",
     icon: Camera,
+    badgeKey: null,
+  },
+  {
+    label: "Galleries",
+    href: "/admin/galleries",
+    icon: Images,
+    badgeKey: null,
+  },
+  {
+    label: "Moderation",
+    href: "/admin/moderation",
+    icon: Flag,
+    badgeKey: null,
+  },
+  {
+    label: "Trash",
+    href: "/admin/trash",
+    icon: Trash2,
+    badgeKey: "trash" as const,
+  },
+  {
+    label: "CRM",
+    href: "/admin/crm",
+    icon: Users,
+    badgeKey: null,
+  },
+  {
+    label: "Billing",
+    href: "/admin/billing",
+    icon: CreditCard,
     badgeKey: null,
   },
   {
@@ -43,14 +78,13 @@ const NAV_ITEMS = [
 export function Sidebar({
   badges,
 }: {
-  badges?: { support?: number; sms?: number };
+  badges?: { support?: number; sms?: number; trash?: number };
 }) {
   const pathname = usePathname();
   const { admin } = useAdminAuth();
 
   return (
     <aside className="flex w-[248px] shrink-0 flex-col border-r border-slate-200/70 bg-white">
-      {/* Logo */}
       <div className="flex items-center gap-3 border-b border-slate-100 px-5 py-5">
         <Logo height={32} />
         <div>
@@ -61,8 +95,7 @@ export function Sidebar({
         </div>
       </div>
 
-      {/* Navigation */}
-      <nav className="flex-1 space-y-0.5 px-3 py-5">
+      <nav className="flex-1 space-y-0.5 overflow-y-auto px-3 py-5">
         {NAV_ITEMS.map((item) => {
           const active =
             item.href === "/admin"
@@ -73,7 +106,9 @@ export function Sidebar({
               ? badges?.support
               : item.badgeKey === "sms"
                 ? badges?.sms
-                : undefined;
+                : item.badgeKey === "trash"
+                  ? badges?.trash
+                  : undefined;
 
           return (
             <Link
@@ -111,7 +146,6 @@ export function Sidebar({
         })}
       </nav>
 
-      {/* User */}
       {admin && (
         <div className="border-t border-slate-100 p-4">
           <div className="flex items-center gap-3 rounded-xl bg-slate-50 p-3">

@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { ArrowUpRight, Mail, Minus, Plus } from "lucide-react";
+import { Mail, Minus, Plus } from "lucide-react";
 import { contactEmail, faqs } from "@/lib/marketing/faqs";
+import { MarketingCornerCta } from "@/components/marketing/marketing-corner-cta";
 import { cn } from "@/lib/utils";
 
 function FaqItem({
@@ -133,13 +134,12 @@ function FaqEmailFooter() {
             <p className="mt-0.5 text-sm text-slate-500">We typically reply within one business day.</p>
           </div>
         </div>
-        <a
+        <MarketingCornerCta
           href={`mailto:${contactEmail}`}
-          className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-[#55001F] px-5 py-2.5 text-sm font-semibold text-[#D5AE65] transition hover:bg-[#6a0027]"
+          className="shrink-0 justify-center"
         >
           Email our team
-          <ArrowUpRight className="h-4 w-4" aria-hidden />
-        </a>
+        </MarketingCornerCta>
       </div>
     </div>
   );

@@ -15,6 +15,9 @@ import {
   type WatermarkLogoCrop,
   type WatermarkTemplateSettings,
 } from "@/lib/watermark-brand";
+import { FeatureUpgradeButton } from "@/components/billing/plan-upgrade-modal";
+import { parsePlanFeatureRequired } from "@/lib/plan-entitlements";
+import { usePlanEntitlements } from "@/lib/use-plan-entitlements";
 import { updateWatermarkSettings } from "@/lib/watermark-api";
 import { cn } from "@/lib/utils";
 
@@ -235,6 +238,8 @@ export function WatermarkBrandPanel({
   showPrerequisiteHint = false,
 }: WatermarkBrandPanelProps) {
   const { showToast } = useToast();
+  const { can, handlePlanError } = usePlanEntitlements();
+  const canBrand = can("customBranding");
   const [draft, setDraft] = useState<BrandWatermarkSettings>(() =>
     normalizeBrandWatermarkSettings(initial ?? defaultBrandWatermarkSettings()),
   );
@@ -327,6 +332,7 @@ export function WatermarkBrandPanel({
       onSaved(saved);
       showToast("Saved.", "success");
     } catch (e) {
+      if (parsePlanFeatureRequired(e) || handlePlanError(e)) return;
       showToast(e instanceof Error ? e.message : "Could not save.", "error");
     } finally {
       setSaving(false);
@@ -343,6 +349,7 @@ export function WatermarkBrandPanel({
           Required before you can watermark finals from a gallery upload.
         </p>
       ) : null}
+      {canBrand ? (
       <SettingsToggle
         id="settings-brand-watermark"
         checked={draft.enabled}
@@ -351,8 +358,25 @@ export function WatermarkBrandPanel({
         label="Put my logo on downloaded photos"
         hint="When clients save final images from a gallery, your logo is added automatically."
       />
+      ) : (
+        <div
+          id="settings-brand-watermark"
+          className="rounded-2xl border border-zinc-200 bg-zinc-50/80 p-5 dark:border-zinc-800 dark:bg-zinc-900/40"
+        >
+          <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
+            Logo on client downloads
+          </p>
+          <p className="mt-1 text-xs leading-relaxed text-zinc-500">
+            Custom branding — burn your logo onto photos clients download — is available on
+            Premium and Studio.
+          </p>
+          <div className="mt-4">
+            <FeatureUpgradeButton feature="customBranding" label="Upgrade for logo branding" />
+          </div>
+        </div>
+      )}
 
-      {draft.enabled ? (
+      {canBrand && draft.enabled ? (
         <>
           {/* Step 1: Logo */}
           <section className="space-y-3">
@@ -548,12 +572,13 @@ export function WatermarkBrandPanel({
             </section>
           ) : null}
         </>
-      ) : (
+      ) : canBrand ? (
         <p className="rounded-xl bg-zinc-50 px-4 py-3 text-sm text-zinc-600 dark:bg-zinc-900/50 dark:text-zinc-400">
           Turn on the switch above to add your logo to client downloads.
         </p>
-      )}
+      ) : null}
 
+      {canBrand ? (
       <div className="flex justify-end border-t border-zinc-100 pt-4 dark:border-zinc-800">
         <button
           type="button"
@@ -565,6 +590,7 @@ export function WatermarkBrandPanel({
           {saving ? "Saving…" : "Save"}
         </button>
       </div>
+      ) : null}
     </div>
   );
 }

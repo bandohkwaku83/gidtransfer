@@ -90,12 +90,28 @@ const BLOCKED_UPLOAD_EXTENSIONS = new Set([
   ".pdf",
 ]);
 
-/** Accept attribute for raw gallery uploads — images, videos, and camera RAW extensions. */
-export const RAW_UPLOAD_ACCEPT = [
-  "image/*",
-  "video/*",
-  ...RAW_CAMERA_FILE_EXTENSIONS,
-].join(",");
+const VIDEO_EXTENSIONS = new Set([
+  ".mp4",
+  ".mov",
+  ".m4v",
+  ".webm",
+  ".mkv",
+  ".avi",
+  ".mpg",
+  ".mpeg",
+  ".3gp",
+]);
+
+/** Accept attribute for photo uploads — images and camera RAW (no video). */
+export const PHOTO_UPLOAD_ACCEPT = ["image/*", ...RAW_CAMERA_FILE_EXTENSIONS].join(",");
+
+/** Accept attribute for video uploads only. */
+export const VIDEO_UPLOAD_ACCEPT = "video/*";
+
+/** @deprecated Prefer PHOTO_UPLOAD_ACCEPT / VIDEO_UPLOAD_ACCEPT — mixed uploads still work via legacy API. */
+export const RAW_UPLOAD_ACCEPT = [PHOTO_UPLOAD_ACCEPT, VIDEO_UPLOAD_ACCEPT].join(",");
+
+export type GalleryUploadMediaType = "photo" | "video";
 
 export function fileExtension(name: string): string {
   const base = name.split(/[/\\]/).pop() ?? name;
@@ -117,16 +133,33 @@ function isAllowedMediaBasename(name: string): boolean {
   return !ext || !BLOCKED_UPLOAD_EXTENSIONS.has(ext);
 }
 
-export function isRawUploadableFile(file: File): boolean {
+export function isVideoUploadableFile(file: File): boolean {
   if (!isAllowedMediaBasename(file.name)) return false;
+  const mime = (file.type || "").toLowerCase();
+  if (mime.startsWith("video/")) return true;
+  if (mime.startsWith("image/")) return false;
+  const ext = fileExtension(file.name);
+  return Boolean(ext && VIDEO_EXTENSIONS.has(ext));
+}
+
+export function isPhotoUploadableFile(file: File): boolean {
+  if (!isAllowedMediaBasename(file.name)) return false;
+  if (isVideoUploadableFile(file)) return false;
 
   const ext = fileExtension(file.name);
   const mime = (file.type || "").toLowerCase();
-  if (mime.startsWith("image/") || mime.startsWith("video/")) return true;
-  if (ext && (RAW_CAMERA_EXTENSION_SET.has(ext) || COMMON_MEDIA_EXTENSIONS.has(ext))) return true;
+  if (mime.startsWith("image/")) return true;
+  if (ext && (RAW_CAMERA_EXTENSION_SET.has(ext) || COMMON_MEDIA_EXTENSIONS.has(ext))) {
+    return !VIDEO_EXTENSIONS.has(ext);
+  }
 
-  // Many RAW files report empty or generic mime types — allow unknown extensions except blocklist.
+  // Many RAW files report empty or generic mime types — allow unknown extensions except blocklist/video.
   return Boolean(ext);
+}
+
+/** Mixed raw uploads (legacy). Prefer photo/video-specific helpers. */
+export function isRawUploadableFile(file: File): boolean {
+  return isPhotoUploadableFile(file) || isVideoUploadableFile(file);
 }
 
 export function isFinalUploadableFile(file: File): boolean {
@@ -135,6 +168,22 @@ export function isFinalUploadableFile(file: File): boolean {
   const ext = fileExtension(file.name);
   const mime = (file.type || "").toLowerCase();
   return mime.startsWith("image/") || mime.startsWith("video/") || COMMON_MEDIA_EXTENSIONS.has(ext);
+}
+
+export function partitionUploadFiles(files: File[]): {
+  photos: File[];
+  videos: File[];
+  rejected: File[];
+} {
+  const photos: File[] = [];
+  const videos: File[] = [];
+  const rejected: File[] = [];
+  for (const file of files) {
+    if (isVideoUploadableFile(file)) videos.push(file);
+    else if (isPhotoUploadableFile(file)) photos.push(file);
+    else rejected.push(file);
+  }
+  return { photos, videos, rejected };
 }
 
 function readDirectoryEntry(entry: FileSystemEntry, files: File[]): Promise<void> {

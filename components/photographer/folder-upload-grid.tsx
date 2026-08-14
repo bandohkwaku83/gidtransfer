@@ -14,7 +14,9 @@ import { createPortal } from "react-dom";
 import { Dropdown, type MenuProps } from "antd";
 import { Flag, ImageIcon, Lock, MoreVertical, Trash2, Unlock, Upload, X } from "lucide-react";
 import { InlineActionSkeleton } from "@/components/ui/skeletons";
+import { isImagePreviewUrl, videoElementPreviewSrc } from "@/lib/gallery-media-streaming";
 import { moveIdInList } from "@/lib/move-id-in-list";
+import { usePlanEntitlements } from "@/lib/use-plan-entitlements";
 import { cn } from "@/lib/utils";
 
 const DRAG_START_PX = 6;
@@ -24,6 +26,10 @@ export type FolderUploadGridItem = {
   name: string;
   mediaSrc: string;
   isVideo: boolean;
+  /** Video file URL used when a JPEG poster is missing. */
+  playbackSrc?: string;
+  /** True while progressive thumbs/posters are still processing. */
+  derivativesPending?: boolean;
   locked?: boolean;
   outstandingBalanceGhs?: number | null;
   flagged?: boolean;
@@ -33,32 +39,58 @@ const MediaThumb = memo(function MediaThumb({
   src,
   name,
   isVideo,
+  playbackSrc,
+  derivativesPending = false,
 }: {
   src: string;
   name: string;
   isVideo: boolean;
+  playbackSrc?: string;
+  derivativesPending?: boolean;
 }) {
+  const [posterFailed, setPosterFailed] = useState(false);
+  const posterSrc = src && isImagePreviewUrl(src) ? src : "";
+  const videoSrc =
+    playbackSrc?.trim() || (isVideo && src && !isImagePreviewUrl(src) ? src : "");
+  const showPoster = isVideo && Boolean(posterSrc) && !posterFailed;
+  const showVideoFrame = isVideo && !showPoster && Boolean(videoSrc);
+  const showSkeleton =
+    (!isVideo && (derivativesPending || !src)) ||
+    (isVideo && !showPoster && !showVideoFrame);
+  const { can } = usePlanEntitlements();
+  const showDashBadge = isVideo && can("videoDash");
   return (
     <>
-      {isVideo ? (
-        src ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={src}
-            alt=""
-            className="pointer-events-none h-full w-full bg-black object-cover"
-            loading="lazy"
-          />
-        ) : (
-          <div className="pointer-events-none h-full w-full bg-zinc-900" aria-label={name} />
-        )
+      {showSkeleton ? (
+        <div
+          className="pointer-events-none absolute inset-0 animate-pulse bg-zinc-200 dark:bg-zinc-800"
+          aria-label={name}
+        />
+      ) : showPoster ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={posterSrc}
+          alt=""
+          className="pointer-events-none h-full w-full bg-black object-cover"
+          loading="lazy"
+          onError={() => setPosterFailed(true)}
+        />
+      ) : showVideoFrame ? (
+        <video
+          src={videoElementPreviewSrc(videoSrc)}
+          muted
+          playsInline
+          preload="metadata"
+          className="pointer-events-none h-full w-full bg-black object-cover"
+          aria-hidden
+        />
       ) : (
         // eslint-disable-next-line @next/next/no-img-element
         <img src={src} alt="" className="pointer-events-none h-full w-full object-cover" loading="lazy" />
       )}
       {isVideo ? (
         <span className="pointer-events-none absolute left-2 bottom-2 z-[5] rounded-md bg-black/70 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-white">
-          Video
+          {showDashBadge ? "HD adaptive" : "Video"}
         </span>
       ) : null}
     </>
@@ -203,6 +235,8 @@ const UploadTile = memo(function UploadTile({
             src={item.mediaSrc}
             name={item.name}
             isVideo={item.isVideo}
+            playbackSrc={item.playbackSrc}
+            derivativesPending={item.derivativesPending}
           />
         </button>
 
@@ -833,6 +867,8 @@ export function FolderUploadMediaGrid({
                 src={activeDragRef.current.item.mediaSrc}
                 name={activeDragRef.current.item.name}
                 isVideo={activeDragRef.current.item.isVideo}
+                playbackSrc={activeDragRef.current.item.playbackSrc}
+                derivativesPending={activeDragRef.current.item.derivativesPending}
               />
             </div>
           </div>,

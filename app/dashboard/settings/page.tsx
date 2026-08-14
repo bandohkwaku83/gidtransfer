@@ -9,7 +9,6 @@ import {
   SettingsBillingSection,
   SettingsGallerySection,
   SettingsProfileSection,
-  SettingsReferSection,
   SettingsSupportSection,
   SettingsWatermarkSection,
 } from "@/components/settings/settings-sections";
@@ -62,9 +61,8 @@ function SettingsPageContent() {
   const [savingWatermark, setSavingWatermark] = useState(false);
   const [uploadingCover, setUploadingCover] = useState(false);
   const [removingCover, setRemovingCover] = useState(false);
-  const authEmail = (auth?.user?.email ?? auth?.email ?? "").trim();
-  const [siteOrigin, setSiteOrigin] = useState("");
   const [billingSuccess, setBillingSuccess] = useState(false);
+  const [billingPaymentFailed, setBillingPaymentFailed] = useState(false);
   const pageDataRef = useRef<SettingsPageData | null>(null);
 
   useEffect(() => {
@@ -72,12 +70,14 @@ function SettingsPageContent() {
   }, [pageData]);
 
   useEffect(() => {
-    setSiteOrigin(window.location.origin);
-  }, []);
-
-  useEffect(() => {
-    if (searchParams.get("success") === "1" && activeTab === "billing") {
+    if (activeTab !== "billing") return;
+    if (searchParams.get("success") === "1" || searchParams.get("upgraded") === "1") {
       setBillingSuccess(true);
+      setBillingPaymentFailed(false);
+    }
+    if (searchParams.get("payment") === "failed") {
+      setBillingPaymentFailed(true);
+      setBillingSuccess(false);
     }
   }, [searchParams, activeTab]);
 
@@ -100,7 +100,11 @@ function SettingsPageContent() {
   }, [load]);
 
   useEffect(() => {
-    if (loading || activeTab === "profile" || activeTab === "refer" || activeTab === "support") {
+    if (
+      loading ||
+      activeTab === "profile" ||
+      activeTab === "support"
+    ) {
       return;
     }
 
@@ -151,15 +155,15 @@ function SettingsPageContent() {
   }, [returnTo, router]);
 
   const accountEmail =
-    pageData?.bundle.account?.email ??
-    pageData?.bundle.profile?.email ??
+    pageData?.bundle?.account?.email ??
+    pageData?.bundle?.profile?.email ??
     auth?.user?.email ??
     auth?.email ??
     "";
   const accountRole = formatAccountRole(
-    pageData?.bundle.account?.role ?? auth?.user?.role,
+    pageData?.bundle?.account?.role ?? auth?.user?.role,
   );
-  const accountId = pageData?.bundle.account?.accountId ?? auth?.user?._id;
+  const accountId = pageData?.bundle?.account?.accountId ?? auth?.user?._id;
 
   const profileHeaderExtra =
     activeTab === "profile" ? (
@@ -255,17 +259,15 @@ function SettingsPageContent() {
     }
   }, [showToast]);
 
-  function copyReferralLink() {
-    if (!authEmail) {
-      showToast("Sign in first.", "error");
-      return;
-    }
-    const url = `${window.location.origin}/login?ref=${encodeURIComponent(authEmail)}`;
-    void navigator.clipboard.writeText(url).then(
-      () => showToast("Link copied.", "success"),
-      () => showToast("Could not copy.", "error"),
-    );
-  }
+  const acknowledgeBillingSuccess = useCallback(() => {
+    setBillingSuccess(false);
+    router.replace("/dashboard/settings?tab=billing", { scroll: false });
+  }, [router]);
+
+  const acknowledgeBillingPaymentFailed = useCallback(() => {
+    setBillingPaymentFailed(false);
+    router.replace("/dashboard/settings?tab=billing", { scroll: false });
+  }, [router]);
 
   function renderPanel() {
     switch (activeTab) {
@@ -281,13 +283,12 @@ function SettingsPageContent() {
       case "billing":
         return (
           <SettingsBillingSection
-            overview={pageData?.bundle.overview ?? null}
+            overview={pageData?.bundle?.overview ?? null}
             loading={loading}
             paymentSuccess={billingSuccess}
-            onPaymentSuccessAcknowledged={() => {
-              setBillingSuccess(false);
-              router.replace("/dashboard/settings?tab=billing", { scroll: false });
-            }}
+            paymentFailed={billingPaymentFailed}
+            onPaymentSuccessAcknowledged={acknowledgeBillingSuccess}
+            onPaymentFailedAcknowledged={acknowledgeBillingPaymentFailed}
             onBillingUpdated={refreshBillingContext}
           />
         );
@@ -314,7 +315,7 @@ function SettingsPageContent() {
           <SettingsGallerySection
             settings={settings}
             watermarkPreviewHint={
-              pageData?.bundle.galleryDefaults.watermarkPreview?.description
+              pageData?.bundle?.galleryDefaults?.watermarkPreview?.description
             }
             loading={loading}
             savingWatermark={savingWatermark}
@@ -324,14 +325,6 @@ function SettingsPageContent() {
             onCoverUpload={(f) => void onCoverImageUpload(f)}
             onCoverRemove={() => void onCoverRemove()}
             returnTo={returnTo}
-          />
-        );
-      case "refer":
-        return (
-          <SettingsReferSection
-            authEmail={authEmail}
-            siteOrigin={siteOrigin}
-            onCopyLink={copyReferralLink}
           />
         );
       case "support":
@@ -409,9 +402,11 @@ function SettingsPageContent() {
         </div>
       ) : null}
 
-      <SettingsShell headerExtra={profileHeaderExtra}>
-        {renderPanel()}
-      </SettingsShell>
+      {activeTab === "billing" ? (
+        renderPanel()
+      ) : (
+        <SettingsShell headerExtra={profileHeaderExtra}>{renderPanel()}</SettingsShell>
+      )}
     </div>
   );
 }

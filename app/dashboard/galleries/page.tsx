@@ -50,6 +50,9 @@ import { GalleryCardSkeleton, ListRefreshSkeleton } from "@/components/ui/skelet
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { batchApiCalls } from "@/lib/http";
 import { cn } from "@/lib/utils";
+import { usePlanEntitlements } from "@/lib/use-plan-entitlements";
+import { galleryLimitLabel, isAtGalleryLimit } from "@/lib/plan-entitlements";
+import type { GalleryListCounts } from "@/lib/galleries-api";
 
 const STATUS_FILTERS: { key: GalleryStatusFilter; label: string }[] = [
   { key: "all", label: "All" },
@@ -80,8 +83,10 @@ function statusFilterToApi(status: GalleryStatusFilter): string {
 export default function GalleriesPage() {
   const { query } = useFolderListSearch();
   const { showToast } = useToast();
+  const { plan, openUpgrade, trialExpired } = usePlanEntitlements();
 
   const [folders, setFolders] = useState<ApiFolder[]>([]);
+  const [galleryCounts, setGalleryCounts] = useState<GalleryListCounts | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<GalleryStatusFilter>("all");
@@ -122,12 +127,13 @@ export default function GalleriesPage() {
       setLoading(true);
       setError(null);
       try {
-        const { folders: list } = await listFoldersWithCounts({
+        const { folders: list, counts } = await listFoldersWithCounts({
           search,
           status: statusFilterToApi(filter),
         });
         if (signal?.aborted) return;
         setFolders(list);
+        setGalleryCounts(counts);
       } catch (err) {
         if (signal?.aborted) return;
         setError(err instanceof Error ? err.message : "Failed to load folders.");
@@ -294,7 +300,22 @@ export default function GalleriesPage() {
     [],
   );
 
+  const activeGalleryCount = galleryCounts?.all ?? folders.length;
+  const galleryLimitReached = isAtGalleryLimit(plan, activeGalleryCount);
+
   const openCreate = () => {
+    if (trialExpired || galleryLimitReached) {
+      openUpgrade({
+        feature: "clientGalleries",
+        trialExpired: trialExpired || undefined,
+        message: trialExpired
+          ? "Your free trial has ended. Upgrade to create galleries."
+          : plan?.maxGalleries != null
+            ? `Gallery limit reached (${galleryLimitLabel(plan)}). Upgrade for more galleries.`
+            : "Gallery limit reached. Upgrade for more galleries.",
+      });
+      return;
+    }
     setEditing(null);
     setCreateOpen(true);
   };
@@ -639,6 +660,7 @@ export default function GalleriesPage() {
       <CreateFolderModal
         open={createOpen}
         folder={editing}
+        activeGalleryCount={activeGalleryCount}
         onClose={() => {
           setCreateOpen(false);
           setEditing(null);

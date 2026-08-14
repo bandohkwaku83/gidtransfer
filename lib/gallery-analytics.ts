@@ -13,9 +13,15 @@ export type GalleryAnalyticsActivityPoint = {
   total: number;
 };
 
+export type GalleryAnalyticsUpgrade = {
+  feature?: string;
+  requiredPlans?: string[];
+  message?: string;
+} | null;
+
 export type GalleryAnalyticsApi = {
   linkViews: number;
-  clientDownloads: number;
+  clientDownloads?: number;
   clientPicks: number;
   selectionRate: number | null;
   mediaBreakdown: {
@@ -24,10 +30,13 @@ export type GalleryAnalyticsApi = {
     finals: number;
     total: number;
   };
-  activity: {
+  activity?: {
     days: number;
     series: GalleryAnalyticsActivityPoint[];
   };
+  range?: unknown;
+  tier?: "basic" | "advanced";
+  upgrade?: GalleryAnalyticsUpgrade;
 };
 
 export type GalleryAnalyticsSnapshot = {
@@ -37,6 +46,8 @@ export type GalleryAnalyticsSnapshot = {
   selectionRate: number | null;
   weeklyActivity: WeeklyBar[];
   mediaSlices: PipelineSlice[];
+  tier?: "basic" | "advanced";
+  upgrade?: GalleryAnalyticsUpgrade;
 };
 
 export function collectGalleryActivityTimestamps(
@@ -126,10 +137,10 @@ export function mapGalleryAnalyticsToSnapshot(
   const { mediaBreakdown, activity } = analytics;
   return {
     totalViews: Math.max(0, analytics.linkViews),
-    clientDownloads: Math.max(0, analytics.clientDownloads),
+    clientDownloads: Math.max(0, analytics.clientDownloads ?? 0),
     clientPicks: Math.max(0, analytics.clientPicks),
     selectionRate: analytics.selectionRate,
-    weeklyActivity: activity.series.map((point) => ({
+    weeklyActivity: (activity?.series ?? []).map((point) => ({
       dateKey: point.date,
       label: point.label,
       value: Math.max(0, point.total),
@@ -140,5 +151,7 @@ export function mapGalleryAnalyticsToSnapshot(
       mediaBreakdown.finals,
       dark,
     ),
+    tier: analytics.tier,
+    upgrade: analytics.upgrade,
   };
 }

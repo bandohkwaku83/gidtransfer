@@ -4,6 +4,7 @@ const AUTH_KEY = "gidostorage_auth_v1";
 const ONBOARDING_BY_EMAIL_KEY = "gidostorage_onboarding_by_email_v1";
 
 import type { StudioSmsFields } from "@/lib/sms-sender";
+import type { UserPlan } from "@/lib/plan-entitlements";
 
 /** Saved at onboarding; persisted locally by email so returning sessions skip the form. */
 export type PhotographerStudioProfile = {
@@ -34,6 +35,7 @@ export type AuthUser = {
   emailVerifiedAt?: string | null;
   authProvider?: AuthProvider;
   studio?: PhotographerStudioProfile;
+  plan?: UserPlan;
 };
 
 export type DemoAuthUser = {

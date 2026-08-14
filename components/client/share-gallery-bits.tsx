@@ -106,6 +106,7 @@ export function toDemoAssets(shareAssets: ShareGalleryAsset[]): DemoAsset[] {
     photographerReply: a.photographerReply ?? "",
     hasEdited: false,
     thumbUrl: a.thumbUrl,
+    ...(a.gridUrl ? { gridUrl: a.gridUrl } : {}),
     ...(a.url ? { url: a.url } : {}),
     ...(a.displayUrl ? { displayUrl: a.displayUrl } : {}),
     ...(a.previewUrl ? { previewUrl: a.previewUrl } : {}),

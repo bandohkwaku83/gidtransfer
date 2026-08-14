@@ -36,16 +36,16 @@ export type FeatureSpotlight = {
 
 export const featureTrustPoints = [
   "No client signup",
-  "Your logo on every gallery",
   "30-day free trial",
+  "Share links & selections",
   "Cancel anytime",
 ] as const;
 
 export const featureStats = [
-  { value: "12", suffix: "+", label: "Cover frame styles" },
-  { value: "7", label: "Client grid layouts" },
-  { value: "0", suffix: "%", label: "Commission on prints" },
+  { value: "5", suffix: " GB", label: "Trial storage" },
+  { value: "3", label: "Trial galleries" },
   { value: "30", label: "Day free trial" },
+  { value: "4", label: "Plans to grow into" },
 ] as const;
 
 export const featureTestimonialRating = {
@@ -55,42 +55,62 @@ export const featureTestimonialRating = {
 
 export const featureWhySwitch = [
   {
-    title: "Clients open it — and remember it",
+    title: "One branded link per shoot",
     description:
-      "Cinematic covers, editorial grids, and a mobile lightbox. Deliveries clients screenshot and share — not another download link they forget.",
+      "Create a private gallery, send a share link, and let clients heart favourites — without accounts, zip files, or chasing picks over email.",
   },
   {
-    title: "One studio, not five tabs",
+    title: "Studio tools beside delivery",
     description:
-      "Upload, design, proof, and deliver from one gallery workspace. Replace the WeTransfer + email + spreadsheet stack with a single branded link.",
+      "Bookings and reminders, a client list, income tracking, labels, and analytics live next to your galleries — not in five other apps.",
   },
   {
-    title: "Your brand. Your rules.",
+    title: "Grow into SMS, video, and AI",
     description:
-      "Studio logo on every page, PIN gates when you need them, watermarked previews, and locked finals until payment clears.",
+      "Start on the free trial with core tools. Upgrade for comments, sets, video, SMS, logo watermarks, trash restore, and Gallery AI for smarter client picks.",
   },
 ] as const;
 
 export const featureWorkflowSteps = [
-  { label: "Upload", description: "Raws, video & sets" },
-  { label: "Design", description: "Cover, fonts & brand" },
-  { label: "Share", description: "One branded link" },
-  { label: "Proof", description: "Hearts & comments" },
-  { label: "Deliver", description: "Finals & downloads" },
+  {
+    label: "Upload",
+    description:
+      "Drop the shoot into a private client gallery — organised and ready before anyone opens the link.",
+  },
+  {
+    label: "Protect",
+    description:
+      "Add a password gate, text watermarks on previews, and download rules — allow, limit, or block.",
+  },
+  {
+    label: "Share",
+    description:
+      "Send one public share link. No client account. Notify by SMS on Basic and above when you go live.",
+  },
+  {
+    label: "Proof",
+    description:
+      "Clients heart favourites and submit. Comments and flags unlock on Basic; Gallery AI picks on Premium.",
+  },
+  {
+    label: "Deliver",
+    description:
+      "Unlock downloads when you're ready. Pro and Premium can burn your studio logo onto the files.",
+  },
 ] as const;
 
 export const featureSectionHeaders = {
   client: {
     eyebrow: "What clients see",
-    title: "A gallery link worth opening",
+    title: "A private gallery link worth opening",
     description:
-      "This is what lands in your client's inbox — a branded experience that sells your work before they scroll to image two.",
+      "Share links, heart picks, password gates, and download control — the client experience from the free trial up.",
   },
   studio: {
     eyebrow: "What you run",
-    title: "The dashboard behind every delivery",
+    title: "The studio behind every delivery",
     description:
-      "Upload, customise, publish, and track — plus clients, bookings, and income in the same studio where your galleries live.",
+      "Galleries, bookings, clients, income, SMS, analytics, and (on Premium) Gallery AI — one place to run the job.",
   },
 } as const;
 
@@ -104,28 +124,28 @@ export const featureTestimonial = {
 } as const;
 
 export const featurePlatformModules = [
-  "Branded client gallery — cover, tabs & lightbox",
-  "Selection, comments & one-click submit",
-  "Gallery workspace — upload, design & go live",
-  "Clients, bookings & income in one place",
-  "PIN gate, watermarks & locked finals",
-  "Share via link, WhatsApp or SMS",
+  "Client galleries & share links",
+  "Selections, password gate & download control",
+  "Bookings, CRM & income tracking",
+  "SMS share notifications (Basic+)",
+  "Video uploads & adaptive streaming (Basic+)",
+  "Gallery AI for studio + client picks (Premium)",
 ] as const;
 
 export const featureSpotlights: readonly FeatureSpotlight[] = [
   {
     id: "client-gallery",
     section: "client",
-    eyebrow: "Client gallery link",
-    headline: "Deliveries that look as good as your images",
-    outcome: "Clients say \"wow\" before they scroll",
+    eyebrow: "Client galleries",
+    headline: "A private gallery per client or shoot",
+    outcome: "One link. No client account.",
     description:
-      "Send one branded link — no client account needed. They land on a full-bleed cover hero, switch between seven grid layouts, and browse in a zoom lightbox built for phones.",
+      "Create a client gallery, send a public share link, and let them open proofs on any device — included from the free trial.",
     bullets: [
-      "12 cover frames — cinematic, collage, bento & editorial",
-      "7 layouts clients can switch: masonry, uniform, adaptive & more",
-      "Originals, Selected & Finals tabs — clear and intuitive",
-      "Zoom lightbox with prev/next — works on any device",
+      "Client galleries — one private space per shoot",
+      "Share links — a public URL for proofs",
+      "Client selections — hearts and favourites you can see",
+      "Password protection before viewing when you need it",
     ],
     surface: "client",
     visual: {
@@ -140,16 +160,16 @@ export const featureSpotlights: readonly FeatureSpotlight[] = [
   {
     id: "proofing",
     section: "client",
-    eyebrow: "Selection & proofing",
-    headline: "Stop chasing picks over email",
-    outcome: "Approvals in one sitting, not ten threads",
+    eyebrow: "Selections & delivery control",
+    headline: "Hearts, comments, and download rules",
+    outcome: "Approvals without the email chase",
     description:
-      "Clients heart favourites, leave notes on any image, and submit when they're done. You watch live progress from your dashboard — no \"did you see my last email?\"",
+      "Clients pick favourites and submit. You control downloads and watermarks. Commenting and flagging unlock on Basic and above.",
     bullets: [
-      "Set a selection limit per gallery",
-      "Per-photo comments with your replies in-dashboard",
-      "Submit locks the gallery for the client",
-      "Selected tab keeps picks even when browse changes",
+      "Client selections with a clear submit flow",
+      "Download control — allow, limit, or block",
+      "Text watermarks on preview and selection images",
+      "Comment & flag images from Basic upward",
     ],
     surface: "both",
     visual: {
@@ -163,16 +183,16 @@ export const featureSpotlights: readonly FeatureSpotlight[] = [
   {
     id: "gallery-workspace",
     section: "studio",
-    eyebrow: "Gallery dashboard",
-    headline: "From upload to go-live in one folder",
-    outcome: "Hours back every shoot",
+    eyebrow: "Gallery workspace",
+    headline: "Upload, organise, and go live",
+    outcome: "From shoot to share link in one place",
     description:
-      "Every job is a gallery workspace: batch upload raws, style the client preview in a live design tab, flip online when you're ready, and share via link, WhatsApp, or SMS.",
+      "Build the gallery in your dashboard: upload media, organise with labels and tags, group into sets on paid plans, and publish when you're ready.",
     bullets: [
-      "Batch upload photos, videos & camera RAW",
-      "Design tab with live desktop & mobile preview",
-      "Publish toggle — copy link or notify client by SMS",
-      "Draft → Selecting → Completed — always know where you stand",
+      "Labels & tags to organise galleries and photos",
+      "Sets within a gallery from Basic upward",
+      "Video uploads — 5 GB Basic, 10 GB Pro, 20 GB Premium",
+      "Adaptive video (MPEG-DASH) so quality follows the client's network",
     ],
     surface: "dashboard",
     visual: {
@@ -185,15 +205,15 @@ export const featureSpotlights: readonly FeatureSpotlight[] = [
     id: "studio",
     section: "studio",
     eyebrow: "Studio tools",
-    headline: "Run the business without leaving delivery",
-    outcome: "Less admin, more shooting",
+    headline: "Bookings, clients, income, and SMS",
+    outcome: "Less admin around every shoot",
     description:
-      "Client contacts, a booking calendar, and an income ledger live beside your galleries — so you're not copying names between Calendly, spreadsheets, and your gallery tool.",
+      "Run the business next to delivery: shoot calendar, reminders, client contacts, and income summaries — plus SMS when you share on Basic and up.",
     bullets: [
-      "Client directory with CSV import",
-      "Booking calendar with shoot types & session amounts",
-      "Booking invoice PDFs — download or share instantly",
-      "Income ledger with paid, pending & partial status",
+      "Bookings calendar and automatic shoot reminders",
+      "Client management with phone, email, and notes",
+      "Income tracking for payments and summaries",
+      "SMS on share (default sender on Basic; custom studio name on Pro+)",
     ],
     surface: "dashboard",
     visual: {
@@ -205,16 +225,16 @@ export const featureSpotlights: readonly FeatureSpotlight[] = [
   {
     id: "brand-protect",
     section: "studio",
-    eyebrow: "Brand & protect",
-    headline: "Your name on the link. Your rules on the files.",
-    outcome: "Premium delivery, protected work",
+    eyebrow: "Brand, analytics & AI",
+    headline: "Watermarks, insights, and smarter picks",
+    outcome: "Protect work. Understand engagement. Scale selection.",
     description:
-      "Studio logo and custom fonts on every gallery. PIN or email gate before clients enter. Watermarked previews on originals, and locked finals until payment clears.",
+      "Text watermarks from day one. Pro adds a logo on downloads, advanced analytics, and trash restore. Premium adds Gallery AI for descriptions and client smart picks.",
     bullets: [
-      "Studio logo, name & custom gallery URL slug",
-      "Cover colours, Google fonts & 12 frame styles",
-      "4-digit PIN or email gate on the share link",
-      "Preview watermarks & pay-to-unlock finals",
+      "Text watermarks on previews; logo watermark on downloads (Pro+)",
+      "Analytics dashboard — opens, picks, selection rate",
+      "Advanced analytics — 7-day activity chart and download counts (Pro+)",
+      "Gallery AI — studio descriptions plus client AI suggestions (Premium)",
     ],
     surface: "both",
     visual: {

@@ -9,34 +9,20 @@ import {
   type ReactNode,
 } from "react";
 import {
-  ArrowRight,
-  ChevronLeft,
-  ChevronRight,
-  Heart,
-  LayoutTemplate,
-  Link2,
-  Lock,
-  Palette,
-  Shield,
-  Upload,
-} from "lucide-react";
-import {
   ShowcaseCoverPreview,
   ShowcasePhonePreview,
 } from "@/components/marketing/showcase-cover-preview";
-import { MarketingFaqSection } from "@/components/marketing/faq-section";
 import { MarketingHeader } from "@/components/marketing/marketing-header";
 import {
   featureSectionHeaders,
   featureSpotlights,
-  featureTestimonial,
-  featureTrustPoints,
   featureWhySwitch,
   featureWorkflowSteps,
   type FeatureSpotlight,
 } from "@/lib/marketing/features-content";
 import { APP_NAME } from "@/lib/branding";
 import { marketingSignUpHref } from "@/lib/marketing/auth-links";
+import { MarketingCornerCta } from "@/components/marketing/marketing-corner-cta";
 import { usePhotographerSignedIn } from "@/lib/marketing/use-photographer-signed-in";
 import { cn } from "@/lib/utils";
 
@@ -71,22 +57,7 @@ function HeroCornerCta({
   href: string;
   children: ReactNode;
 }) {
-  return (
-    <Link
-      href={href}
-      className="group relative inline-flex items-center gap-2.5 bg-[#55001F] px-4 py-2.5 text-sm font-medium text-[#FFFCF2] transition hover:bg-[#6a0027]"
-    >
-      <span
-        aria-hidden
-        className="h-2.5 w-2.5 shrink-0 bg-[#FFFCF2] transition group-hover:bg-white"
-      />
-      {children}
-      <span aria-hidden className="pointer-events-none absolute -left-1.5 -top-1.5 h-3 w-3 border-l border-t border-[#55001F]/45" />
-      <span aria-hidden className="pointer-events-none absolute -right-1.5 -top-1.5 h-3 w-3 border-r border-t border-[#55001F]/45" />
-      <span aria-hidden className="pointer-events-none absolute -bottom-1.5 -left-1.5 h-3 w-3 border-b border-l border-[#55001F]/45" />
-      <span aria-hidden className="pointer-events-none absolute -bottom-1.5 -right-1.5 h-3 w-3 border-b border-r border-[#55001F]/45" />
-    </Link>
-  );
+  return <MarketingCornerCta href={href}>{children}</MarketingCornerCta>;
 }
 
 function FeaturesHero({ signUpHref, signedIn }: { signUpHref: string; signedIn: boolean }) {
@@ -134,10 +105,10 @@ function FeaturesHero({ signUpHref, signedIn }: { signUpHref: string; signedIn: 
           {/* Keep the white headline fully inside the photo band */}
           <div className="flex min-h-[calc(58svh-5.5rem)] flex-col justify-end pb-6 sm:min-h-[calc(56svh-5.5rem)] sm:pb-8 lg:pb-10">
             <h1
-              className="animate-landing-fade-up max-w-[11ch] font-display text-[clamp(2.75rem,7.5vw,5.25rem)] font-medium leading-[0.96] tracking-[-0.03em] text-white drop-shadow-[0_2px_24px_rgba(0,0,0,0.35)]"
+              className="animate-landing-fade-up max-w-[16ch] font-display text-[clamp(2.35rem,6.2vw,4.5rem)] font-medium leading-[0.98] tracking-[-0.03em] text-white drop-shadow-[0_2px_24px_rgba(0,0,0,0.35)]"
               style={{ animationDelay: "0.08s" }}
             >
-              Branded galleries, today.
+              Galleries, proofing, and studio tools in one place
             </h1>
           </div>
 
@@ -146,8 +117,9 @@ function FeaturesHero({ signUpHref, signedIn }: { signUpHref: string; signedIn: 
             style={{ animationDelay: "0.22s" }}
           >
             <p className="text-sm leading-relaxed text-[#55001F]/90 sm:text-[0.95rem]">
-              {APP_NAME} removes delivery friction upstream — branded client links,
-              proofing, and studio tools without replacing how you already shoot.
+              {APP_NAME} replaces zip-file delivery and spreadsheet chase with client galleries,
+              share links, selections, bookings, CRM, and income tracking — starting with a 30-day
+              free trial.
             </p>
 
             <div className="mt-7">
@@ -187,26 +159,15 @@ function FeaturesHero({ signUpHref, signedIn }: { signUpHref: string; signedIn: 
             aria-hidden
             className="absolute bottom-[18%] right-0 hidden font-mono text-[10px] leading-relaxed tracking-wider text-[#55001F]/65 lg:block"
           >
-            12 cover frames
+            Share links
             <br />
-            7 client layouts
+            Client selections
           </p>
         </div>
       </div>
     </section>
   );
 }
-
-const processVisuals = [
-  { src: "/images/client.jpg", alt: "Uploading a shoot" },
-  { src: "/images/gallery-covers/WOED0075.JPG", alt: "Designing a gallery cover" },
-  { src: "/images/gallery-covers/IMG_5261.JPG", alt: "Sharing a branded link" },
-  { src: "/images/gallery-covers/GIDO9970.JPG", alt: "Client selecting favourites" },
-  { src: "/images/gallery-covers/Amoa-Mensa_0571-min.jpg", alt: "Delivering finals" },
-] as const;
-
-const processIcons = [Upload, Palette, Link2, Heart, Lock] as const;
-const whyIcons = [Heart, LayoutTemplate, Shield] as const;
 
 function useReveal<T extends HTMLElement>() {
   const ref = useRef<T | null>(null);
@@ -256,27 +217,6 @@ function Reveal({
   );
 }
 
-function Pill({
-  children,
-  tone = "cream",
-}: {
-  children: ReactNode;
-  tone?: "cream" | "burgundy" | "gold";
-}) {
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center rounded-full px-3.5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.22em]",
-        tone === "cream" && "bg-[#FFFCF2] text-[#55001F]",
-        tone === "burgundy" && "bg-[#55001F] text-[#D5AE65]",
-        tone === "gold" && "bg-[#D5AE65]/25 text-[#55001F]",
-      )}
-    >
-      {children}
-    </span>
-  );
-}
-
 function VerticalSpine({ className }: { className?: string }) {
   return (
     <div
@@ -289,26 +229,43 @@ function VerticalSpine({ className }: { className?: string }) {
   );
 }
 
+/** Matches home / pricing section intros: eyebrow → title → optional lead → hairline. */
 function SectionHeader({
-  pill,
+  eyebrow,
   title,
   description,
-  align = "center",
+  align = "left",
   light,
+  descriptionFullWidth,
 }: {
-  pill: string;
+  eyebrow: string;
   title: string;
   description?: string;
   align?: "center" | "left";
   light?: boolean;
+  descriptionFullWidth?: boolean;
 }) {
   return (
-    <Reveal className={cn(align === "center" && "mx-auto max-w-3xl text-center", align === "left" && "max-w-2xl")}>
-      <Pill tone={light ? "gold" : "cream"}>{pill}</Pill>
+    <Reveal
+      className={cn(
+        align === "center" && "mx-auto max-w-3xl text-center",
+        align === "left" && !descriptionFullWidth && "max-w-2xl",
+      )}
+    >
+      <p
+        className={cn(
+          "text-[11px] font-medium uppercase tracking-[0.28em]",
+          light ? "text-white/55" : "text-slate-400",
+        )}
+      >
+        {eyebrow}
+      </p>
       <h2
         className={cn(
-          "mt-5 font-display text-[clamp(1.85rem,4vw,3rem)] font-medium leading-[1.08] tracking-tight",
+          "mt-3 font-display text-[1.65rem] font-normal leading-snug tracking-tight sm:mt-4 sm:text-4xl",
           light ? "text-white" : "text-slate-900",
+          align === "center" && "mx-auto max-w-2xl",
+          align === "left" && "max-w-lg",
         )}
       >
         {title}
@@ -316,46 +273,27 @@ function SectionHeader({
       {description ? (
         <p
           className={cn(
-            "mt-4 text-base leading-relaxed sm:text-lg",
+            "mt-3 text-sm leading-relaxed sm:text-base",
             light ? "text-white/70" : "text-slate-600",
-            align === "center" && "mx-auto max-w-2xl",
+            descriptionFullWidth
+              ? "max-w-none"
+              : align === "center"
+                ? "mx-auto max-w-xl"
+                : "max-w-lg",
           )}
         >
           {description}
         </p>
       ) : null}
+      <div
+        aria-hidden
+        className={cn(
+          "mt-5 h-px w-10",
+          light ? "bg-white/25" : "bg-slate-200",
+          align === "center" && "mx-auto",
+        )}
+      />
     </Reveal>
-  );
-}
-
-function OverviewSection() {
-  return (
-    <section id="overview" className="relative scroll-mt-24 overflow-hidden bg-white py-20 sm:py-28">
-      <VerticalSpine />
-      <div className="marketing-container relative">
-        <SectionHeader
-          pill="Platform overview"
-          title="Designed to remove delivery friction at its source"
-          description={`Rather than bolting on another upload link, ${APP_NAME} replaces the WeTransfer + email + spreadsheet stack with one branded gallery — and the studio behind it.`}
-        />
-
-        <Reveal scale className="relative mt-12 sm:mt-16" delayMs={120}>
-          <div className="relative aspect-[16/10] overflow-hidden rounded-[1.5rem] sm:rounded-[2rem] lg:aspect-[21/9]">
-            <Image
-              src="/images/gallery-covers/GIDO9970.JPG"
-              alt="Branded gallery cover experience"
-              fill
-              sizes="100vw"
-              className="object-cover"
-            />
-            <div
-              aria-hidden
-              className="absolute inset-0 bg-gradient-to-t from-[#55001F]/40 via-transparent to-transparent"
-            />
-          </div>
-        </Reveal>
-      </div>
-    </section>
   );
 }
 
@@ -392,7 +330,7 @@ function WhyDial({
   const tipY = 50 + r * Math.sin(tipRad);
 
   return (
-    <div className="relative mx-auto aspect-square w-full max-w-[min(100%,28rem)]">
+    <div className="relative mx-auto aspect-square w-full max-w-[min(100%,36rem)] sm:max-w-[min(100%,40rem)] lg:max-w-none">
       <svg aria-hidden viewBox="0 0 100 100" className="absolute inset-0 h-full w-full">
         <circle
           cx="50"
@@ -446,7 +384,7 @@ function WhyDial({
         />
       </svg>
 
-      <div className="absolute inset-[18%] overflow-hidden rounded-full bg-slate-100 shadow-[0_28px_64px_-28px_rgba(15,23,42,0.35)] ring-1 ring-slate-900/8">
+      <div className="absolute inset-[12%] overflow-hidden rounded-full bg-slate-100 shadow-[0_28px_64px_-28px_rgba(15,23,42,0.35)] ring-1 ring-slate-900/8">
         {whyVisuals.map((visual, i) => (
           <div
             key={visual.src}
@@ -460,7 +398,7 @@ function WhyDial({
               src={visual.src}
               alt={i === activeIndex ? visual.alt : ""}
               fill
-              sizes="420px"
+              sizes="(max-width: 1024px) 640px, 720px"
               className="object-cover"
               priority={i === 0}
             />
@@ -520,23 +458,18 @@ function WhySwitchSection() {
   const counter = `00.0${activeIndex}`;
 
   return (
-    <section id="why-switch" className="relative scroll-mt-24 bg-[#FFFCF2]">
-      <div className="marketing-container relative pt-20 sm:pt-28">
-        <SectionHeader
-          pill="Why switch"
-          title="Why photographers leave the zip-file stack behind"
-        />
-      </div>
+    <section id="why-switch" className="relative scroll-mt-24 bg-white">
+      <VerticalSpine />
 
       {/* Scroll track — pins the dial while steps advance */}
       <div
         ref={trackRef}
-        className="relative"
+        className="relative bg-white"
         style={{ height: reducedMotion ? "auto" : `${stepCount * 100}vh` }}
       >
         <div
           className={cn(
-            "flex items-center",
+            "flex items-center bg-white",
             reducedMotion
               ? "relative py-12"
               : "sticky top-0 min-h-svh py-10 lg:h-svh lg:py-0",
@@ -546,7 +479,6 @@ function WhySwitchSection() {
             <div className="relative max-w-md">
               <div className="relative min-h-[11.5rem] sm:min-h-[13rem]">
                 {featureWhySwitch.map((item, i) => {
-                  const StepIcon = whyIcons[i] ?? Shield;
                   const active = i === activeIndex;
                   return (
                     <div
@@ -559,14 +491,7 @@ function WhySwitchSection() {
                       )}
                       aria-hidden={!active}
                     >
-                      <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-white shadow-[0_1px_3px_rgba(15,23,42,0.06)] ring-1 ring-[#55001F]/12">
-                        <StepIcon
-                          className="h-5 w-5 text-[#55001F]"
-                          strokeWidth={1.5}
-                          aria-hidden
-                        />
-                      </div>
-                      <h3 className="mt-6 font-display text-[clamp(1.85rem,3.5vw,2.75rem)] font-medium leading-[1.08] tracking-tight text-slate-900">
+                      <h3 className="font-display text-[clamp(1.85rem,3.5vw,2.75rem)] font-medium leading-[1.08] tracking-tight text-slate-900">
                         {item.title}
                       </h3>
                       <p className="mt-4 text-base leading-relaxed text-slate-600">
@@ -595,7 +520,7 @@ function WhySwitchSection() {
               </ol>
             </div>
 
-            <div className="relative mx-auto w-full max-w-md lg:max-w-none">
+            <div className="relative mx-auto w-full max-w-xl lg:max-w-none">
               <WhyDial progress={progress} activeIndex={activeIndex} />
               <p
                 aria-hidden
@@ -607,194 +532,77 @@ function WhySwitchSection() {
           </div>
         </div>
       </div>
-
-      <div className="marketing-container relative pb-16 sm:pb-20">
-        <div className="flex flex-wrap justify-center gap-x-6 gap-y-2 border-t border-slate-200/80 pt-8">
-          {featureTrustPoints.map((point) => (
-            <span key={point} className="text-sm text-slate-500">
-              <span className="mr-2 text-[#D5AE65]" aria-hidden>
-                ·
-              </span>
-              {point}
-            </span>
-          ))}
-        </div>
-      </div>
     </section>
   );
 }
 
-function ProcessVisual({ index }: { index: number }) {
-  return (
-    <div className="relative mx-auto aspect-square w-full max-w-[20rem]">
-      <div aria-hidden className="absolute inset-[6%] rounded-full border border-slate-200/70" />
-      <div className="absolute inset-[12%] overflow-hidden rounded-full bg-slate-100 shadow-[0_24px_48px_-24px_rgba(15,23,42,0.28)] ring-1 ring-slate-900/8">
-        {processVisuals.map((visual, i) => (
-          <div
-            key={visual.src}
-            className={cn(
-              "absolute inset-0 transition-opacity duration-500 ease-out",
-              i === index ? "opacity-100" : "opacity-0",
-            )}
-            aria-hidden={i !== index}
-          >
-            <Image
-              src={visual.src}
-              alt={i === index ? visual.alt : ""}
-              fill
-              sizes="320px"
-              className="object-cover"
-              priority={i === 0}
-            />
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 function HowItWorksSection() {
-  const [active, setActive] = useState(0);
-  const [paused, setPaused] = useState(false);
-  const sectionRef = useRef<HTMLElement | null>(null);
-  const inViewRef = useRef(false);
-  const count = featureWorkflowSteps.length;
-  const step = featureWorkflowSteps[active]!;
-  const Icon = processIcons[active] ?? Upload;
-
-  useEffect(() => {
-    const el = sectionRef.current;
-    if (!el) return;
-
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        inViewRef.current = Boolean(entry?.isIntersecting);
-      },
-      { threshold: 0.35 },
-    );
-
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
-
-  useEffect(() => {
-    if (paused) return;
-
-    const timer = window.setInterval(() => {
-      if (!inViewRef.current) return;
-      setActive((i) => (i + 1) % count);
-    }, 5200);
-
-    return () => window.clearInterval(timer);
-  }, [count, paused]);
-
-  function selectStep(next: number) {
-    setPaused(true);
-    setActive(next);
-  }
-
   return (
-    <section
-      ref={sectionRef}
-      id="how-it-works"
-      className="relative scroll-mt-24 overflow-hidden bg-white py-20 sm:py-28"
-    >
+    <section id="how-it-works" className="relative scroll-mt-24 overflow-hidden bg-white py-20 sm:py-28">
       <VerticalSpine />
+
       <div className="marketing-container relative">
-        <SectionHeader
-          pill="How it works"
-          title="From upload to delivery in one flow"
-        />
-
-        <div className="mt-14 grid items-center gap-10 lg:mt-16 lg:grid-cols-2 lg:gap-16">
-          <Reveal>
-            <div className="relative">
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-[#FFFCF2] ring-1 ring-[#55001F]/10">
-                <Icon className="h-5 w-5 text-[#55001F]" strokeWidth={1.5} aria-hidden />
-              </div>
-              <p className="mt-6 font-mono text-xs font-medium tabular-nums tracking-wider text-[#D5AE65]">
-                {String(active + 1).padStart(2, "0")} / {String(count).padStart(2, "0")}
-              </p>
-              <h3 className="mt-3 font-display text-[clamp(2rem,4vw,3.25rem)] font-medium leading-none tracking-tight text-slate-900 transition-opacity duration-300">
-                {step.label}
-              </h3>
-              <p className="mt-4 max-w-md text-base leading-relaxed text-slate-600">
-                {step.description}
-              </p>
-            </div>
-
-            <div className="mt-10 flex items-center gap-3">
-              <button
-                type="button"
-                aria-label="Previous step"
-                onClick={() => selectStep((active - 1 + count) % count)}
-                className="flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 transition hover:border-[#55001F]/25 hover:text-[#55001F]"
-              >
-                <ChevronLeft className="h-4 w-4" aria-hidden />
-              </button>
-              <button
-                type="button"
-                aria-label="Next step"
-                onClick={() => selectStep((active + 1) % count)}
-                className="flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 transition hover:border-[#55001F]/25 hover:text-[#55001F]"
-              >
-                <ChevronRight className="h-4 w-4" aria-hidden />
-              </button>
-
-              <div className="ml-2 flex gap-1.5">
-                {featureWorkflowSteps.map((s, i) => (
-                  <button
-                    key={s.label}
-                    type="button"
-                    aria-label={`Go to ${s.label}`}
-                    aria-current={i === active ? "true" : undefined}
-                    onClick={() => selectStep(i)}
-                    className={cn(
-                      "h-1.5 rounded-full transition-all",
-                      i === active ? "w-6 bg-[#55001F]" : "w-1.5 bg-slate-300 hover:bg-slate-400",
-                    )}
-                  />
-                ))}
-              </div>
-            </div>
+        <div className="grid gap-12 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.35fr)] lg:gap-16 xl:gap-24">
+          <Reveal className="lg:sticky lg:top-28 lg:self-start">
+            <p className="text-[11px] font-medium uppercase tracking-[0.28em] text-slate-400">
+              How it works
+            </p>
+            <h2 className="mt-3 max-w-sm font-display text-[clamp(1.85rem,3.8vw,2.75rem)] font-normal leading-[1.1] tracking-tight text-slate-900">
+              Five steps from shoot to delivery
+            </h2>
+            <div className="mt-5 h-px w-10 bg-slate-200" aria-hidden />
+            <p className="mt-5 max-w-sm text-sm leading-relaxed text-slate-600 sm:text-base">
+              One gallery workspace. One share link. Proofing and delivery without the zip-file
+              chase.
+            </p>
           </Reveal>
 
-          <Reveal scale delayMs={80} className="relative">
-            <ProcessVisual index={active} />
-          </Reveal>
+          <ol className="relative">
+            <span
+              aria-hidden
+              className="absolute bottom-6 left-[1.15rem] top-6 hidden w-px bg-gradient-to-b from-[#55001F]/25 via-[#D5AE65]/50 to-[#55001F]/15 sm:left-[1.35rem] md:block"
+            />
+
+            {featureWorkflowSteps.map((step, i) => (
+              <Reveal key={step.label} delayMs={i * 60}>
+                <li className="relative grid grid-cols-[auto_minmax(0,1fr)] gap-5 border-b border-slate-200/80 py-7 last:border-b-0 sm:gap-7 sm:py-8 md:grid-cols-[4.5rem_minmax(0,1fr)]">
+                  <div className="relative z-10 flex h-9 w-9 items-center justify-center rounded-full bg-white sm:h-11 sm:w-11">
+                    <span className="font-mono text-[11px] font-semibold tabular-nums tracking-wider text-[#55001F] sm:text-xs">
+                      {String(i + 1).padStart(2, "0")}
+                    </span>
+                    <span
+                      aria-hidden
+                      className="absolute inset-0 rounded-full ring-1 ring-[#55001F]/20"
+                    />
+                    {i === featureWorkflowSteps.length - 1 ? (
+                      <span
+                        aria-hidden
+                        className="absolute inset-[-3px] rounded-full ring-1 ring-[#D5AE65]/45"
+                      />
+                    ) : null}
+                  </div>
+
+                  <div className="min-w-0 pt-0.5 sm:pt-1">
+                    <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                      <h3 className="font-display text-2xl font-medium tracking-tight text-slate-900 sm:text-[1.75rem]">
+                        {step.label}
+                      </h3>
+                      <span
+                        aria-hidden
+                        className="hidden font-mono text-[10px] uppercase tracking-[0.22em] text-[#D5AE65] sm:inline"
+                      >
+                        Step {String(i + 1).padStart(2, "0")}
+                      </span>
+                    </div>
+                    <p className="mt-2 max-w-xl text-sm leading-relaxed text-slate-600 sm:text-[0.95rem]">
+                      {step.description}
+                    </p>
+                  </div>
+                </li>
+              </Reveal>
+            ))}
+          </ol>
         </div>
-
-        <ol className="mt-14 grid gap-px overflow-hidden rounded-2xl bg-slate-200/70 sm:grid-cols-5">
-          {featureWorkflowSteps.map((s, i) => (
-            <li key={s.label}>
-              <button
-                type="button"
-                onClick={() => selectStep(i)}
-                className={cn(
-                  "flex h-full w-full flex-col gap-1 px-4 py-5 text-left transition",
-                  i === active ? "bg-[#FFFCF2]" : "bg-white hover:bg-slate-50",
-                )}
-              >
-                <span
-                  className={cn(
-                    "font-mono text-[11px] font-medium tabular-nums",
-                    i === active ? "text-[#D5AE65]" : "text-slate-400",
-                  )}
-                >
-                  {String(i + 1).padStart(2, "0")}
-                </span>
-                <span
-                  className={cn(
-                    "text-sm font-semibold",
-                    i === active ? "text-[#55001F]" : "text-slate-800",
-                  )}
-                >
-                  {s.label}
-                </span>
-              </button>
-            </li>
-          ))}
-        </ol>
       </div>
     </section>
   );
@@ -812,11 +620,14 @@ function FlagshipBand({ signUpHref, signedIn }: { signUpHref: string; signedIn: 
       />
       <div className="marketing-container relative grid items-center gap-12 lg:grid-cols-2 lg:gap-16">
         <Reveal>
-          <Pill tone="gold">{flagship.eyebrow}</Pill>
-          <h2 className="mt-5 font-display text-[clamp(1.85rem,3.8vw,2.85rem)] font-medium leading-[1.08] tracking-tight text-white">
+          <p className="text-[11px] font-medium uppercase tracking-[0.28em] text-white/55">
+            {flagship.eyebrow}
+          </p>
+          <h2 className="mt-3 max-w-lg font-display text-[1.65rem] font-normal leading-snug tracking-tight text-white sm:mt-4 sm:text-4xl">
             {flagship.headline}
           </h2>
-          <p className="mt-4 max-w-lg text-base leading-relaxed text-white/70">
+          <div className="mt-5 h-px w-10 bg-white/25" aria-hidden />
+          <p className="mt-5 max-w-lg text-sm leading-relaxed text-white/70 sm:text-base">
             {flagship.description}
           </p>
           <ul className="mt-8 space-y-3">
@@ -828,13 +639,9 @@ function FlagshipBand({ signUpHref, signedIn }: { signUpHref: string; signedIn: 
             ))}
           </ul>
           <div className="mt-10">
-            <Link
-              href={signUpHref}
-              className="inline-flex items-center gap-2 rounded-xl bg-[#D5AE65] px-6 py-3.5 text-sm font-semibold text-[#55001F] transition hover:bg-[#e0be75]"
-            >
+            <MarketingCornerCta href={signUpHref} tone="inverse">
               {signedIn ? "Open studio" : "Try it free"}
-              <ArrowRight className="h-4 w-4" aria-hidden />
-            </Link>
+            </MarketingCornerCta>
           </div>
         </Reveal>
 
@@ -930,11 +737,16 @@ function FeatureSpread({ spotlight, index }: { spotlight: FeatureSpotlight; inde
         )}
       >
         <Reveal>
-          <Pill>{spotlight.eyebrow}</Pill>
-          <h2 className="mt-5 font-display text-[clamp(1.75rem,3.2vw,2.5rem)] font-medium leading-[1.08] tracking-tight text-slate-900">
+          <p className="text-[11px] font-medium uppercase tracking-[0.28em] text-slate-400">
+            {spotlight.eyebrow}
+          </p>
+          <h2 className="mt-3 max-w-lg font-display text-[1.65rem] font-normal leading-snug tracking-tight text-slate-900 sm:mt-4 sm:text-4xl">
             {spotlight.headline}
           </h2>
-          <p className="mt-4 text-base leading-relaxed text-slate-600">{spotlight.description}</p>
+          <div className="mt-5 h-px w-10 bg-slate-200" aria-hidden />
+          <p className="mt-5 max-w-lg text-sm leading-relaxed text-slate-600 sm:text-base">
+            {spotlight.description}
+          </p>
           <ul className="mt-8 space-y-3">
             {spotlight.bullets.map((item) => (
               <li key={item} className="flex gap-3 text-sm leading-relaxed text-slate-700">
@@ -953,41 +765,6 @@ function FeatureSpread({ spotlight, index }: { spotlight: FeatureSpotlight; inde
   );
 }
 
-function FeaturesTestimonial() {
-  const t = featureTestimonial;
-
-  return (
-    <section className="relative overflow-hidden bg-white py-20 sm:py-28">
-      <VerticalSpine />
-      <div className="marketing-container relative">
-        <SectionHeader pill="From the field" title="Loved by working photographers" />
-
-        <div className="mt-14 grid items-center gap-10 lg:mt-16 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)] lg:gap-16">
-          <Reveal>
-            <figure className="relative mx-auto w-full max-w-[17rem] lg:mx-0">
-              <div className="relative aspect-[3/4] overflow-hidden rounded-2xl shadow-[0_24px_56px_-24px_rgba(85,0,31,0.25)] ring-1 ring-slate-900/8">
-                <Image src={t.avatar} alt={t.name} fill sizes="272px" className="object-cover" />
-              </div>
-              <figcaption className="mt-4">
-                <span className="block text-sm font-semibold text-slate-900">{t.name}</span>
-                <span className="text-sm text-slate-500">{t.role}</span>
-              </figcaption>
-            </figure>
-          </Reveal>
-
-          <Reveal delayMs={100}>
-            <blockquote>
-              <p className="font-display text-[clamp(1.4rem,2.8vw,2.1rem)] font-normal italic leading-relaxed text-[#55001F]">
-                &ldquo;{t.quote}&rdquo;
-              </p>
-            </blockquote>
-          </Reveal>
-        </div>
-      </div>
-    </section>
-  );
-}
-
 function ClosingCta({ signUpHref, signedIn }: { signUpHref: string; signedIn: boolean }) {
   return (
     <section className="bg-[#FFFCF2] py-16 sm:py-20 lg:py-24">
@@ -999,28 +776,28 @@ function ClosingCta({ signUpHref, signedIn }: { signUpHref: string; signedIn: bo
               className="pointer-events-none absolute -right-16 top-1/2 h-64 w-64 -translate-y-1/2 rounded-full bg-[#D5AE65]/15 blur-3xl"
             />
             <div className="relative mx-auto max-w-2xl text-center">
-              <Pill tone="gold">Get started</Pill>
-              <h2 className="mt-5 font-display text-[clamp(1.85rem,3.5vw,2.85rem)] font-medium leading-[1.08] tracking-tight text-white">
+              <p className="text-[11px] font-medium uppercase tracking-[0.28em] text-white/55">
+                Get started
+              </p>
+              <h2 className="mx-auto mt-4 max-w-2xl font-display text-3xl font-semibold tracking-tight text-white sm:text-4xl">
                 Your next client deserves better than a zip file.
               </h2>
-              <p className="mx-auto mt-4 max-w-lg text-base leading-relaxed text-white/70">
-                Try {APP_NAME} on your next delivery — upload a shoot, design the gallery, and send a
-                branded link. Free for 30 days.
+              <p className="mx-auto mt-4 max-w-lg text-base leading-relaxed text-white/75">
+                Try {APP_NAME} free for 30 days — 3 galleries, 5 GB storage, share links, selections,
+                bookings, and the core studio tools. Upgrade when you need SMS, video, or Gallery AI.
               </p>
               <div className="mt-8 flex flex-wrap justify-center gap-3">
-                <Link
-                  href={signUpHref}
-                  className="inline-flex items-center gap-2 rounded-xl bg-[#D5AE65] px-6 py-3.5 text-sm font-semibold text-[#55001F] transition hover:bg-[#e0be75]"
-                >
+                <MarketingCornerCta href={signUpHref} tone="inverse">
                   {signedIn ? "Open studio" : "Get started free"}
-                  <ArrowRight className="h-4 w-4" aria-hidden />
-                </Link>
-                <Link
+                </MarketingCornerCta>
+                <MarketingCornerCta
                   href="/pricing"
-                  className="inline-flex items-center rounded-xl border border-white/25 px-6 py-3.5 text-sm font-semibold text-white transition hover:bg-white/10"
+                  tone="secondary"
+                  showSquare={false}
+                  className="border-white/25 text-white hover:border-white/40 hover:bg-white/10"
                 >
                   Compare plans
-                </Link>
+                </MarketingCornerCta>
               </div>
             </div>
           </div>
@@ -1041,7 +818,6 @@ export function FeaturesSection() {
   return (
     <div>
       <FeaturesHero signUpHref={signUpHref} signedIn={signedIn} />
-      <OverviewSection />
       <WhySwitchSection />
       <HowItWorksSection />
       <FlagshipBand signUpHref={signUpHref} signedIn={signedIn} />
@@ -1051,7 +827,7 @@ export function FeaturesSection() {
           <VerticalSpine />
           <div className="marketing-container relative">
             <SectionHeader
-              pill={featureSectionHeaders.client.eyebrow}
+              eyebrow={featureSectionHeaders.client.eyebrow}
               title={featureSectionHeaders.client.title}
               description={featureSectionHeaders.client.description}
             />
@@ -1066,7 +842,7 @@ export function FeaturesSection() {
           <VerticalSpine />
           <div className="marketing-container relative">
             <SectionHeader
-              pill={featureSectionHeaders.studio.eyebrow}
+              eyebrow={featureSectionHeaders.studio.eyebrow}
               title={featureSectionHeaders.studio.title}
               description={featureSectionHeaders.studio.description}
             />
@@ -1082,8 +858,6 @@ export function FeaturesSection() {
         ))}
       </div>
 
-      <FeaturesTestimonial />
-      <MarketingFaqSection id="features-faq" showEmailFooter className="bg-[#FFFCF2]" />
       <ClosingCta signUpHref={signUpHref} signedIn={signedIn} />
     </div>
   );

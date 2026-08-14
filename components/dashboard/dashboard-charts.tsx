@@ -197,8 +197,8 @@ export function StorageBreakdownCard({
     planBytes > 0 ? Math.min(100, Math.round((totalBytes / planBytes) * 100)) : 0;
 
   const dominant = [
-    { label: "RAWs", bytes: raws },
-    { label: "Selections", bytes: selections },
+    { label: "Proofs", bytes: raws },
+    { label: "Selected", bytes: selections },
     { label: "Finals", bytes: finals },
   ]
     .filter((item) => item.bytes > 0)
@@ -215,7 +215,7 @@ export function StorageBreakdownCard({
             Storage breakdown
           </h3>
           <p className="mt-0.5 text-sm text-zinc-500">
-            {dominant ? dominant.label : "RAWs, selections & finals"}
+            {dominant ? dominant.label : "Proofs, selected & finals"}
           </p>
         </div>
         {href ? (

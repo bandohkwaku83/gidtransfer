@@ -17,7 +17,7 @@ export const onboardingFieldMt = "mt-0.5";
 /** Border, radius, and fill shared by onboarding single-line controls. */
 export const onboardingControlShellClassName = [
   "!rounded-lg",
-  "!border !border-solid !border-neutral-300 !bg-white",
+  "!border !border-solid !border-neutral-300 !bg-[#F5F5F5]",
   "!shadow-none",
   "hover:!border-neutral-400",
 ].join(" ");
@@ -34,7 +34,7 @@ export const onboardingAntInputClassName = [
   "[&.ant-input]:!max-h-10",
   "[&.ant-input]:!rounded-lg",
   "[&.ant-input]:!border-neutral-300",
-  "[&.ant-input]:!bg-white",
+  "[&.ant-input]:!bg-[#F5F5F5]",
   "[&.ant-input]:!px-2.5",
   "[&.ant-input]:!text-sm",
   "[&.ant-input]:!leading-normal",
@@ -46,7 +46,7 @@ export const onboardingAntInputClassName = [
   "[&_.ant-input-affix-wrapper]:!max-h-10",
   "[&_.ant-input-affix-wrapper]:!rounded-lg",
   "[&_.ant-input-affix-wrapper]:!border-neutral-300",
-  "[&_.ant-input-affix-wrapper]:!bg-white",
+  "[&_.ant-input-affix-wrapper]:!bg-[#F5F5F5]",
   "[&_.ant-input-affix-wrapper]:!px-2.5",
   "[&_.ant-input-affix-wrapper]:!py-0",
   "[&_.ant-input-affix-wrapper]:!shadow-none",
@@ -56,7 +56,7 @@ export const onboardingAntInputClassName = [
   "[&_.ant-input]:!min-h-0",
   "[&_.ant-input]:!rounded-lg",
   "[&_.ant-input]:!border-neutral-300",
-  "[&_.ant-input]:!bg-white",
+  "[&_.ant-input]:!bg-[#F5F5F5]",
   "[&_.ant-input]:!px-2.5",
   "[&_.ant-input]:!text-sm",
   "[&_.ant-input]:!leading-normal",
@@ -78,7 +78,7 @@ export const onboardingAntSelectClassName = [
   "[&_.ant-select-selector]:!items-center",
   "[&_.ant-select-selector]:!rounded-lg",
   "[&_.ant-select-selector]:!border-neutral-300",
-  "[&_.ant-select-selector]:!bg-white",
+  "[&_.ant-select-selector]:!bg-[#F5F5F5]",
   "[&_.ant-select-selector]:!px-2.5",
   "[&_.ant-select-selector]:!py-0",
   "[&_.ant-select-selector]:!shadow-none",
@@ -120,7 +120,7 @@ export const onboardingTextareaClassName = [
   "[&.ant-input]:!resize-y",
   "[&.ant-input]:!rounded-lg",
   "[&.ant-input]:!border-neutral-300",
-  "[&.ant-input]:!bg-white",
+  "[&.ant-input]:!bg-[#F5F5F5]",
   "[&.ant-input]:!px-2.5",
   "[&.ant-input]:!py-2",
   "[&.ant-input]:!text-sm",
@@ -134,7 +134,7 @@ export const onboardingTextareaClassName = [
 export const onboardingNativeControlClassName = [
   onboardingFieldMt,
   ONBOARDING_FIELD_H,
-  "w-full appearance-none rounded-lg border border-neutral-300 bg-white px-2.5 text-sm leading-normal text-neutral-900 shadow-none outline-none transition",
+  "w-full appearance-none rounded-lg border border-neutral-300 bg-[#F5F5F5] px-2.5 text-sm leading-normal text-neutral-900 shadow-none outline-none transition",
   "hover:border-neutral-400 focus:border-neutral-500 focus:ring-0",
   "disabled:cursor-not-allowed disabled:opacity-60",
 ].join(" ");
@@ -146,5 +146,5 @@ export const onboardingSelectChevronClassName =
 export const onboardingCompositeFieldClassName = [
   onboardingFieldMt,
   ONBOARDING_FIELD_H,
-  "flex items-stretch overflow-hidden rounded-lg border border-neutral-300 bg-white transition-colors focus-within:border-neutral-500",
+  "flex items-stretch overflow-hidden rounded-lg border border-neutral-300 bg-[#F5F5F5] transition-colors focus-within:border-neutral-500",
 ].join(" ");

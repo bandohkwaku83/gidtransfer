@@ -49,6 +49,39 @@ export interface StatsResponse {
   support: { openIssueReports: number };
 }
 
+export interface StudioRef {
+  userId: string;
+  email: string | null;
+  companyName: string;
+  companySlug: string;
+  isActive?: boolean;
+}
+
+export interface ClientRef {
+  id: string;
+  name: string;
+  email?: string;
+  phone?: string;
+  location?: string;
+  createdAt?: string;
+}
+
+export interface GalleryCounts {
+  all: number;
+  draft: number;
+  selecting: number;
+  done: number;
+  trash: number;
+}
+
+export interface LimitOverride {
+  storageLimitBytes: number | null;
+  maxGalleries: number | null;
+  expiresAt: string | null;
+  reason: string;
+  setAt: string;
+}
+
 export interface PhotographerListItem {
   userId: string;
   accountId: string;
@@ -83,11 +116,15 @@ export interface PhotographerDetail {
   onboardedAt: string | null;
   createdAt: string;
   isActive: boolean;
+  planId: string;
   planName: string;
   subscriptionStatus: string;
   paystackSubscriptionCode: string | null;
+  maxGalleries: number | null;
+  limitOverride: LimitOverride | null;
   clientsCount: number;
   galleriesCount: number;
+  galleryCounts: GalleryCounts | null;
   storageUsed: number;
   storageLimit: number;
   storageLabel: string;
@@ -109,6 +146,178 @@ export interface Session {
   loggedInAt: string;
   lastSeenAt: string;
   isActive: boolean;
+}
+
+export interface GalleryShare {
+  url: string | null;
+  tokenPresent?: boolean;
+  isShared: boolean;
+  passwordProtected: boolean;
+  shareExpiresAt: string | null;
+  shareLinkExpiryDays: number | null;
+  allowDownloads: boolean;
+}
+
+export interface GalleryListItem {
+  id: string;
+  name: string;
+  slug: string;
+  status: string;
+  eventDate: string | null;
+  galleryType: string | null;
+  galleryTypeLabel: string | null;
+  client: ClientRef | null;
+  studio: StudioRef;
+  share: GalleryShare;
+  selectionLocked: boolean;
+  maxSelections: number | null;
+  selectionSubmittedAt: string | null;
+  deletedAt: string | null;
+  restoreDeadline: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GalleryDetail {
+  id: string;
+  name: string;
+  slug: string;
+  status: string;
+  eventDate: string | null;
+  description: string | null;
+  galleryType: string | null;
+  galleryTypeLabel: string | null;
+  client: ClientRef | null;
+  studio: StudioRef;
+  photographerGalleryCounts: GalleryCounts | null;
+  share: GalleryShare;
+  selection: {
+    locked: boolean;
+    maxSelections: number | null;
+    submittedAt: string | null;
+  };
+  trash: {
+    deletedAt: string;
+    restoreDeadline: string | null;
+    restoreExpired: boolean;
+  } | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GalleryFilters {
+  slug?: string;
+  studioEmail?: string;
+  clientName?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  status?: string;
+  shared?: string;
+  passwordProtected?: string;
+  selectionLocked?: string;
+  allowDownloads?: string;
+  trashOnly?: string;
+  search?: string;
+  page?: number;
+  limit?: number;
+}
+
+export interface TrashItem {
+  id: string;
+  name: string;
+  slug: string;
+  status: string;
+  studio: StudioRef;
+  deletedAt: string;
+  restoreDeadline: string | null;
+  restoreExpired: boolean;
+}
+
+export interface FlaggedFinal {
+  id: string;
+  galleryId: string;
+  galleryName: string | null;
+  gallerySlug: string | null;
+  originalFilename: string;
+  flaggedAt: string | null;
+  feedback: { comment?: string; thread?: unknown[] } | null;
+  studio: StudioRef;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CrmStudioListItem {
+  userId: string;
+  email: string | null;
+  companyName: string;
+  companySlug: string;
+  isActive: boolean | null;
+  clientCount: number;
+  latestClientAt: string | null;
+}
+
+export interface CrmStudioDetail {
+  studio: StudioRef;
+  totals: {
+    clients: number;
+    upcomingBookings: number;
+    bookingsThisMonth: number;
+  };
+  includePii: boolean;
+  recentClients: ClientRef[];
+  note?: string;
+}
+
+export interface CrmBooking {
+  id: string;
+  title: string;
+  category: string;
+  categoryLabel: string;
+  startsAt: string;
+  endsAt: string | null;
+  location?: string;
+  amountCharged: number;
+  currency: string;
+  invoicedAt: string | null;
+  studio: StudioRef;
+  client: ClientRef;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BillingPlan {
+  id: string;
+  name: string;
+  description: string;
+  storageLimitBytes: number;
+  storageBytes: number;
+  storageLabel: string;
+  maxGalleries: number | null;
+  perks: string[];
+  priceGhs: number;
+  interval: string | null;
+  paystackPlanCode: string | null;
+  available: boolean;
+}
+
+export interface BillingEvent {
+  id: string;
+  eventId: string;
+  eventType: string;
+  category: string;
+  reference: string | null;
+  amount: number;
+  currency: string;
+  status: string;
+  processedAt: string | null;
+  createdAt: string;
+  user: {
+    userId: string;
+    email: string | null;
+    companyName: string;
+    companySlug: string;
+    planId: string | null;
+  } | null;
 }
 
 export interface IssueReportAttachment {

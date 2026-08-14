@@ -8,7 +8,11 @@ import { Header } from "./Header";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const { admin, loading } = useAdminAuth();
-  const [badges, setBadges] = useState<{ support?: number; sms?: number }>({});
+  const [badges, setBadges] = useState<{
+    support?: number;
+    sms?: number;
+    trash?: number;
+  }>({});
 
   useEffect(() => {
     if (!admin) return;
@@ -17,6 +21,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         setBadges({
           support: stats.support.openIssueReports,
           sms: stats.photographers.pendingSmsSenders,
+          trash: stats.galleries.trashed,
         });
       })
       .catch(() => {});

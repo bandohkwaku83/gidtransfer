@@ -54,3 +54,11 @@ export async function login(
   const admin = normalizeAdmin(data.admin);
   return { message: data.message, token: data.token, admin };
 }
+
+/** Validates the stored admin JWT and returns the current admin profile. */
+export async function fetchCurrentAdmin(): Promise<AdminUser> {
+  const { data } = await adminApi.get<{ admin: RawAdmin }>(
+    "/api/admin/auth/me",
+  );
+  return normalizeAdmin(data.admin);
+}

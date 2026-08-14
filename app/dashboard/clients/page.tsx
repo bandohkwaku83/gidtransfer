@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  ChevronLeft,
   ChevronRight,
   FileUp,
   Pencil,
@@ -10,7 +9,6 @@ import {
   Users,
 } from "lucide-react";
 import Link from "next/link";
-import { Select } from "antd";
 import { FormSearchInput, dashboardSearchFieldClassName } from "@/components/ui/form-input";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CreateClientModal } from "@/components/photographer/create-client-modal";
@@ -18,6 +16,10 @@ import { ImportClientsModal } from "@/components/photographer/import-clients-mod
 import { useToast } from "@/components/toast-provider";
 import { deleteClient, listClients, type ApiClient } from "@/lib/clients-api";
 import { dashboardPageHeaderCtaClassName } from "@/components/dashboard/dashboard-page-header";
+import {
+  DASHBOARD_TABLE_DEFAULT_PAGE_SIZE,
+  DashboardTablePagination,
+} from "@/components/dashboard/dashboard-table-pagination";
 import { cn } from "@/lib/utils";
 
 export default function ClientsPage() {
@@ -32,7 +34,7 @@ export default function ClientsPage() {
   const [error, setError] = useState<string | null>(null);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
+  const [pageSize, setPageSize] = useState(DASHBOARD_TABLE_DEFAULT_PAGE_SIZE);
   const [searchInput, setSearchInput] = useState("");
 
   const fetchClients = useCallback(async (search: string, signal?: AbortSignal) => {
@@ -133,19 +135,12 @@ export default function ClientsPage() {
     [pendingDeleteId, showToast],
   );
 
-  const { pageRows, totalPages, rangeStart, rangeEnd, displayPage } = useMemo(() => {
+  const pageRows = useMemo(() => {
     const total = filteredClients.length;
     const tp = Math.max(1, Math.ceil(total / pageSize) || 1);
     const safePage = Math.min(page, tp);
     const start = (safePage - 1) * pageSize;
-    const slice = filteredClients.slice(start, start + pageSize);
-    return {
-      pageRows: slice,
-      totalPages: tp,
-      rangeStart: total === 0 ? 0 : start + 1,
-      rangeEnd: Math.min(start + pageSize, total),
-      displayPage: safePage,
-    };
+    return filteredClients.slice(start, start + pageSize);
   }, [filteredClients, page, pageSize]);
 
   const searchTrimmed = searchInput.trim();
@@ -333,51 +328,17 @@ export default function ClientsPage() {
               </div>
 
               {filteredClients.length > 0 ? (
-                <div className="flex flex-col gap-4 border-t border-zinc-100 px-5 py-4 dark:border-zinc-800 sm:flex-row sm:items-center sm:justify-between sm:px-6">
-                  <p className="text-center text-xs font-medium text-zinc-600 sm:text-left dark:text-zinc-400">
-                    {`${rangeStart}–${rangeEnd} of ${filteredClients.length}${searchTrimmed ? " matching" : ""}`}
-                    {clients.length !== filteredClients.length
-                      ? `, ${clients.length} total in directory`
-                      : ""}
-                  </p>
-                  <div className="flex flex-wrap items-center justify-center gap-3 sm:justify-end">
-                    <label className="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
-                      <span className="hidden sm:inline">Per page</span>
-                      <Select
-                        value={pageSize}
-                        onChange={(value) => {
-                          setPageSize(value);
-                          setPage(1);
-                        }}
-                        options={[10, 20, 50, 100].map((n) => ({ value: n, label: String(n) }))}
-                        className="min-w-[4.5rem] [&_.ant-select-selector]:!rounded-full [&_.ant-select-selector]:!border-zinc-200 [&_.ant-select-selector]:!bg-white [&_.ant-select-selector]:!px-3 [&_.ant-select-selector]:!py-1 dark:[&_.ant-select-selector]:!border-zinc-600 dark:[&_.ant-select-selector]:!bg-zinc-950"
-                      />
-                    </label>
-                    <div className="inline-flex items-center rounded-full border border-zinc-200 bg-white p-0.5 shadow-sm dark:border-zinc-700 dark:bg-zinc-950">
-                      <button
-                        type="button"
-                        disabled={displayPage <= 1}
-                        onClick={() => setPage((p) => Math.max(1, p - 1))}
-                        className="inline-flex h-8 w-8 items-center justify-center rounded-full text-zinc-600 transition hover:bg-zinc-100 disabled:opacity-40 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                        aria-label="Previous page"
-                      >
-                        <ChevronLeft className="h-4 w-4" aria-hidden />
-                      </button>
-                      <span className="min-w-[5.5rem] px-1 text-center text-xs font-medium tabular-nums text-zinc-600 dark:text-zinc-300">
-                        {displayPage} / {totalPages}
-                      </span>
-                      <button
-                        type="button"
-                        disabled={displayPage >= totalPages}
-                        onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                        className="inline-flex h-8 w-8 items-center justify-center rounded-full text-zinc-600 transition hover:bg-zinc-100 disabled:opacity-40 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                        aria-label="Next page"
-                      >
-                        <ChevronRight className="h-4 w-4" aria-hidden />
-                      </button>
-                    </div>
-                  </div>
-                </div>
+                <DashboardTablePagination
+                  current={page}
+                  pageSize={pageSize}
+                  total={filteredClients.length}
+                  noun={{ singular: "client", plural: "clients" }}
+                  suffix={searchTrimmed ? "matching" : undefined}
+                  onChange={(nextPage, nextPageSize) => {
+                    setPage(nextPage);
+                    setPageSize(nextPageSize);
+                  }}
+                />
               ) : null}
             </div>
           )}

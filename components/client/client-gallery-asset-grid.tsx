@@ -1,6 +1,6 @@
 "use client";
 
-import { memo } from "react";
+import { memo, useState } from "react";
 import { Heart, Loader2, MessageCircle, PlayCircle, Sparkles, AlertTriangle, EyeOff } from "lucide-react";
 import type { DemoAsset } from "@/lib/demo-data";
 import {
@@ -16,6 +16,7 @@ import {
   clientGalleryGridSrc,
   shouldShowClientPreviewWatermarkOverlay,
 } from "@/lib/preview-watermark-display";
+import { mediaNeedsGridSkeleton, videoElementPreviewSrc } from "@/lib/gallery-media-streaming";
 import { cn } from "@/lib/utils";
 
 function VideoTileOverlay() {
@@ -54,6 +55,7 @@ export type ClientGalleryAssetGridProps = {
   onToggleSelect: (id: string) => void;
   onOpenComment: (asset: DemoAsset) => void;
   onToggleReject?: (id: string) => void;
+  commentsEnabled?: boolean;
   indexOffset?: number;
 };
 
@@ -70,6 +72,7 @@ type ClientGalleryAssetTileProps = {
   onToggleSelect: (id: string) => void;
   onOpenComment: (asset: DemoAsset) => void;
   onToggleReject?: (id: string) => void;
+  commentsEnabled?: boolean;
 };
 
 const ClientGalleryAssetTile = memo(function ClientGalleryAssetTile({
@@ -85,9 +88,14 @@ const ClientGalleryAssetTile = memo(function ClientGalleryAssetTile({
   onToggleSelect,
   onOpenComment,
   onToggleReject,
+  commentsEnabled = true,
 }: ClientGalleryAssetTileProps) {
   const isVideo = isClientAssetVideo(a);
   const mediaSrc = clientGalleryGridSrc(a);
+  const playbackSrc = isVideo ? a.url?.trim() || "" : "";
+  const [posterFailed, setPosterFailed] = useState(false);
+  const showPoster = isVideo && Boolean(mediaSrc) && !posterFailed;
+  const showVideoFrame = isVideo && !showPoster && Boolean(playbackSrc);
   const showPreviewWatermark = shouldShowClientPreviewWatermarkOverlay(
     a,
     previewWatermarkEnabled,
@@ -96,15 +104,11 @@ const ClientGalleryAssetTile = memo(function ClientGalleryAssetTile({
   const isSelected = a.selection === "SELECTED";
   const assetComment = a.clientComment?.trim() ?? "";
   const hasAssetComment = assetComment.length > 0;
-  // Only block the tile when nothing is displayable yet. If a thumb/poster/url
-  // already exists, keep showing it — packaging can finish in the background.
+  // Until derivativesReady, gridUrl may still equal the master — skeleton instead
+  // of baseline JPEG top-to-bottom paint. Videos: poster, else a muted frame.
   const thumbsPending =
-    !mediaSrc &&
-    (a.derivativesReady === false ||
-      (isVideo &&
-        (a.dashStatus === "pending" ||
-          a.dashStatus === "processing" ||
-          a.streamingReady === false)));
+    (!isVideo && (mediaNeedsGridSkeleton(a) || !mediaSrc)) ||
+    (isVideo && !showPoster && !showVideoFrame);
   const aiSuggested = a.ai?.suggested === true;
   const aiBlurry = a.ai?.isBlurry === true;
   const aiIssues = a.ai?.issues ?? [];
@@ -129,7 +133,7 @@ const ClientGalleryAssetTile = memo(function ClientGalleryAssetTile({
           onClick={() => onOpen(a.id)}
         >
           {isVideo ? (
-            mediaSrc ? (
+            showPoster ? (
               // Progressive JPEG poster — avoid loading the master video in the grid.
               // eslint-disable-next-line @next/next/no-img-element
               <img
@@ -137,6 +141,20 @@ const ClientGalleryAssetTile = memo(function ClientGalleryAssetTile({
                 alt={a.originalName}
                 loading={globalIndex < 12 ? "eager" : "lazy"}
                 decoding="async"
+                draggable={!rightsProtection}
+                onError={() => setPosterFailed(true)}
+                className={
+                  isCollageGridLayout(gridLayout)
+                    ? "block h-auto w-full bg-black transition group-hover:brightness-[0.97]"
+                    : "absolute inset-0 h-full w-full bg-black object-cover transition group-hover:brightness-[0.97]"
+                }
+              />
+            ) : showVideoFrame ? (
+              <video
+                src={videoElementPreviewSrc(playbackSrc)}
+                muted
+                playsInline
+                preload="metadata"
                 draggable={!rightsProtection}
                 className={
                   isCollageGridLayout(gridLayout)
@@ -154,6 +172,15 @@ const ClientGalleryAssetTile = memo(function ClientGalleryAssetTile({
                 aria-label={a.originalName}
               />
             )
+          ) : thumbsPending ? (
+            <div
+              className={
+                isCollageGridLayout(gridLayout)
+                  ? "block aspect-[4/3] w-full animate-pulse bg-zinc-200 dark:bg-zinc-800"
+                  : "absolute inset-0 animate-pulse bg-zinc-200 dark:bg-zinc-800"
+              }
+              aria-hidden
+            />
           ) : isCollageGridLayout(gridLayout) ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
@@ -178,8 +205,8 @@ const ClientGalleryAssetTile = memo(function ClientGalleryAssetTile({
           {isVideo ? <VideoTileOverlay /> : null}
         </button>
         {thumbsPending ? (
-          <div className="pointer-events-none absolute inset-0 z-[2] flex items-center justify-center bg-black/25">
-            <Loader2 className="h-7 w-7 animate-spin text-white/90" aria-hidden />
+          <div className="pointer-events-none absolute inset-0 z-[2] flex items-center justify-center">
+            <Loader2 className="h-7 w-7 animate-spin text-zinc-400 dark:text-zinc-500" aria-hidden />
             <span className="sr-only">Processing preview</span>
           </div>
         ) : null}
@@ -247,6 +274,7 @@ const ClientGalleryAssetTile = memo(function ClientGalleryAssetTile({
                   <EyeOff className="h-4 w-4" aria-hidden="true" />
                 </button>
               ) : null}
+              {commentsEnabled || hasAssetComment ? (
               <button
                 type="button"
                 disabled={syncBusy}
@@ -267,6 +295,7 @@ const ClientGalleryAssetTile = memo(function ClientGalleryAssetTile({
                   aria-hidden="true"
                 />
               </button>
+              ) : null}
               <button
                 type="button"
                 disabled={syncBusy}
@@ -315,6 +344,7 @@ export const ClientGalleryAssetGrid = memo(function ClientGalleryAssetGrid({
   onToggleSelect,
   onOpenComment,
   onToggleReject,
+  commentsEnabled = true,
   indexOffset = 0,
 }: ClientGalleryAssetGridProps) {
   return (
@@ -334,6 +364,7 @@ export const ClientGalleryAssetGrid = memo(function ClientGalleryAssetGrid({
           onToggleSelect={onToggleSelect}
           onOpenComment={onOpenComment}
           onToggleReject={onToggleReject}
+          commentsEnabled={commentsEnabled}
         />
       ))}
     </ul>

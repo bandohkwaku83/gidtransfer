@@ -27,7 +27,7 @@ export type DemoAsset = {
   thumbUrl: string;
   /** Grid-optimized thumbnail (GET uploads?view=grid). */
   gridUrl?: string;
-  /** Full-quality file URL — used as grid fallback while thumbnails process. */
+  /** Full-quality file URL — downloads only; never use for grid tiles. */
   url?: string;
   /** ISO timestamp when the client selected/hearted this item. */
   selectedAt?: string | null;

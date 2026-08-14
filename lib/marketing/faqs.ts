@@ -2,32 +2,32 @@ export const faqs = [
   {
     question: "What is Gidtransfer?",
     answer:
-      "Gidtransfer is an all-in-one platform for professional photographers to share, proof, deliver, and sell photos. It combines branded client galleries with studio tools like booking, contracts, invoicing, and a commission-free print store — so you can run your business from one place instead of a dozen disconnected apps.",
-  },
-  {
-    question: "Does Gidtransfer take a commission on my sales?",
-    answer:
-      "No. Gidtransfer charges 0% commission on print and product sales. You set your own prices and keep 100% of your markup (standard payment processing fees apply). Your profit stays yours.",
-  },
-  {
-    question: "Can I use my own domain and branding?",
-    answer:
-      "Yes. Pro and Studio plans include custom domains, your logo, brand colours, and fonts on every gallery and client touchpoint. Paid plans remove Gidtransfer branding so clients only see your studio.",
-  },
-  {
-    question: "How does print fulfillment work?",
-    answer:
-      "When a client orders a print from your gallery, the order routes to a professional lab partner — WHCC, Bay Photo, Miller's, and 30+ others worldwide. The lab prints and ships directly to your client. You never handle inventory or shipping.",
-  },
-  {
-    question: "How does client proofing work?",
-    answer:
-      "Send a branded share link. Clients browse on any device, heart favourites, leave per-image comments, and submit a final selection — often in one sitting. You see live progress in your dashboard without chasing email threads.",
+      "Gidtransfer is a platform for professional photographers to create private client galleries, share proofing links, collect selections, and run studio work — bookings, client contacts, and income tracking — from one place.",
   },
   {
     question: "Is there a free plan?",
     answer:
-      "Yes. Start free with demo data already loaded — upload a shoot, run a selection, and open a share-link gallery. Upgrade when you need custom domains, contracts, invoicing, or more storage. No credit card required to begin.",
+      "Free is a one-time 30-day trial, not a permanent free tier. During the trial you get 3 galleries, 5 GB of storage, and core tools (share links, selections, password protection, download control, text watermarks, bookings, CRM, income tracking, labels, and an analytics dashboard). After the trial with no paid plan, features switch off and storage and gallery limits drop to zero.",
+  },
+  {
+    question: "What can clients do on a share link?",
+    answer:
+      "Clients open a public gallery URL — no account required. They can browse proofs, heart favourites, and submit selections. Password protection and download control are available from the trial. Commenting and flagging unlock on Basic and above. On Premium, clients can also run Gallery AI suggestions to help pick favourites.",
+  },
+  {
+    question: "Which features unlock on Basic, Pro, and Premium?",
+    answer:
+      "Basic adds comments and flags, sets, video uploads (5 GB), SMS notifications from the default sender, and adaptive video. Pro adds a custom SMS sender, logo watermark on downloads, advanced analytics, trash restore, and higher limits (100 GB, 50 galleries, 10 GB video). Premium adds unlimited galleries, 20 GB video, Gallery AI, and premium support.",
+  },
+  {
+    question: "What is Gallery AI?",
+    answer:
+      "Gallery AI is Premium-only and has two sides. Photographers can generate or improve gallery descriptions. On the public gallery, clients can start AI suggestions that analyse photos, build a diverse suggested set within the selection limit, and apply picks in one tap — or skip individually.",
+  },
+  {
+    question: "Can I restore deleted galleries or photos?",
+    answer:
+      "Yes on Pro and Premium. Soft-deleted items can be restored while they are still inside the restore window. Free trial and Basic do not include trash restore.",
   },
 ] as const;
 

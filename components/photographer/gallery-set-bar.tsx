@@ -9,7 +9,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { Dropdown, type MenuProps } from "antd";
-import { GripVertical, MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react";
+import { GripVertical, Lock, MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react";
 import type { ApiGallerySet } from "@/lib/gallery-sets-api";
 import {
   ALL_SETS_PILL_ID,
@@ -37,6 +37,9 @@ type GallerySetBarProps = {
   onRenameAllSets?: (label: string) => Promise<void>;
   onDeleteSet?: (setId: string) => Promise<void>;
   onReorderSets?: (orderedIds: string[]) => Promise<void>;
+  /** When false, listing remaining sets is still allowed; creating is locked. */
+  canCreateSets?: boolean;
+  onLockedCreate?: () => void;
   busy?: boolean;
   countContext?: string;
   showUploadHint?: boolean;
@@ -55,6 +58,8 @@ export function GallerySetBar({
   onRenameAllSets,
   onDeleteSet,
   onReorderSets,
+  canCreateSets = true,
+  onLockedCreate,
   busy = false,
   countContext,
   showUploadHint = false,
@@ -559,7 +564,13 @@ export function GallerySetBar({
           <button
             type="button"
             disabled={busy || saving || Boolean(draggingId)}
-            onClick={() => setCreating(true)}
+            onClick={() => {
+              if (!canCreateSets) {
+                onLockedCreate?.();
+                return;
+              }
+              setCreating(true);
+            }}
             className={cn(
               "inline-flex shrink-0 items-center gap-1 rounded-lg px-2.5 py-1.5 text-[12px] font-medium transition sm:px-3",
               hasSets
@@ -567,7 +578,11 @@ export function GallerySetBar({
                 : "bg-white text-zinc-700 shadow-sm ring-1 ring-zinc-200/80 hover:text-zinc-900 dark:bg-zinc-800 dark:text-zinc-200 dark:ring-zinc-700",
             )}
           >
-            <Plus className="h-3.5 w-3.5 shrink-0" aria-hidden />
+            {canCreateSets ? (
+              <Plus className="h-3.5 w-3.5 shrink-0" aria-hidden />
+            ) : (
+              <Lock className="h-3.5 w-3.5 shrink-0" aria-hidden />
+            )}
             {hasSets ? "Add set" : "Create set"}
           </button>
         </div>

@@ -1,10 +1,10 @@
 "use client";
 
 import Image from "next/image";
-import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
 import {
-  ArrowRight,
   Check,
+  Loader2,
   Minus,
 } from "lucide-react";
 import {
@@ -13,8 +13,28 @@ import {
 } from "@/components/marketing/showcase-cover-preview";
 import { MarketingFaqSection } from "@/components/marketing/faq-section";
 import { APP_NAME } from "@/lib/branding";
+import {
+  MarketingCornerButton,
+  MarketingCornerCta,
+} from "@/components/marketing/marketing-corner-cta";
+import {
+  isCheckoutPlanId,
+  MARKETING_BILLING_PLANS_FALLBACK,
+  readBillingErrorMessage,
+  startBillingCheckout,
+  type BillingPlan,
+} from "@/lib/billing-api";
+import { getAuth } from "@/lib/auth-demo";
+import { type BillingPlanId } from "@/lib/plan-entitlements";
 import { usePhotographerSignedIn } from "@/lib/marketing/use-photographer-signed-in";
 import { cn } from "@/lib/utils";
+
+function marketingPlanCtaLabel(plan: BillingPlan, current: boolean): string {
+  if (current || plan.current) return "Current Plan";
+  if (!plan.available) return "Coming soon";
+  if (plan.id === "free") return "Get started";
+  return `Upgrade to ${plan.name}`;
+}
 
 export const pricingHeroImage = {
   src: "/images/gallery-covers/website_3-min.jpg",
@@ -57,80 +77,31 @@ const ctaGallerySecondary = {
   title: "Studio Portraits",
 } as const;
 
-const pricingPlans = [
-  {
-    name: "Starter",
-    audience: "Solo photographers",
-    monthlyPrice: 79,
-    description: "25 GB storage for growing studios.",
-    features: [
-      "25 GB media storage",
-      "Branded share links & watermarks",
-      "Client favourites & selection",
-      "Print store with 0% commission",
-      "Email support",
-    ],
-    cta: "Start with Starter",
-    highlighted: false,
-  },
-  {
-    name: "Pro",
-    audience: "Full-time studios",
-    monthlyPrice: 199,
-    description: "100 GB storage for busy photographers.",
-    features: [
-      "Everything in Starter, plus:",
-      "100 GB storage",
-      "Unlimited galleries",
-      "Custom domain & full brand kit",
-      "Contracts, e-signatures & invoicing",
-      "Selection wizard + per-image comments",
-      "Priority support",
-    ],
-    cta: "Choose Pro",
-    highlighted: true,
-  },
-  {
-    name: "Studio",
-    audience: "Teams & volume",
-    monthlyPrice: 499,
-    description: "500 GB storage for high-volume studios.",
-    features: [
-      "Everything in Pro, plus:",
-      "500 GB storage",
-      "Team seats (coming soon)",
-      "Booking calendar & studio analytics",
-      "Lightroom sync + Zapier / webhooks",
-      "API access for custom integrations",
-      "White-glove onboarding",
-    ],
-    cta: "Choose Studio",
-    highlighted: false,
-  },
-] as const;
-
-const comparisonRows = [
-  { label: "Storage", starter: "25 GB", pro: "100 GB", studio: "500 GB" },
-  { label: "Active galleries", starter: "Included", pro: "Unlimited", studio: "Unlimited" },
-  { label: "Custom domain", starter: false, pro: true, studio: true },
-  { label: "Contracts & invoicing", starter: false, pro: true, studio: true },
-  { label: "Team seats", starter: "1", pro: "1", studio: "Coming soon" },
-  { label: "Print commission", starter: "0%", pro: "0%", studio: "0%" },
-  { label: "Support", starter: "Email", pro: "Priority", studio: "White-glove" },
-] as const;
-
-type PricingPlan = (typeof pricingPlans)[number];
-
 function PricingCard({
   plan,
-  price,
+  priceGhs,
+  billingPeriod,
+  ctaLabel,
   ctaHref,
+  ctaDisabled,
+  ctaBusy,
+  onCtaClick,
 }: {
-  plan: PricingPlan;
-  price: number;
-  ctaHref: string;
+  plan: BillingPlan;
+  priceGhs: number;
+  billingPeriod: "monthly" | "yearly";
+  ctaLabel: string;
+  ctaHref?: string;
+  ctaDisabled?: boolean;
+  ctaBusy?: boolean;
+  onCtaClick?: () => void;
 }) {
-  const isFeatured = plan.highlighted;
+  const isFeatured = plan.highlighted === true;
+  const perks = plan.perks?.length
+    ? plan.perks
+    : [plan.storageLabel ? `${plan.storageLabel} Cloud Storage` : null].filter(
+        (item): item is string => Boolean(item),
+      );
 
   return (
     <article
@@ -162,24 +133,28 @@ function PricingCard({
         <h2 className="font-display text-[1.35rem] font-semibold tracking-tight text-slate-900">
           {plan.name}
         </h2>
+        {plan.description ? (
+          <p className="mt-1.5 text-sm leading-snug text-slate-500">{plan.description}</p>
+        ) : null}
       </header>
 
       <div className="mt-6">
         <div className="flex items-baseline">
           <span className="font-display text-[3.25rem] font-semibold leading-none tracking-tight text-slate-900">
-            GHS {price}
+            GH₵ {priceGhs}
           </span>
-          <span className="ml-1.5 text-sm text-slate-500">/month</span>
+          <span className="ml-1.5 text-sm text-slate-500">/mo</span>
         </div>
         <p className="mt-2 text-xs text-slate-400">
-          Billed monthly via Paystack · Free plan includes 5 GB
+          {billingPeriod === "yearly" ? "Billed yearly" : "Billed monthly"}
+          {plan.storageLabel ? ` · ${plan.storageLabel} storage` : ""}
         </p>
       </div>
 
       <div className="my-6 h-px bg-slate-100" aria-hidden />
 
       <ul className="flex flex-1 flex-col gap-3">
-        {plan.features.map((feature) => {
+        {perks.map((feature) => {
           const isGroupHeader = feature.endsWith(":");
 
           return (
@@ -208,21 +183,26 @@ function PricingCard({
         })}
       </ul>
 
-      <Link
-        href={ctaHref}
-        className={cn(
-          "mt-8 inline-flex w-full items-center justify-center gap-2 rounded-xl py-3 text-sm font-semibold transition",
-          isFeatured
-            ? "bg-[#55001F] text-white shadow-[0_8px_24px_-8px_rgba(85,0,31,0.45)] hover:bg-[#6a0027]"
-            : "bg-slate-50 text-slate-900 ring-1 ring-slate-200/80 hover:bg-slate-100 hover:ring-slate-300",
-        )}
-      >
-        {plan.cta}
-        <ArrowRight
-          className="h-4 w-4 transition-transform group-hover:translate-x-0.5"
-          aria-hidden
-        />
-      </Link>
+      {onCtaClick ? (
+        <MarketingCornerButton
+          className={cn(
+            "mt-8 w-full justify-center",
+            (ctaDisabled || ctaBusy) && "pointer-events-none opacity-60",
+          )}
+          onClick={onCtaClick}
+        >
+          {ctaBusy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
+          {ctaBusy ? "Redirecting…" : ctaLabel}
+        </MarketingCornerButton>
+      ) : ctaHref ? (
+        <MarketingCornerCta href={ctaHref} className="mt-8 w-full justify-center">
+          {ctaLabel}
+        </MarketingCornerCta>
+      ) : (
+        <span className="mt-8 inline-flex w-full items-center justify-center rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-500">
+          {ctaLabel}
+        </span>
+      )}
     </article>
   );
 }
@@ -231,7 +211,7 @@ function ComparisonCell({
   value,
   featured = false,
 }: {
-  value: string | boolean;
+  value: string | boolean | number;
   featured?: boolean;
 }) {
   if (typeof value === "boolean") {
@@ -332,6 +312,67 @@ type PricingSectionsProps = {
 export function PricingSections({ className }: PricingSectionsProps) {
   const signedIn = usePhotographerSignedIn();
   const signUpHref = signedIn ? "/dashboard/settings?tab=billing" : "/login?screen=signup";
+  const [plans, setPlans] = useState<BillingPlan[]>(MARKETING_BILLING_PLANS_FALLBACK.plans);
+  const comparison = MARKETING_BILLING_PLANS_FALLBACK.comparison;
+  const [billingConfigured, setBillingConfigured] = useState(true);
+  const [billingPeriod, setBillingPeriod] = useState<"monthly" | "yearly">("monthly");
+  const [checkoutPlanId, setCheckoutPlanId] = useState<BillingPlanId | null>(null);
+  const [planErrors, setPlanErrors] = useState<Partial<Record<string, string>>>({});
+
+  const currentPlanId = useMemo(() => {
+    return getAuth()?.user?.plan?.planId ?? plans.find((p) => p.current)?.id ?? null;
+  }, [plans]);
+
+  useEffect(() => {
+    // Mark current plan from the signed-in session; catalog content stays on the marketing source.
+    const sessionPlanId = getAuth()?.user?.plan?.planId ?? null;
+    if (!sessionPlanId) return;
+    setPlans((prev) =>
+      prev.map((plan) => ({
+        ...plan,
+        current: plan.id === sessionPlanId,
+      })),
+    );
+  }, [signedIn]);
+
+  useEffect(() => {
+    // Best-effort: detect whether Paystack checkout is configured (no auth required once API is public).
+    let cancelled = false;
+    void (async () => {
+      try {
+        const { fetchBillingConfig } = await import("@/lib/billing-api");
+        const config = await fetchBillingConfig();
+        if (!cancelled) setBillingConfigured(config?.configured !== false);
+      } catch {
+        /* keep default */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function handleCheckout(plan: BillingPlan) {
+    if (!isCheckoutPlanId(plan.id) || !plan.available || plan.current) return;
+    setCheckoutPlanId(plan.id);
+    setPlanErrors((prev) => {
+      const next = { ...prev };
+      delete next[plan.id];
+      return next;
+    });
+    try {
+      await startBillingCheckout(plan.id);
+    } catch (err) {
+      const message = await readBillingErrorMessage(err, "Checkout failed.");
+      setPlanErrors((prev) => ({
+        ...prev,
+        [plan.id]: message,
+      }));
+      setCheckoutPlanId(null);
+    }
+  }
+
+  const highlightedId = plans.find((p) => p.highlighted)?.id ?? "pro";
 
   return (
     <div className={className}>
@@ -339,29 +380,85 @@ export function PricingSections({ className }: PricingSectionsProps) {
       <section className="relative">
         <div className="relative flex min-h-[min(46vh,420px)] flex-col items-center justify-center px-5 py-12 text-center sm:min-h-[min(50vh,460px)] sm:px-8 sm:py-16">
           <h1 className="font-display text-[clamp(2.25rem,5vw,3.5rem)] font-medium tracking-tight text-white">
-            Pricing
+            Simple Pricing for Photographers
           </h1>
-          <p className="mt-3 max-w-md text-sm leading-relaxed text-white/65 sm:text-base">
-            Start free with 5 GB · Upgrade when you need more
+          <p className="mt-3 max-w-lg text-sm leading-relaxed text-white/65 sm:text-base">
+            Choose the perfect plan for your photography business. No hidden fees, ever.
           </p>
+
+          <div
+            className="mt-8 inline-flex items-center rounded-full border border-white/20 bg-black/25 p-1 backdrop-blur-sm"
+            role="group"
+            aria-label="Billing period"
+          >
+            {(["monthly", "yearly"] as const).map((period) => (
+              <button
+                key={period}
+                type="button"
+                onClick={() => setBillingPeriod(period)}
+                className={cn(
+                  "rounded-full px-4 py-1.5 text-xs font-semibold capitalize transition",
+                  billingPeriod === period
+                    ? "bg-white text-slate-900"
+                    : "text-white/70 hover:text-white",
+                )}
+              >
+                {period}
+              </button>
+            ))}
+          </div>
         </div>
       </section>
 
       {/* Plan cards */}
       <section className="relative -mt-6 pb-14 pt-2 sm:-mt-8 sm:pb-16">
         <div className="marketing-container">
-          <div className="grid items-stretch gap-5 lg:grid-cols-3 lg:gap-6 xl:gap-8">
-            {pricingPlans.map((plan) => {
-              const price = plan.monthlyPrice;
-              const ctaHref = signUpHref;
+          {!billingConfigured ? (
+            <p className="mb-5 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
+              Billing unavailable. You can still review plans — checkout will open when payments
+              are configured.
+            </p>
+          ) : null}
+          <div className="grid items-stretch gap-5 sm:grid-cols-2 xl:grid-cols-4 xl:gap-6">
+            {plans.map((plan) => {
+              const current =
+                plan.current || (currentPlanId != null && plan.id === currentPlanId);
+              const label = marketingPlanCtaLabel(plan, current);
+              const canCheckout =
+                signedIn &&
+                billingConfigured &&
+                isCheckoutPlanId(plan.id) &&
+                plan.available &&
+                !current;
+              const displayPrice =
+                billingPeriod === "yearly" && plan.priceGhs > 0
+                  ? plan.priceGhs
+                  : plan.priceGhs;
 
               return (
-                <PricingCard
-                  key={plan.name}
-                  plan={plan}
-                  price={price}
-                  ctaHref={ctaHref}
-                />
+                <div key={plan.id} className="flex flex-col">
+                  <PricingCard
+                    plan={{ ...plan, current, highlighted: plan.highlighted }}
+                    priceGhs={displayPrice}
+                    billingPeriod={billingPeriod}
+                    ctaLabel={label}
+                    ctaHref={
+                      canCheckout
+                        ? undefined
+                        : current
+                          ? undefined
+                          : signUpHref
+                    }
+                    ctaDisabled={current || (!canCheckout && signedIn && plan.id !== "free")}
+                    ctaBusy={checkoutPlanId === plan.id}
+                    onCtaClick={canCheckout ? () => void handleCheckout(plan) : undefined}
+                  />
+                  {planErrors[plan.id] ? (
+                    <p className="mt-2 text-center text-xs font-medium text-red-600">
+                      {planErrors[plan.id]}
+                    </p>
+                  ) : null}
+                </div>
               );
             })}
           </div>
@@ -379,11 +476,12 @@ export function PricingSections({ className }: PricingSectionsProps) {
               See what&apos;s included at a glance
             </h2>
             <p className="mt-3 max-w-lg text-sm leading-relaxed text-slate-600 sm:text-base">
-              Starter for solo shoots, Pro for full studios, Studio for teams at scale.
+              Free to start, Basic to grow, Premium for pros, Studio for teams.
             </p>
             <div className="mt-5 h-px w-10 bg-slate-200" aria-hidden />
           </div>
 
+          {comparison.length > 0 && plans.length > 0 ? (
           <div className="mt-6 sm:mt-8">
             <div className="overflow-hidden rounded-[1.75rem] border border-slate-200/90 bg-white shadow-[0_28px_64px_-36px_rgba(15,23,42,0.22)]">
               <div className="overflow-x-auto">
@@ -396,43 +494,46 @@ export function PricingSections({ className }: PricingSectionsProps) {
                     >
                       Feature
                     </th>
-                    {(["Starter", "Pro", "Studio"] as const).map((name, i) => (
+                    {plans.map((plan) => {
+                      const featured = plan.id === highlightedId || plan.highlighted;
+                      return (
                       <th
-                        key={name}
+                        key={plan.id}
                         scope="col"
                         className={cn(
                           "px-4 py-5 text-center",
-                          i === 1
+                          featured
                             ? "relative bg-[#55001F]/[0.06] text-[#55001F]"
                             : "text-slate-900",
                         )}
                       >
-                        {i === 1 ? (
+                        {featured ? (
                           <span
                             aria-hidden
                             className="pointer-events-none absolute inset-x-3 top-0 h-0.5 rounded-full bg-gradient-to-r from-transparent via-[#D5AE65] to-transparent"
                           />
                         ) : null}
                         <span className="font-display text-base font-semibold tracking-tight sm:text-lg">
-                          {name}
+                          {plan.name}
                         </span>
-                        {i === 1 ? (
+                        {featured ? (
                           <span className="mt-1.5 inline-flex rounded-full bg-[#55001F] px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[#D5AE65]">
                             Popular
                           </span>
                         ) : (
                           <span className="mt-1.5 block text-[11px] font-medium text-slate-400">
-                            {i === 0 ? "Solo" : "Teams"}
+                            {plan.storageLabel ?? ""}
                           </span>
                         )}
                       </th>
-                    ))}
+                      );
+                    })}
                   </tr>
                 </thead>
                 <tbody>
-                  {comparisonRows.map((row, rowIndex) => (
+                  {comparison.map((row, rowIndex) => (
                     <tr
-                      key={row.label}
+                      key={row.key}
                       className={cn(
                         "group border-b border-slate-100 transition-colors last:border-b-0 hover:bg-slate-50/80",
                         rowIndex % 2 === 0 ? "bg-white" : "bg-slate-50/40",
@@ -441,15 +542,25 @@ export function PricingSections({ className }: PricingSectionsProps) {
                       <td className="sticky left-0 z-10 bg-inherit px-6 py-4 text-sm font-medium text-slate-700 shadow-[4px_0_12px_-8px_rgba(15,23,42,0.12)] backdrop-blur-sm group-hover:bg-inherit">
                         {row.label}
                       </td>
-                      <td className="px-4 py-4 text-center">
-                        <ComparisonCell value={row.starter} />
-                      </td>
-                      <td className="bg-[#55001F]/[0.04] px-4 py-4 text-center group-hover:bg-[#55001F]/[0.06]">
-                        <ComparisonCell value={row.pro} featured />
-                      </td>
-                      <td className="px-4 py-4 text-center">
-                        <ComparisonCell value={row.studio} />
-                      </td>
+                      {plans.map((plan) => {
+                        const featured = plan.id === highlightedId || plan.highlighted;
+                        const value = row.values[plan.id];
+                        return (
+                          <td
+                            key={plan.id}
+                            className={cn(
+                              "px-4 py-4 text-center",
+                              featured &&
+                                "bg-[#55001F]/[0.04] group-hover:bg-[#55001F]/[0.06]",
+                            )}
+                          >
+                            <ComparisonCell
+                              value={value === undefined || value === null ? "—" : value}
+                              featured={featured}
+                            />
+                          </td>
+                        );
+                      })}
                     </tr>
                   ))}
                 </tbody>
@@ -457,6 +568,7 @@ export function PricingSections({ className }: PricingSectionsProps) {
               </div>
             </div>
           </div>
+          ) : null}
         </div>
       </section>
 
@@ -473,12 +585,9 @@ export function PricingSections({ className }: PricingSectionsProps) {
               <p className="mt-4 max-w-sm text-base leading-relaxed text-slate-500 sm:text-lg">
                 Free forever. Upgrade when you need to.
               </p>
-              <Link
-                href={signUpHref}
-                className="mt-8 inline-flex items-center justify-center rounded bg-[#55001F] px-8 py-3.5 text-sm font-semibold text-[#D5AE65] transition hover:bg-[#6a0027]"
-              >
+              <MarketingCornerCta href={signUpHref} className="mt-8">
                 Get started
-              </Link>
+              </MarketingCornerCta>
             </div>
 
             <div className="order-1 md:order-2">

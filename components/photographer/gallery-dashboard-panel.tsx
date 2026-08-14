@@ -16,6 +16,7 @@ import {
   type FolderEditorTab,
 } from "@/components/photographer/folder-detail-editor-ui";
 import type { GalleryAnalyticsSnapshot } from "@/lib/gallery-analytics";
+import { usePlanEntitlements } from "@/lib/use-plan-entitlements";
 import { cn } from "@/lib/utils";
 
 export type GalleryDashboardPanelProps = {
@@ -109,6 +110,11 @@ export function GalleryDashboardPanel({
   onCopyShare,
   onOnlineChange,
 }: GalleryDashboardPanelProps) {
+  const { openUpgrade, can } = usePlanEntitlements();
+  const advancedLocked =
+    analytics.upgrade != null ||
+    analytics.tier === "basic" ||
+    !can("advancedAnalytics");
   const mediaTotal = analytics.mediaSlices.reduce((sum, s) => sum + s.value, 0);
   const selectionsCount =
     analytics.mediaSlices.find((s) => s.key === "selections")?.value ?? 0;
@@ -249,28 +255,51 @@ export function GalleryDashboardPanel({
           <div className="flex items-start justify-between gap-3">
             <div>
               <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">Progress</p>
-              <p className="mt-1 text-xs text-zinc-500">
-                <span className="font-semibold text-brand dark:text-brand-on-dark">{weekTotal}</span>{" "}
-                events this week
-                {peakDay.value > 0 ? (
-                  <>
-                    {" "}
-                    · peak{" "}
-                    <span className="font-medium text-zinc-700 dark:text-zinc-300">
-                      {peakDay.label}
-                    </span>
-                  </>
-                ) : null}
-              </p>
+              {advancedLocked ? (
+                <p className="mt-1 text-xs text-zinc-500">7-day activity is on Premium and Studio.</p>
+              ) : (
+                <p className="mt-1 text-xs text-zinc-500">
+                  <span className="font-semibold text-brand dark:text-brand-on-dark">{weekTotal}</span>{" "}
+                  events this week
+                  {peakDay.value > 0 ? (
+                    <>
+                      {" "}
+                      · peak{" "}
+                      <span className="font-medium text-zinc-700 dark:text-zinc-300">
+                        {peakDay.label}
+                      </span>
+                    </>
+                  ) : null}
+                </p>
+              )}
             </div>
-            {peakDay.value > 0 ? (
+            {!advancedLocked && peakDay.value > 0 ? (
               <span className="rounded-full bg-brand px-2.5 py-1 text-[11px] font-semibold text-white">
                 {peakDay.label} · {peakDay.value}
               </span>
             ) : null}
           </div>
           <div className="mt-5">
-            {published ? (
+            {advancedLocked ? (
+              <div className="flex h-[120px] flex-col items-center justify-center gap-3 rounded-2xl bg-zinc-100 px-4 text-center dark:bg-zinc-900">
+                <p className="text-xs text-zinc-500">
+                  {analytics.upgrade?.message ?? "Unlock reports for daily activity and downloads."}
+                </p>
+                <button
+                  type="button"
+                  onClick={() =>
+                    openUpgrade({
+                      feature: analytics.upgrade?.feature ?? "advancedAnalytics",
+                      message: analytics.upgrade?.message ?? undefined,
+                      requiredPlans: analytics.upgrade?.requiredPlans,
+                    })
+                  }
+                  className="rounded-xl bg-brand px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-hover"
+                >
+                  Unlock reports
+                </button>
+              </div>
+            ) : published ? (
               <WeeklyActivityChart bars={analytics.weeklyActivity} />
             ) : (
               <div className="flex h-[120px] items-center justify-center rounded-2xl bg-zinc-100 dark:bg-zinc-900">
@@ -326,7 +355,7 @@ export function GalleryDashboardPanel({
             </div>
             <div className="rounded-2xl bg-zinc-100 px-2 py-2 dark:bg-zinc-900">
               <p className="text-sm font-semibold tabular-nums text-zinc-900 dark:text-zinc-50">
-                {published ? analytics.clientDownloads : "—"}
+                {published && !advancedLocked ? analytics.clientDownloads : "—"}
               </p>
               <p className="text-[10px] text-zinc-500">Downloads</p>
             </div>

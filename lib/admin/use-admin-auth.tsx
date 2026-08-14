@@ -11,7 +11,7 @@ import {
 import { useRouter, usePathname } from "next/navigation";
 import {
   clearStoredAdmin,
-  getStoredAdmin,
+  fetchCurrentAdmin,
   storeAdmin,
 } from "@/lib/admin/auth";
 import type { AdminUser } from "@/lib/admin/types";
@@ -42,9 +42,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    const storedAdmin = getStoredAdmin();
-    setAdmin(storedAdmin);
-    setLoading(false);
+    try {
+      const me = await fetchCurrentAdmin();
+      storeAdmin(me);
+      setAdmin(me);
+    } catch {
+      localStorage.removeItem("adminToken");
+      clearStoredAdmin();
+      setAdmin(null);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {

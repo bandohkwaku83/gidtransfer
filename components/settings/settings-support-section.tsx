@@ -18,6 +18,7 @@ import {
   formatAttachmentSize,
 } from "@/lib/support-contact";
 import type { DemoAuthUser } from "@/lib/auth-demo";
+import { usePlanEntitlements } from "@/lib/use-plan-entitlements";
 import { cn } from "@/lib/utils";
 
 const labelClass = formModalLabelClass;
@@ -28,6 +29,13 @@ type SettingsSupportSectionProps = {
 
 export function SettingsSupportSection({ auth }: SettingsSupportSectionProps) {
   const { showToast } = useToast();
+  const { plan } = usePlanEntitlements();
+  const supportBadge =
+    plan?.supportTier === "premium"
+      ? "Premium"
+      : plan?.supportTier === "priority"
+        ? "Priority"
+        : null;
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [settings, setSettings] = useState<HelpSupportSettings>(FALLBACK_HELP_SUPPORT_SETTINGS);
   const [loadingConfig, setLoadingConfig] = useState(true);
@@ -146,6 +154,11 @@ export function SettingsSupportSection({ auth }: SettingsSupportSectionProps) {
         <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
           <LifeBuoy className="h-3.5 w-3.5" aria-hidden />
           Need help?
+          {supportBadge ? (
+            <span className="rounded-full bg-brand px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
+              {supportBadge}
+            </span>
+          ) : null}
         </p>
         <p className="mt-2 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
           {helpSupport.subtitle}

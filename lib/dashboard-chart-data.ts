@@ -121,14 +121,14 @@ export function storageSlicesFromUsage(
   return [
     {
       key: "raws",
-      label: "RAWs",
+      label: "Proofs",
       bytes: raws,
       color: pick("#6366f1", "#818cf8"),
       darkColor: "#818cf8",
     },
     {
       key: "selections",
-      label: "Selections",
+      label: "Selected",
       bytes: selections,
       color: pick("#8b5cf6", "#a78bfa"),
       darkColor: "#a78bfa",

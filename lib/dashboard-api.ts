@@ -6,6 +6,7 @@ import type { WeeklyBar } from "@/lib/dashboard-chart-data";
 
 import type { ApiClient } from "@/lib/clients-api";
 import type { ApiFolder } from "@/lib/folders-api";
+import { parseStorageSummary } from "@/lib/storage-api";
 
 export type DashboardUser = {
   _id: string;
@@ -49,6 +50,7 @@ export type DashboardStorage = {
   finals: number;
   planBytes: number;
   planName?: string;
+  percentOfPlan: number;
 };
 
 export type DashboardWeeklyActivity = {
@@ -181,14 +183,15 @@ function mapStats(raw: BackendStats | undefined): DashboardStats {
 }
 
 function mapStorage(raw: BackendStorage | undefined): DashboardStorage {
-  const breakdown = raw?.breakdown;
+  const summary = parseStorageSummary(raw);
   return {
-    total: raw?.usedBytes ?? 0,
-    raws: breakdown?.rawsBytes ?? 0,
-    selections: breakdown?.selectionsBytes ?? 0,
-    finals: breakdown?.finalsBytes ?? 0,
-    planBytes: raw?.limitBytes ?? 5 * 1024 * 1024 * 1024,
-    planName: raw?.planName,
+    total: summary.usedBytes,
+    raws: summary.breakdown.rawsBytes,
+    selections: summary.breakdown.selectionsBytes,
+    finals: summary.breakdown.finalsBytes,
+    planBytes: summary.limitBytes,
+    planName: summary.planName,
+    percentOfPlan: summary.percentOfPlan,
   };
 }
 

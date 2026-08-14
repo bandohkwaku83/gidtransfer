@@ -57,6 +57,7 @@ function isPublicGallerySlugPath(pathname: string): boolean {
 function isPublicBootstrapPath(pathname: string): boolean {
   return (
     pathname === "/" ||
+    pathname === "/pricing" ||
     pathname === "/login" ||
     isPlatformAdminPath(pathname) ||
     pathname === "/verify-email" ||
@@ -85,6 +86,12 @@ async function runClientBootstrap(): Promise<void> {
 
   const token = getAuthToken()?.trim();
   if (!token) return;
+
+  // Billing callback owns session + returnTo; a bootstrap /me 401 must not
+  // hard-navigate to bare /login and drop the Paystack resume path.
+  if (path === "/billing/callback" || path.startsWith("/billing/callback/")) {
+    return;
+  }
 
   try {
     const { user: apiUser } = await fetchAuthMe();
@@ -135,7 +142,6 @@ export function AppBootstrap({ children }: { children: ReactNode }) {
 
     if (
       userNeedsEmailVerification(auth.user) &&
-      !pathname.startsWith(verifyEmailPath()) &&
       !pathname.startsWith("/login") &&
       !isPlatformAdminPath(pathname)
     ) {

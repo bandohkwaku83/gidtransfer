@@ -661,6 +661,7 @@ export function ClientGalleryApp({ publicKey }: { publicKey: PublicGalleryKey })
     (selectionLimit != null ? Math.max(0, selectionLimit - selectedCount) : null);
   const aiSelection = gallery?.aiSelection;
   const showAiUi = aiSelection?.enabled === true;
+  const commentsEnabled = gallery?.commentsEnabled !== false;
 
   const mergeAiPhotoRows = useCallback((rows: PublicGalleryPhoto[]) => {
     if (rows.length === 0) return;
@@ -1331,6 +1332,7 @@ export function ClientGalleryApp({ publicKey }: { publicKey: PublicGalleryKey })
     if (f.locked) return;
     const comment = f.clientComment?.trim() ?? "";
     const hasExisting = Boolean(f.flaggedByClient) || comment.length > 0;
+    if (!commentsEnabled && !hasExisting) return;
     setFinalFeedback({
       finalId: f.id,
       finalName: f.name,
@@ -1338,13 +1340,13 @@ export function ClientGalleryApp({ publicKey }: { publicKey: PublicGalleryKey })
       savedComment: comment,
       flaggedByClient: Boolean(f.flaggedByClient),
       photographerReply: f.photographerReply?.trim() || undefined,
-      editing: !hasExisting,
+      editing: commentsEnabled && !hasExisting,
     });
   }
 
   function openPhotoComment(asset: Pick<DemoAsset, "id" | "originalName" | "clientComment" | "photographerReply">) {
     const comment = asset.clientComment?.trim() ?? "";
-    const readOnly = editingLocked;
+    const readOnly = editingLocked || !commentsEnabled;
     setPhotoComment({
       photoId: asset.id,
       photoName: asset.originalName,
@@ -2387,6 +2389,7 @@ export function ClientGalleryApp({ publicKey }: { publicKey: PublicGalleryKey })
                                 </button>
                               )
                             ) : null}
+                            {commentsEnabled || f.flaggedByClient ? (
                             <button
                               type="button"
                               onClick={(e) => {
@@ -2408,6 +2411,7 @@ export function ClientGalleryApp({ publicKey }: { publicKey: PublicGalleryKey })
                                 aria-hidden
                               />
                             </button>
+                            ) : null}
                           </>
                         )}
                         </div>
@@ -2462,6 +2466,7 @@ export function ClientGalleryApp({ publicKey }: { publicKey: PublicGalleryKey })
                     onToggleSelect={toggleSelect}
                     onOpenComment={openPhotoComment}
                     onToggleReject={showAiUi ? toggleReject : undefined}
+                    commentsEnabled={commentsEnabled}
                     indexOffset={indexOffset}
                   />
                 </section>
@@ -2483,6 +2488,7 @@ export function ClientGalleryApp({ publicKey }: { publicKey: PublicGalleryKey })
             onToggleSelect={toggleSelect}
             onOpenComment={openPhotoComment}
             onToggleReject={showAiUi ? toggleReject : undefined}
+            commentsEnabled={commentsEnabled}
           />
           {hasMoreAssets ? (
             <GalleryViewMoreButton
@@ -2566,7 +2572,7 @@ export function ClientGalleryApp({ publicKey }: { publicKey: PublicGalleryKey })
                 Double-click or scroll to zoom · drag when zoomed
               </p>
               <div className="flex flex-wrap items-center justify-center gap-2">
-                {(lbAssetHasComment || !editingLocked) ? (
+                {((commentsEnabled && !editingLocked) || lbAssetHasComment) ? (
                   <button
                     type="button"
                     onClick={() => openPhotoComment(lbAsset)}
@@ -2636,7 +2642,7 @@ export function ClientGalleryApp({ publicKey }: { publicKey: PublicGalleryKey })
         >
           {lbAssetIsVideo ? (
             <DashOrNativeVideo
-              src={lbAsset.url?.trim() || clientGalleryLightboxSrc(lbAsset, previewWatermarkEnabled)}
+              src={lbAsset.url?.trim() || ""}
               poster={videoPosterSrc(lbAsset)}
               dashUrl={lbAsset.dashUrl}
               dashStatus={lbAsset.dashStatus}
@@ -2735,6 +2741,7 @@ export function ClientGalleryApp({ publicKey }: { publicKey: PublicGalleryKey })
                 </span>
               ) : (
                 <>
+                  {commentsEnabled || finalLb.flaggedByClient ? (
                   <button
                     type="button"
                     onClick={() => openFinalFeedback(finalLb)}
@@ -2754,6 +2761,7 @@ export function ClientGalleryApp({ publicKey }: { publicKey: PublicGalleryKey })
                     />
                     {finalLb.flaggedByClient ? "View feedback" : "Flag for review"}
                   </button>
+                  ) : null}
                   {finalsDownloadsAllowed ? (
                     preferInlineFinalSave ? (
                       <button

@@ -12,9 +12,14 @@ import {
   useRef,
   useState,
 } from "react";
+import { PlanQuotaMeters } from "@/components/billing/plan-storage-meter";
+import { readVideoUsage, rememberVideoUsage } from "@/lib/video-usage";
+import { TrialActiveBanner, TrialExpiredWall } from "@/components/billing/trial-gate";
 import { getAuth, logout } from "@/lib/auth-demo";
 import { APP_NAME, STUDIO_NAME, studioLogoSrc } from "@/lib/branding";
+import { fetchStorage, storageUsagePercent, type StorageSummary } from "@/lib/storage-api";
 import { photographerSignOutUrl } from "@/lib/studio-url";
+import { usePlanEntitlements } from "@/lib/use-plan-entitlements";
 import { FormSearchInput, dashboardHeaderSearchFieldClassName } from "@/components/ui/form-input";
 import { cn } from "@/lib/utils";
 import type { LucideIcon } from "lucide-react";
@@ -260,52 +265,6 @@ function SidebarSectionDivider() {
   );
 }
 
-function SidebarUserCard({
-  email,
-  collapsed,
-}: {
-  email: string;
-  collapsed: boolean;
-}) {
-  if (collapsed) {
-    return (
-      <div className="flex justify-center">
-        <div
-          className={cn(
-            "flex h-9 w-9 items-center justify-center rounded-full text-white ring-2 ring-white dark:ring-zinc-950",
-            sidebarAccentClass.gradient,
-            sidebarAccentClass.gradientShadow,
-          )}
-          title={email}
-          aria-label={`Signed in as ${email}`}
-        >
-          <UserRound className="h-4 w-4" aria-hidden="true" />
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex items-center gap-3 rounded-xl border border-zinc-200/80 bg-zinc-50/80 px-3 py-2.5 dark:border-zinc-800 dark:bg-zinc-900/50">
-      <div
-        className={cn(
-          "flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-white",
-          sidebarAccentClass.gradient,
-          sidebarAccentClass.gradientShadow,
-        )}
-      >
-        <UserRound className="h-4 w-4" aria-hidden="true" />
-      </div>
-      <div className="min-w-0">
-        <p className="text-[11px] font-medium text-zinc-500 dark:text-zinc-400">Signed in</p>
-        <p className="truncate text-xs font-semibold text-zinc-800 dark:text-zinc-100" title={email}>
-          {email}
-        </p>
-      </div>
-    </div>
-  );
-}
-
 export function PhotographerShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { darkUi } = useDashboardUiTheme();
@@ -314,8 +273,53 @@ export function PhotographerShell({ children }: { children: React.ReactNode }) {
 
   const studio = useMemo(() => getAuth()?.user?.studio, []);
   const brandTitle = studio?.companyName?.trim() || STUDIO_NAME;
+  const { plan, trialExpired, trialActive, can } = usePlanEntitlements();
+  const allowThroughTrialWall =
+    pathname.startsWith("/dashboard/settings") || pathname.startsWith("/billing");
+  const [storageSummary, setStorageSummary] = useState<StorageSummary | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchStorage()
+      .then((data) => {
+        if (cancelled) return;
+        setStorageSummary(data.summary);
+        if (
+          data.summary.videoUsedBytes != null &&
+          data.summary.videoUploadLimitBytes != null
+        ) {
+          rememberVideoUsage({
+            usedBytes: data.summary.videoUsedBytes,
+            limitBytes: data.summary.videoUploadLimitBytes,
+          });
+        }
+      })
+      .catch(() => {
+        /* chrome meter is optional */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [plan?.planId]);
 
   const email = getAuth()?.email ?? "doe@gmail.com";
+  const planName = plan?.planName ?? storageSummary?.planName;
+  const storagePercent = storageSummary
+    ? storageUsagePercent(storageSummary)
+    : null;
+  const canVideoUploads = can("videoUploads");
+  const storedVideo = readVideoUsage();
+  const videoLimitBytes =
+    storageSummary?.videoUploadLimitBytes ??
+    storedVideo?.limitBytes ??
+    (canVideoUploads && plan?.videoUploadLimitBytes && plan.videoUploadLimitBytes > 0
+      ? plan.videoUploadLimitBytes
+      : null);
+  const videoUsedBytes = storageSummary?.videoUsedBytes ?? storedVideo?.usedBytes ?? null;
+  const videoLimitLabel =
+    canVideoUploads && plan?.videoUploadLimitBytes && plan.videoUploadLimitBytes > 0
+      ? plan.videoUploadLimitLabel
+      : null;
   const [profileOpen, setProfileOpen] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(() => {
@@ -512,7 +516,7 @@ export function PhotographerShell({ children }: { children: React.ReactNode }) {
                             {brandTitle}
                           </p>
                           <p className="truncate text-[11px] font-medium text-zinc-500 dark:text-zinc-400">
-                            Workspace
+                            {planName ? `${planName} · Workspace` : "Workspace"}
                           </p>
                         </div>
                         <button
@@ -537,10 +541,6 @@ export function PhotographerShell({ children }: { children: React.ReactNode }) {
                   >
                     {sidebarSections()}
                   </nav>
-
-                  <div className="mt-5 shrink-0 border-t border-zinc-200/80 pt-4 dark:border-zinc-800">
-                    <SidebarUserCard email={email} collapsed={collapsed} />
-                  </div>
                 </div>
               </aside>
             </div>
@@ -571,7 +571,7 @@ export function PhotographerShell({ children }: { children: React.ReactNode }) {
                     {brandTitle}
                   </p>
                   <p className="truncate text-[11px] font-medium text-zinc-500 dark:text-zinc-400">
-                    Workspace
+                    {planName ? `${planName} · Workspace` : "Workspace"}
                   </p>
                 </div>
               </div>
@@ -589,9 +589,6 @@ export function PhotographerShell({ children }: { children: React.ReactNode }) {
                 {sidebarSections(() => setMobileNavOpen(false), true)}
               </SidebarCollapseContext.Provider>
             </nav>
-            <div className="shrink-0 border-t border-zinc-200/80 px-3 py-4 dark:border-zinc-800">
-              <SidebarUserCard email={email} collapsed={false} />
-            </div>
           </aside>
 
           <header className="sticky top-0 z-30 flex items-center gap-3 px-4 py-3 lg:px-8 2xl:px-10">
@@ -631,18 +628,47 @@ export function PhotographerShell({ children }: { children: React.ReactNode }) {
                   </button>
 
                   {profileOpen ? (
-                    <div className="absolute right-0 mt-2 w-56 overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-lg dark:border-zinc-700 dark:bg-zinc-950">
-                      <div className="px-4 py-3">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                          Signed in
-                        </p>
-                        <p className="mt-1 truncate text-sm font-medium text-zinc-800 dark:text-zinc-100">
+                    <div className="absolute right-0 mt-2 w-64 overflow-hidden rounded-2xl border border-zinc-200/80 bg-white shadow-[0_12px_40px_rgba(15,23,42,0.12)] dark:border-zinc-700 dark:bg-zinc-950">
+                      <div className="border-b border-zinc-100 px-4 py-3 dark:border-zinc-800">
+                        {planName ? (
+                          <span className="inline-flex rounded-full bg-brand/10 px-2 py-0.5 text-[10px] font-semibold tracking-wide text-brand dark:bg-brand/20 dark:text-brand-on-dark">
+                            {planName} plan
+                          </span>
+                        ) : (
+                          <p className="text-[11px] font-medium text-zinc-500">Signed in</p>
+                        )}
+                        <p className="mt-1.5 truncate text-sm font-semibold text-zinc-900 dark:text-zinc-50">
                           {email}
                         </p>
                       </div>
+                      <div className="px-4 py-3">
+                        <PlanQuotaMeters
+                          planUsedBytes={storageSummary?.usedBytes ?? null}
+                          planLimitBytes={
+                            storageSummary && storageSummary.limitBytes > 0
+                              ? storageSummary.limitBytes
+                              : plan?.storageLimitBytes && plan.storageLimitBytes > 0
+                                ? plan.storageLimitBytes
+                                : null
+                          }
+                          planPercent={storagePercent}
+                          videoEnabled={canVideoUploads}
+                          videoUsedBytes={videoUsedBytes}
+                          videoLimitBytes={videoLimitBytes}
+                          videoLimitLabel={videoLimitLabel}
+                          compact
+                        />
+                        <Link
+                          href="/dashboard/settings?tab=billing"
+                          onClick={() => setProfileOpen(false)}
+                          className="mt-3 inline-flex text-xs font-semibold text-brand hover:underline dark:text-brand-on-dark"
+                        >
+                          Manage billing
+                        </Link>
+                      </div>
                       <button
                         type="button"
-                        className="flex w-full items-center gap-3 px-4 py-3 text-sm font-semibold text-red-700 transition hover:bg-red-50 dark:text-red-200 dark:hover:bg-red-950/40"
+                        className="flex w-full items-center gap-3 border-t border-zinc-100 px-4 py-3 text-sm font-semibold text-red-700 transition hover:bg-red-50 dark:border-zinc-800 dark:text-red-200 dark:hover:bg-red-950/40"
                         onClick={() => {
                           setProfileOpen(false);
                           void logout().then(() => {
@@ -660,7 +686,12 @@ export function PhotographerShell({ children }: { children: React.ReactNode }) {
             </div>
           </header>
 
-          <main className="flex-1 overflow-auto bg-transparent p-4 lg:p-8 2xl:px-10 2xl:py-10">{children}</main>
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            {trialActive ? <TrialActiveBanner /> : null}
+            <main className="flex-1 overflow-auto bg-transparent p-4 lg:p-8 2xl:px-10 2xl:py-10">
+              {trialExpired && !allowThroughTrialWall ? <TrialExpiredWall /> : children}
+            </main>
+          </div>
         </div>
       </div>
       </div>

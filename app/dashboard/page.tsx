@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { ArrowRight, CheckCircle2, Clock3, FolderOpen, Sparkles, Users } from "lucide-react";
+import { ArrowRight, CheckCircle2, Clock3, FolderOpen, Images, Users } from "lucide-react";
 import { DashboardOverviewRow } from "@/components/dashboard/dashboard-overview-row";
 import { DashboardStatCards } from "@/components/dashboard/dashboard-stat-cards";
 import { DashboardActivityPanel } from "@/components/dashboard/dashboard-activity-panel";
@@ -11,7 +11,10 @@ import {
   StorageBreakdownCard,
   WeeklyActivityCard,
 } from "@/components/dashboard/dashboard-charts";
-import { getActivePlanDefinition } from "@/lib/subscription-plan";
+import { StorageUpgradePrompt } from "@/components/billing/plan-storage-meter";
+import { usePlanEntitlements } from "@/lib/use-plan-entitlements";
+import { galleryLimitLabel, isAtGalleryLimit } from "@/lib/plan-entitlements";
+import { isStorageCapped } from "@/lib/storage-api";
 import type { DashboardStatItem } from "@/components/dashboard/dashboard-stat-strip";
 import type { WeeklyBar } from "@/lib/dashboard-chart-data";
 import {
@@ -71,6 +74,7 @@ type ActivityRow = {
 };
 
 export default function DashboardPage() {
+  const { plan, openUpgrade, trialExpired } = usePlanEntitlements();
   const [createOpen, setCreateOpen] = useState(false);
   const [addClientOpen, setAddClientOpen] = useState(false);
   const [folders, setFolders] = useState<ApiFolder[]>([]);
@@ -87,6 +91,7 @@ export default function DashboardPage() {
     selections: number;
     finals: number;
     planBytes: number;
+    percentOfPlan: number;
   } | null>(null);
   const [weeklyFromApi, setWeeklyFromApi] = useState<DashboardWeeklyActivity | null>(null);
   const [studioDefaultCoverUrl, setStudioDefaultCoverUrl] = useState<string | null>(null);
@@ -138,6 +143,7 @@ export default function DashboardPage() {
             selections: d.storage.selections,
             finals: d.storage.finals,
             planBytes: d.storage.planBytes,
+            percentOfPlan: d.storage.percentOfPlan,
           });
           setWeeklyFromApi(d.weeklyActivity);
           return;
@@ -374,13 +380,50 @@ export default function DashboardPage() {
     return d.toLocaleDateString(undefined, { day: "2-digit", month: "2-digit" });
   }
 
+  const activeGalleryCount = stats?.totalGalleries ?? folders.length;
+  const galleryLimitReached = isAtGalleryLimit(plan, activeGalleryCount);
+
+  function requestNewGallery() {
+    if (trialExpired || galleryLimitReached) {
+      openUpgrade({
+        feature: "clientGalleries",
+        trialExpired: trialExpired || undefined,
+        message: trialExpired
+          ? "Your free trial has ended. Upgrade to create galleries."
+          : plan?.maxGalleries != null
+            ? `Gallery limit reached (${galleryLimitLabel(plan)}). Upgrade for more galleries.`
+            : "Gallery limit reached. Upgrade for more galleries.",
+      });
+      return;
+    }
+    setCreateOpen(true);
+  }
+
   return (
     <div className="dashboard-page space-y-5 pb-6 sm:space-y-6">
       <DashboardOverviewRow
         greeting={greeting}
         todayLabel={todayLabel}
-        onNewGallery={() => setCreateOpen(true)}
+        onNewGallery={requestNewGallery}
         onAddClient={() => setAddClientOpen(true)}
+      />
+
+      <StorageUpgradePrompt
+        percent={
+          storageBytes
+            ? storageBytes.planBytes > 0
+              ? storageBytes.percentOfPlan ||
+                (storageBytes.total / storageBytes.planBytes) * 100
+              : null
+            : null
+        }
+        capped={Boolean(
+          storageBytes &&
+            isStorageCapped({
+              usedBytes: storageBytes.total,
+              limitBytes: storageBytes.planBytes,
+            }),
+        )}
       />
 
       <DashboardStatCards items={statItems} loading={loading} />
@@ -405,7 +448,7 @@ export default function DashboardPage() {
               raws={storageBytes.raws}
               selections={storageBytes.selections}
               finals={storageBytes.finals}
-              planBytes={storageBytes.planBytes || getActivePlanDefinition().storageBytes}
+              planBytes={storageBytes.planBytes || plan?.storageLimitBytes || 0}
             />
             <WeeklyActivityCard
               bars={weeklyActivity}
@@ -442,14 +485,14 @@ export default function DashboardPage() {
           </div>
         ) : recentGalleries.length === 0 ? (
           <div className="dashboard-panel mt-5 flex flex-col items-center py-16 text-center">
-            <Sparkles className="h-8 w-8 text-zinc-300 dark:text-zinc-600" aria-hidden="true" />
+            <Images className="h-8 w-8 text-zinc-300 dark:text-zinc-600" aria-hidden="true" />
             <p className="mt-3 text-sm font-medium text-zinc-700 dark:text-zinc-200">No galleries yet</p>
             <p className="mt-1 max-w-sm text-xs text-zinc-500">
               Create a client gallery for delivery, proofing, and sharing.
             </p>
             <button
               type="button"
-              onClick={() => setCreateOpen(true)}
+              onClick={requestNewGallery}
               className="dashboard-btn-primary mt-5"
             >
               New gallery
@@ -473,6 +516,7 @@ export default function DashboardPage() {
       <CreateFolderModal
         open={createOpen}
         onClose={() => setCreateOpen(false)}
+        activeGalleryCount={activeGalleryCount}
         onSaved={handleSaved}
       />
       <CreateClientModal

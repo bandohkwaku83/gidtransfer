@@ -43,6 +43,58 @@ export const MAX_PRESIGN_BATCH_FILES = 700;
 /** Parallel S3 PUTs — avoids overwhelming the browser tab on huge batches. */
 const MAX_S3_CONCURRENCY = 8;
 
+/** Retries for transient PUT / network failures (ECONNRESET, aborted, 5xx). */
+const MAX_S3_PUT_ATTEMPTS = 3;
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isRetriableS3UploadError(err: unknown): boolean {
+  const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
+  if (msg.includes("cors") || msg.includes("403")) return false;
+  return (
+    msg.includes("network") ||
+    msg.includes("econnreset") ||
+    msg.includes("aborted") ||
+    msg.includes("failed (0)") ||
+    msg.includes("could not reach") ||
+    msg.includes("proxy network") ||
+    msg.includes("(502)") ||
+    msg.includes("(503)") ||
+    msg.includes("(504)") ||
+    msg.includes("(429)") ||
+    msg.includes("(500)") ||
+    /\(50\d\)/.test(msg)
+  );
+}
+
+export class GalleryUploadPartialError extends Error {
+  readonly succeeded: number;
+  readonly total: number;
+  readonly failedFiles: File[];
+  readonly causeMessage: string | null;
+
+  constructor(input: {
+    succeeded: number;
+    total: number;
+    failedFiles: File[];
+    causeMessage?: string | null;
+  }) {
+    const { succeeded, total, failedFiles, causeMessage } = input;
+    super(`${succeeded}/${total} uploaded — retry failed`);
+    this.name = "GalleryUploadPartialError";
+    this.succeeded = succeeded;
+    this.total = total;
+    this.failedFiles = failedFiles;
+    this.causeMessage = causeMessage ?? null;
+  }
+}
+
+export function isGalleryUploadPartialError(err: unknown): err is GalleryUploadPartialError {
+  return err instanceof GalleryUploadPartialError;
+}
+
 function galleryPath(id: string) {
   return `/api/galleries/${encodeURIComponent(id)}`;
 }
@@ -197,6 +249,9 @@ function putToS3Direct(
         ),
       );
     };
+    xhr.onabort = () => {
+      reject(new Error("S3 upload aborted (connection reset)."));
+    };
     xhr.send(body);
   });
 }
@@ -236,6 +291,7 @@ function putToS3ViaDevProxy(
       reject(new Error(message));
     };
     xhr.onerror = () => reject(new Error("Dev S3 upload proxy network error."));
+    xhr.onabort = () => reject(new Error("Dev S3 upload proxy aborted (connection reset)."));
     xhr.send(body);
   });
 }
@@ -253,29 +309,54 @@ export function putToS3(
   return putToS3Direct(file, presigned, headers, onProgress);
 }
 
+async function putToS3WithRetry(
+  file: File,
+  presigned: PresignedUpload,
+  onProgress?: (pct: number) => void,
+): Promise<void> {
+  let lastError: Error | undefined;
+  for (let attempt = 1; attempt <= MAX_S3_PUT_ATTEMPTS; attempt++) {
+    try {
+      await putToS3(file, presigned, onProgress);
+      return;
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      if (attempt < MAX_S3_PUT_ATTEMPTS && isRetriableS3UploadError(lastError)) {
+        onProgress?.(0);
+        await delay(250 * attempt);
+        continue;
+      }
+      throw lastError;
+    }
+  }
+  throw lastError ?? new Error("S3 upload failed.");
+}
+
 /** Upload files in parallel; finalize each one as soon as its S3 PUT succeeds. */
-async function uploadFilesWithPerFileComplete<T>(
+async function uploadFilesWithPerFileComplete(
   files: File[],
   uploads: PresignedUpload[],
   options: {
     onFileProgress?: (fileIndex: number, pct: number) => void;
-    onFileComplete: (fileIndex: number) => Promise<T>;
+    onFileComplete: (fileIndex: number) => Promise<void>;
   },
-): Promise<void> {
+): Promise<{ failedIndexes: number[]; firstError: Error | null }> {
   let nextIndex = 0;
-  let firstError: Error | undefined;
+  let firstError: Error | null = null;
+  const failedIndexes: number[] = [];
 
   async function worker() {
     while (true) {
       const index = nextIndex++;
       if (index >= files.length) return;
       try {
-        await putToS3(files[index]!, uploads[index]!, (pct) =>
+        await putToS3WithRetry(files[index]!, uploads[index]!, (pct) =>
           options.onFileProgress?.(index, pct),
         );
         options.onFileProgress?.(index, 100);
         await options.onFileComplete(index);
       } catch (err) {
+        failedIndexes.push(index);
         if (!firstError) {
           firstError = err instanceof Error ? err : new Error(String(err));
         }
@@ -285,7 +366,7 @@ async function uploadFilesWithPerFileComplete<T>(
 
   const workers = Math.min(MAX_S3_CONCURRENCY, files.length);
   await Promise.all(Array.from({ length: workers }, () => worker()));
-  if (firstError) throw firstError;
+  return { failedIndexes, firstError };
 }
 
 function mergeUploadPhotosResult(
@@ -300,17 +381,25 @@ function mergeUploadPhotosResult(
   }
 }
 
+export type GalleryUploadMediaKind = "photos" | "videos";
+
+function uploadsMediaPath(galleryId: string, kind: GalleryUploadMediaKind) {
+  return `${galleryPath(galleryId)}/uploads/${kind}`;
+}
+
 async function presignGalleryUploads(
   galleryId: string,
   files: File[],
+  kind: GalleryUploadMediaKind,
 ): Promise<PresignedUpload[]> {
+  const label = kind === "videos" ? "video" : "photo";
   const res = await authedJson<{ uploads: PresignedUpload[] }>(
-    `${galleryPath(galleryId)}/uploads/presign`,
+    `${uploadsMediaPath(galleryId, kind)}/presign`,
     {
       method: "POST",
       body: JSON.stringify({ files: files.map(fileMeta) }),
     },
-    "Failed to prepare photo upload",
+    `Failed to prepare ${label} upload`,
     FoldersApiError,
   );
   return res.uploads ?? [];
@@ -319,6 +408,7 @@ async function presignGalleryUploads(
 async function completeGalleryUploads(
   galleryId: string,
   uploads: PresignedUpload[],
+  kind: GalleryUploadMediaKind,
   options?: {
     onConflict?: "skip" | "replace";
     setId?: string | null;
@@ -336,13 +426,14 @@ async function completeGalleryUploads(
     body.applyPreviewWatermark = options.applyPreviewWatermark;
   }
 
+  const label = kind === "videos" ? "video" : "photo";
   return authedJson<S3GalleryUploadPhotosResult>(
-    `${galleryPath(galleryId)}/uploads/complete`,
+    `${uploadsMediaPath(galleryId, kind)}/complete`,
     {
       method: "POST",
       body: JSON.stringify(body),
     },
-    "Failed to finalize photo upload",
+    `Failed to finalize ${label} upload`,
     FoldersApiError,
   );
 }
@@ -508,11 +599,13 @@ function emitPresigningProgress(
   ));
 }
 
-/** Presign → S3 PUT → complete for gallery raw uploads. */
+/** Presign → S3 PUT → complete for gallery raw uploads (photos or videos). */
 export async function s3UploadGalleryPhotos(
   galleryId: string,
   files: File[],
   options?: {
+    /** Defaults to photos. Use videos for the video upload endpoint. */
+    mediaKind?: GalleryUploadMediaKind;
     onConflict?: "skip" | "replace";
     setId?: string | null;
     applyPreviewWatermark?: boolean;
@@ -525,6 +618,7 @@ export async function s3UploadGalleryPhotos(
     onBatchComplete?: (result: S3GalleryUploadPhotosResult) => void;
   },
 ): Promise<S3GalleryUploadPhotosResult> {
+  const mediaKind = options?.mediaKind ?? "photos";
   const batches = chunkFiles(files, MAX_PRESIGN_BATCH_FILES);
   const merged: S3GalleryUploadPhotosResult = {
     created: [],
@@ -544,22 +638,46 @@ export async function s3UploadGalleryPhotos(
 
     emitPresigningProgress(files, batches, batchIndex, options?.onProgress);
 
-    const uploads = await presignGalleryUploads(galleryId, batch);
+    const uploads = await presignGalleryUploads(galleryId, batch, mediaKind);
     if (uploads.length !== batch.length) {
       throw new FoldersApiError("Upload preparation returned an unexpected file count.", 500, null);
     }
 
-    await uploadFilesWithPerFileComplete(batch, uploads, {
+    const { failedIndexes, firstError } = await uploadFilesWithPerFileComplete(batch, uploads, {
       onFileProgress: (fileIndex, pct) => {
         fileProgress[fileIndex] = pct;
         scaleS3UploadProgress(files, batches, batchIndex, fileProgress, options?.onProgress);
       },
       onFileComplete: async (fileIndex) => {
-        const res = await completeGalleryUploads(galleryId, [uploads[fileIndex]!], completeOptions);
+        const res = await completeGalleryUploads(
+          galleryId,
+          [uploads[fileIndex]!],
+          mediaKind,
+          completeOptions,
+        );
         mergeUploadPhotosResult(merged, res);
         options?.onBatchComplete?.(res);
       },
     });
+
+    const succeededInBatch = batch.length - failedIndexes.length;
+    const succeededSoFar =
+      batches.slice(0, batchIndex).reduce((n, b) => n + b.length, 0) + succeededInBatch;
+    // Remap batch-local failures onto the original file list for retry.
+    if (failedIndexes.length > 0) {
+      const batchOffset = batches.slice(0, batchIndex).reduce((n, b) => n + b.length, 0);
+      const remaining = files.slice(batchOffset + batch.length);
+      const failedInBatch = failedIndexes
+        .sort((a, b) => a - b)
+        .map((i) => batch[i]!)
+        .filter(Boolean);
+      throw new GalleryUploadPartialError({
+        succeeded: succeededSoFar,
+        total: files.length,
+        failedFiles: [...failedInBatch, ...remaining],
+        causeMessage: firstError?.message ?? null,
+      });
+    }
   }
 
   return merged;
@@ -612,7 +730,7 @@ export async function s3UploadGalleryFinals(
       throw new FoldersApiError("Upload preparation returned an unexpected file count.", 500, null);
     }
 
-    await uploadFilesWithPerFileComplete(batch, uploads, {
+    const { failedIndexes, firstError } = await uploadFilesWithPerFileComplete(batch, uploads, {
       onFileProgress: (fileIndex, pct) => {
         fileProgress[fileIndex] = pct;
         scaleS3UploadProgress(files, batches, batchIndex, fileProgress, options?.onProgress);
@@ -625,6 +743,23 @@ export async function s3UploadGalleryFinals(
         options?.onBatchComplete?.(res);
       },
     });
+
+    if (failedIndexes.length > 0) {
+      const batchOffset = batches.slice(0, batchIndex).reduce((n, b) => n + b.length, 0);
+      const succeededSoFar =
+        batchOffset + (batch.length - failedIndexes.length);
+      const remaining = files.slice(batchOffset + batch.length);
+      const failedInBatch = failedIndexes
+        .sort((a, b) => a - b)
+        .map((i) => batch[i]!)
+        .filter(Boolean);
+      throw new GalleryUploadPartialError({
+        succeeded: succeededSoFar,
+        total: files.length,
+        failedFiles: [...failedInBatch, ...remaining],
+        causeMessage: firstError?.message ?? null,
+      });
+    }
   }
 
   return { message: lastMessage, created, skipped };

@@ -208,6 +208,59 @@ export function UploadProgressBanner({
   );
 }
 
+/** Shown after a batch partially fails so the user can retry only the rest. */
+export function UploadPartialFailureBanner({
+  succeeded,
+  total,
+  failedCount,
+  onRetry,
+  onDismiss,
+  busy,
+}: {
+  succeeded: number;
+  total: number;
+  failedCount: number;
+  onRetry: () => void;
+  onDismiss: () => void;
+  busy?: boolean;
+}) {
+  return (
+    <div
+      role="alert"
+      className="flex flex-col gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3.5 text-sm text-amber-950 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-100 sm:flex-row sm:items-center sm:justify-between"
+    >
+      <div className="min-w-0">
+        <p className="font-semibold tabular-nums">
+          {succeeded}/{total} uploaded — retry failed
+        </p>
+        <p className="mt-0.5 text-xs opacity-90">
+          {failedCount === 1
+            ? "1 file still needs to upload."
+            : `${failedCount} files still need to upload.`}
+        </p>
+      </div>
+      <div className="flex shrink-0 items-center gap-2">
+        <button
+          type="button"
+          onClick={onDismiss}
+          disabled={busy}
+          className="rounded-xl px-3 py-2 text-xs font-semibold text-amber-900/80 transition hover:bg-amber-100/80 disabled:opacity-50 dark:text-amber-100/80 dark:hover:bg-amber-900/40"
+        >
+          Dismiss
+        </button>
+        <button
+          type="button"
+          onClick={onRetry}
+          disabled={busy}
+          className="rounded-xl bg-brand px-3.5 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-brand-hover disabled:opacity-50"
+        >
+          Retry failed
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export type DuplicateUploadConflictPrompt = {
   kind: "raw" | "final";
   files: File[];
@@ -242,12 +295,6 @@ export function DuplicateUploadConflictDialog({
   const allConflicting = newFilesCount === 0 && conflictCount > 0;
   const canUploadNonDuplicates = newFilesCount > 0;
 
-  const summaryLabel = knowsConflictNames
-    ? `${conflictCount} conflict${conflictCount === 1 ? "" : "s"} · ${newFilesCount} new file${
-        newFilesCount === 1 ? "" : "s"
-      }`
-    : "Potential conflicts detected";
-
   return (
     <div
       className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4 backdrop-blur-[2px]"
@@ -255,7 +302,7 @@ export function DuplicateUploadConflictDialog({
       aria-modal="true"
       aria-labelledby="duplicate-filename-dialog-title"
     >
-      <div className="flex max-h-[min(90vh,36rem)] w-full max-w-md flex-col rounded-2xl border border-zinc-200 bg-white p-6 shadow-xl dark:border-zinc-700 dark:bg-zinc-950">
+      <div className="flex max-h-[min(90vh,40rem)] w-full max-w-md flex-col rounded-2xl border border-zinc-200 bg-white p-6 shadow-xl dark:border-zinc-700 dark:bg-zinc-950">
         <div className="flex shrink-0 items-start gap-3">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-100 dark:bg-amber-950/60">
             <FileWarning className="h-5 w-5 text-amber-800 dark:text-amber-300" aria-hidden />
@@ -265,7 +312,7 @@ export function DuplicateUploadConflictDialog({
               id="duplicate-filename-dialog-title"
               className="text-lg font-semibold text-zinc-900 dark:text-zinc-50"
             >
-              Some files already exist
+              Some filenames already exist
             </h2>
             <p className="mt-2 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
               {knowsConflictNames ? (
@@ -274,7 +321,22 @@ export function DuplicateUploadConflictDialog({
                   <span className="font-semibold text-zinc-800 dark:text-zinc-200">
                     {formatUploadCount(totalCount)}
                   </span>{" "}
-                  file{totalCount === 1 ? "" : "s"} to {scopeLabel}.
+                  file{totalCount === 1 ? "" : "s"} to {scopeLabel}.{" "}
+                  <span className="font-semibold text-zinc-800 dark:text-zinc-200">
+                    {formatUploadCount(conflictCount)}
+                  </span>{" "}
+                  already match names in this gallery
+                  {canUploadNonDuplicates ? (
+                    <>
+                      ;{" "}
+                      <span className="font-semibold text-zinc-800 dark:text-zinc-200">
+                        {formatUploadCount(newFilesCount)}
+                      </span>{" "}
+                      {newFilesCount === 1 ? "is new" : "are new"}.
+                    </>
+                  ) : (
+                    "."
+                  )}
                 </>
               ) : (
                 <>
@@ -282,34 +344,39 @@ export function DuplicateUploadConflictDialog({
                   <span className="font-semibold text-zinc-800 dark:text-zinc-200">
                     {formatUploadCount(totalCount)}
                   </span>{" "}
-                  file{totalCount === 1 ? "" : "s"}. At least one filename matches an existing file in {scopeLabel}, but the
-                  exact names couldn’t be listed.
+                  file{totalCount === 1 ? "" : "s"}. At least one filename matches an existing file
+                  in {scopeLabel}, but the exact names couldn’t be listed.
                 </>
               )}
             </p>
 
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              <span className="inline-flex items-center rounded-full bg-zinc-100 px-2.5 py-1 text-xs font-semibold text-zinc-700 dark:bg-zinc-800/70 dark:text-zinc-200">
-                {summaryLabel}
-              </span>
-              {knowsConflictNames ? (
+            {knowsConflictNames ? (
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <span className="inline-flex items-center rounded-full bg-zinc-100 px-2.5 py-1 text-xs font-semibold tabular-nums text-zinc-700 dark:bg-zinc-800/70 dark:text-zinc-200">
+                  {formatUploadCount(conflictCount)} already in gallery
+                </span>
+                {canUploadNonDuplicates ? (
+                  <span className="inline-flex items-center rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold tabular-nums text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200">
+                    {formatUploadCount(newFilesCount)} new
+                  </span>
+                ) : null}
                 <button
                   type="button"
                   onClick={() => setShowDetails((v) => !v)}
                   className="inline-flex items-center rounded-full border border-zinc-200 bg-white px-2.5 py-1 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-200 dark:hover:bg-zinc-900"
                   aria-expanded={showDetails}
                 >
-                  {showDetails ? "Hide details" : "View names"}
+                  {showDetails ? "Hide names" : "View names"}
                 </button>
-              ) : null}
-            </div>
+              </div>
+            ) : null}
           </div>
         </div>
 
         {knowsConflictNames && showDetails ? (
           <div className="mt-4 flex min-h-0 shrink flex-col">
             <p className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-              Conflicting names
+              Matching names
             </p>
             <ul className="mt-2 max-h-36 shrink overflow-y-auto rounded-xl border border-zinc-200 bg-zinc-50/90 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900/60">
               {prompt.conflictingNames.map((name) => (
@@ -325,41 +392,45 @@ export function DuplicateUploadConflictDialog({
           </div>
         ) : null}
 
-        <div className="mt-6 flex shrink-0 flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+        <div className="mt-5 flex shrink-0 flex-col gap-2">
           <button
             type="button"
-            onClick={onCancel}
-            className="inline-flex min-h-[2.5rem] items-center justify-center rounded-xl border border-zinc-200 px-4 py-2 text-sm font-semibold text-zinc-800 transition hover:bg-zinc-50 dark:border-zinc-600 dark:text-zinc-100 dark:hover:bg-zinc-900"
+            onClick={onReplace}
+            className="inline-flex min-h-[2.75rem] flex-col items-stretch justify-center rounded-xl bg-brand px-4 py-2.5 text-left text-white shadow-sm transition hover:bg-brand-hover"
           >
-            Cancel
+            <span className="text-sm font-semibold">
+              {allConflicting
+                ? `Replace all ${formatUploadCount(totalCount)}`
+                : `Upload all ${formatUploadCount(totalCount)}`}
+            </span>
+            <span className="mt-0.5 text-xs font-medium text-white/80">
+              {allConflicting
+                ? "Overwrite matching files in this gallery"
+                : `Add ${formatUploadCount(newFilesCount)} new · replace ${formatUploadCount(conflictCount)} matching`}
+            </span>
           </button>
+
           {canUploadNonDuplicates ? (
             <button
               type="button"
               onClick={onSkip}
-              className="inline-flex min-h-[2.5rem] items-center justify-center rounded-xl bg-brand px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-hover"
+              className="inline-flex min-h-[2.75rem] flex-col items-stretch justify-center rounded-xl border border-zinc-200 bg-white px-4 py-2.5 text-left transition hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-950 dark:hover:bg-zinc-900"
             >
-              Upload {formatUploadCount(newFilesCount)} non-duplicate{newFilesCount === 1 ? "" : "s"}
+              <span className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
+                Upload {formatUploadCount(newFilesCount)} new only
+              </span>
+              <span className="mt-0.5 text-xs font-medium text-zinc-500 dark:text-zinc-400">
+                Skip the {formatUploadCount(conflictCount)} that already exist
+              </span>
             </button>
-          ) : (
-            <button
-              type="button"
-              onClick={onSkip}
-              className="inline-flex min-h-[2.5rem] items-center justify-center rounded-xl border border-zinc-200 px-4 py-2 text-sm font-semibold text-zinc-500 transition hover:bg-zinc-50 dark:border-zinc-600 dark:text-zinc-400 dark:hover:bg-zinc-900"
-            >
-              Skip duplicates
-            </button>
-          )}
+          ) : null}
+
           <button
             type="button"
-            onClick={onReplace}
-            className={cn(
-              "inline-flex min-h-[2.5rem] items-center justify-center rounded-xl px-4 py-2 text-sm font-semibold transition",
-              "border border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50",
-              "dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100 dark:hover:bg-zinc-900",
-            )}
+            onClick={onCancel}
+            className="inline-flex min-h-[2.5rem] items-center justify-center rounded-xl px-4 py-2 text-sm font-semibold text-zinc-500 transition hover:bg-zinc-50 hover:text-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-100"
           >
-            {allConflicting ? "Replace existing" : `Replace ${formatUploadCount(conflictCount)} duplicate${conflictCount === 1 ? "" : "s"}`}
+            Cancel
           </button>
         </div>
       </div>

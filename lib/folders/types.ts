@@ -55,6 +55,8 @@ export type ApiFolderMedia = {
   url?: string;
   /** When present, preferred URL for UI (e.g. watermarked preview when watermarking is enabled). */
   displayUrl?: string;
+  /** Full-screen / lightbox URL from API (`viewUrl`). */
+  viewUrl?: string;
   mimeType?: string;
   contentType?: string;
   content_type?: string;
@@ -288,6 +290,8 @@ export type ListFoldersTrashResponse = {
   deletedMediaPreviewLimit: number;
   /** When more rows exist than embedded, backend may point at the paginated route. */
   deletedMediaPagingHint?: string;
+  /** Pro+ — when false, show upgrade on Restore (list still visible). */
+  restoreAvailable?: boolean;
 };
 
 /** Paginated trashed media (`GET /api/folders/media/trash`). */

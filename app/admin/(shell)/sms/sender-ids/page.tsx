@@ -72,7 +72,14 @@ function SmsApprovalsContent() {
     getSmsSenderIds({ status: status || undefined, page, limit: 50 })
       .then((data) => {
         setItems(data.items);
-        setPagination(data.pagination);
+        setPagination(
+          data.pagination ?? {
+            page: 1,
+            limit: 50,
+            total: data.items.length,
+            totalPages: 1,
+          },
+        );
       })
       .catch((err) => setError(getErrorMessage(err)))
       .finally(() => setLoading(false));

@@ -28,14 +28,15 @@ export function bestGalleryMediaSrc(asset: PreviewMedia): string {
 }
 
 /**
- * Thumbnail URL for grid tiles — prefers progressive `thumbUrl` / `gridUrl`,
- * falls back to `url` while derivatives process. Videos use poster / grid poster.
+ * Thumbnail URL for grid tiles — `gridUrl || thumbUrl || url`.
+ * Never falls through to master/preview URLs while derivatives are pending
+ * (`progressiveGridSrc` returns "" so the UI can show a skeleton).
  */
 export function clientGalleryGridSrc(asset: PreviewMedia): string {
-  return progressiveGridSrc(asset) || bestGalleryMediaSrc(asset);
+  return progressiveGridSrc(asset);
 }
 
-/** Lightbox / fullscreen URL — prefers API `viewUrl` mapped to preview/display fields. */
+/** Lightbox / fullscreen URL — prefers API `viewUrl` / `displayUrl`. Reserve `url` for downloads. */
 export function clientGalleryLightboxSrc(
   asset: PreviewMedia,
   watermarkPreviewEnabled: boolean,
@@ -46,9 +47,8 @@ export function clientGalleryLightboxSrc(
   }
   const view = asset.previewUrl?.trim() || asset.displayUrl?.trim();
   if (view) return view;
-  const full = asset.url?.trim();
-  if (full) return full;
-  return asset.thumbUrl.trim();
+  // Prefer progressive derivatives over the master download URL.
+  return asset.gridUrl?.trim() || asset.thumbUrl.trim() || "";
 }
 
 /** Client gallery image URL — prefer watermarked preview when ready, else full image. */

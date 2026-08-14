@@ -35,6 +35,8 @@ import {
   findShootTypeMeta,
 } from "@/lib/booking-shoot-types";
 import { getAuth } from "@/lib/auth-demo";
+import { usePlanEntitlements } from "@/lib/use-plan-entitlements";
+import { isAtGalleryLimit } from "@/lib/plan-entitlements";
 import { listClients, type ApiClient } from "@/lib/clients-api";
 import {
   defaultStudioUrlSuffix,
@@ -55,6 +57,8 @@ type Props = {
   onClose: () => void;
   /** When provided, the modal switches to edit mode. */
   folder?: ApiFolder | null;
+  /** Active gallery count for maxGalleries gating (create only). */
+  activeGalleryCount?: number | null;
   /** Called after a successful create or update. */
   onSaved?: (folder: ApiFolder) => void;
 };
@@ -63,8 +67,16 @@ const GALLERY_MODAL_IMAGE = "/images/gallery-form.png";
 /** Default share link expiry when creating a gallery (no UI control). */
 const DEFAULT_LINK_EXPIRY = "30d";
 
-export function CreateFolderModal({ open, onClose, folder, onSaved }: Props) {
+export function CreateFolderModal({
+  open,
+  onClose,
+  folder,
+  activeGalleryCount,
+  onSaved,
+}: Props) {
   const { showToast } = useToast();
+  const { can, openUpgrade, handlePlanError, plan, trialExpired } = usePlanEntitlements();
+  const canGalleryAi = can("galleryAi");
   const formId = useId();
   const isEdit = Boolean(folder?._id);
 
@@ -199,6 +211,10 @@ export function CreateFolderModal({ open, onClose, folder, onSaved }: Props) {
   }
 
   async function handleGenerateDescription() {
+    if (!canGalleryAi) {
+      openUpgrade({ feature: "galleryAi" });
+      return;
+    }
     const name = eventName.trim();
     if (!name || generatingDescription || busy) return;
     setGeneratingDescription(true);
@@ -207,6 +223,7 @@ export function CreateFolderModal({ open, onClose, folder, onSaved }: Props) {
       if (text) setDescription(text);
       else showToast("No description was returned.", "error");
     } catch (err) {
+      if (handlePlanError(err)) return;
       showToast(err instanceof Error ? err.message : "Could not generate description.", "error");
     } finally {
       setGeneratingDescription(false);
@@ -243,6 +260,37 @@ export function CreateFolderModal({ open, onClose, folder, onSaved }: Props) {
       return;
     }
 
+    if (!isEdit) {
+      if (trialExpired) {
+        openUpgrade({
+          trialExpired: true,
+          message: "Your free trial has ended. Upgrade to create galleries.",
+        });
+        return;
+      }
+      const limit = plan?.maxGalleries;
+      if (limit != null && limit <= 0) {
+        openUpgrade({
+          feature: "clientGalleries",
+          message: "Upgrade to create galleries on your plan.",
+        });
+        return;
+      }
+      if (
+        activeGalleryCount != null &&
+        isAtGalleryLimit(plan, activeGalleryCount)
+      ) {
+        openUpgrade({
+          feature: "clientGalleries",
+          message:
+            limit != null
+              ? `Gallery limit reached (${limit}). Upgrade for more galleries.`
+              : "Gallery limit reached. Upgrade for more galleries.",
+        });
+        return;
+      }
+    }
+
     setBusy(true);
     try {
       const saved = isEdit
@@ -268,6 +316,7 @@ export function CreateFolderModal({ open, onClose, folder, onSaved }: Props) {
       onSaved?.(saved);
       onClose();
     } catch (err) {
+      if (handlePlanError(err)) return;
       showToast(
         err instanceof Error
           ? err.message
@@ -385,10 +434,18 @@ export function CreateFolderModal({ open, onClose, folder, onSaved }: Props) {
                         <button
                           type="button"
                           onClick={() => void handleGenerateDescription()}
-                          disabled={busy || generatingDescription || !eventName.trim()}
+                          disabled={
+                            busy ||
+                            generatingDescription ||
+                            (canGalleryAi && !eventName.trim())
+                          }
                           className={formModalSecondaryButtonClass}
                         >
-                          {generatingDescription ? "Generating…" : "Generate with AI"}
+                          {generatingDescription
+                            ? "Generating…"
+                            : canGalleryAi
+                              ? "Generate with AI"
+                              : "Upgrade for AI"}
                         </button>
                       ) : undefined
                     }

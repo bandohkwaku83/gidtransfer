@@ -21,6 +21,7 @@ import {
   Lock,
   Mail,
   MessageCircle,
+  MessageSquare,
   Monitor,
   MoreHorizontal,
   Pencil,
@@ -392,6 +393,9 @@ export function FolderEditorChrome({
   onMoveToTrash,
   onCopyShare,
   onRegenerateLink,
+  canNotifySms,
+  onNotifySms,
+  onSmsLocked,
 }: {
   title: string;
   eventDateLabel: string;
@@ -406,6 +410,9 @@ export function FolderEditorChrome({
   onMoveToTrash?: () => void;
   onCopyShare?: () => void;
   onRegenerateLink?: () => void;
+  canNotifySms?: boolean;
+  onNotifySms?: () => void;
+  onSmsLocked?: () => void;
 }) {
   const client = clientName.trim();
 
@@ -442,6 +449,12 @@ export function FolderEditorChrome({
         icon: <MessageCircle className="h-3.5 w-3.5" aria-hidden />,
         disabled: !shareActive,
       },
+      {
+        key: "sms",
+        label: canNotifySms ? "Notify client via SMS" : "SMS (upgrade to Basic+)",
+        icon: <MessageSquare className="h-3.5 w-3.5" aria-hidden />,
+        disabled: !shareActive,
+      },
     ];
     if (canNativeShare) {
       items.push({
@@ -461,7 +474,7 @@ export function FolderEditorChrome({
       },
     );
     return items;
-  }, [shareActive, linkCopied, busy, canNativeShare]);
+  }, [shareActive, linkCopied, busy, canNativeShare, canNotifySms]);
 
   const moreMenuItems = useMemo<MenuProps["items"]>(() => {
     const items: NonNullable<MenuProps["items"]> = [
@@ -547,6 +560,11 @@ export function FolderEditorChrome({
     }
     if (key === "whatsapp") {
       window.open(buildWhatsAppShareUrl(shareMessage), "_blank", "noopener,noreferrer");
+      return;
+    }
+    if (key === "sms") {
+      if (canNotifySms) onNotifySms?.();
+      else onSmsLocked?.();
       return;
     }
     if (key === "native" && canNativeShare) {
@@ -1611,6 +1629,9 @@ export function ShareWithClientCard({
   busy,
   onCopy,
   onRegenerate,
+  canNotifySms,
+  onNotifySms,
+  onSmsLocked,
 }: {
   title: string;
   clientName: string;
@@ -1621,6 +1642,9 @@ export function ShareWithClientCard({
   busy: boolean;
   onCopy: () => void;
   onRegenerate: () => void;
+  canNotifySms?: boolean;
+  onNotifySms?: () => void;
+  onSmsLocked?: () => void;
 }) {
   const galleryTitle = title.trim() || "Gallery";
   const client = clientName.trim();
@@ -1710,7 +1734,7 @@ export function ShareWithClientCard({
         </div>
 
         {shareActive ? (
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <a
               href={buildMailtoShareUrl({
                 subject: `Gallery: ${galleryTitle}`,
@@ -1730,6 +1754,18 @@ export function ShareWithClientCard({
               <MessageCircle className="h-3.5 w-3.5 shrink-0" aria-hidden />
               WhatsApp
             </a>
+            <button
+              type="button"
+              disabled={busy || !shareActive}
+              onClick={() => {
+                if (canNotifySms) onNotifySms?.();
+                else onSmsLocked?.();
+              }}
+              className={quickActionClass}
+            >
+              <MessageSquare className="h-3.5 w-3.5 shrink-0" aria-hidden />
+              {canNotifySms ? "SMS" : "SMS · Upgrade"}
+            </button>
             <a
               href={shareUrl}
               target="_blank"

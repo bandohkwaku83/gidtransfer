@@ -24,22 +24,41 @@ export function SignupOtpInput({
 }: SignupOtpInputProps) {
   const inputId = useId();
   const refs = useRef<Array<HTMLInputElement | null>>([]);
+  const completedForRef = useRef<string | null>(null);
   const digits = value.replace(/\D/g, "").slice(0, length).split("");
   while (digits.length < length) digits.push("");
+
+  const emitComplete = useCallback(
+    (joined: string) => {
+      if (joined.length !== length) {
+        completedForRef.current = null;
+        return;
+      }
+      if (completedForRef.current === joined) return;
+      completedForRef.current = joined;
+      onComplete?.(joined);
+    },
+    [length, onComplete],
+  );
 
   const setDigits = useCallback(
     (next: string[]) => {
       const joined = next.join("").replace(/\D/g, "").slice(0, length);
       onChange(joined);
-      if (joined.length === length) onComplete?.(joined);
+      emitComplete(joined);
     },
-    [length, onChange, onComplete],
+    [emitComplete, length, onChange],
   );
 
   useEffect(() => {
     if (!autoFocus) return;
     refs.current[0]?.focus();
   }, [autoFocus]);
+
+  // Autofill / SMS one-time-code can update `value` without a keystroke path.
+  useEffect(() => {
+    emitComplete(value.replace(/\D/g, "").slice(0, length));
+  }, [emitComplete, length, value]);
 
   function focusIndex(index: number) {
     const clamped = Math.max(0, Math.min(length - 1, index));
@@ -73,7 +92,7 @@ export function SignupOtpInput({
           type="text"
           inputMode="numeric"
           autoComplete={index === 0 ? "one-time-code" : "off"}
-          maxLength={1}
+          maxLength={length}
           value={digit}
           disabled={disabled}
           aria-label={`Digit ${index + 1} of ${length}`}

@@ -1,38 +1,39 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ArrowDownAZ,
   ArrowDownWideNarrow,
   ArrowUpAZ,
   ArrowUpNarrowWide,
-  ChevronLeft,
   ChevronRight,
   ExternalLink,
   FolderOpen,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
+  DASHBOARD_TABLE_DEFAULT_PAGE_SIZE,
+  DashboardTablePagination,
+} from "@/components/dashboard/dashboard-table-pagination";
+import {
   fetchStorage,
+  formatStorageBytes,
+  isStorageCapped,
+  storageUsagePercent,
   StorageApiError,
   type StorageGalleryRow,
   type StorageSummary,
 } from "@/lib/storage-api";
-import { isAbortError } from "@/lib/http";
-import { getActivePlanDefinition } from "@/lib/subscription-plan";
+import {
+  PlanQuotaMeters,
+  StorageUpgradePrompt,
+} from "@/components/billing/plan-storage-meter";
+import { usePlanEntitlements } from "@/lib/use-plan-entitlements";
+import { readVideoUsage, rememberVideoUsage } from "@/lib/video-usage";
 
 function formatBytes(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes < 0) return "N/A";
-  const units = ["B", "KB", "MB", "GB", "TB"] as const;
-  let v = bytes;
-  let u = 0;
-  while (v >= 1024 && u < units.length - 1) {
-    v /= 1024;
-    u += 1;
-  }
-  const digits = u === 0 ? 0 : u === 1 ? 0 : v >= 10 ? 1 : 2;
-  return `${v.toFixed(digits)} ${units[u]}`;
+  return formatStorageBytes(bytes);
 }
 
 function pct(part: number, whole: number): number {
@@ -49,8 +50,6 @@ function formatPercentDisplay(value: number): string {
 
 type SortKey = "name" | "total";
 
-const PAGE_SIZE = 15;
-
 function mapGalleryToRow(g: StorageGalleryRow) {
   return {
     id: g.id,
@@ -64,7 +63,7 @@ function mapGalleryToRow(g: StorageGalleryRow) {
 }
 
 export default function StoragePage() {
-  const plan = getActivePlanDefinition();
+  const { plan, can, openUpgrade, trialExpired } = usePlanEntitlements();
   const [sortKey, setSortKey] = useState<SortKey>("total");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
 
@@ -78,21 +77,34 @@ export default function StoragePage() {
 
   const [listVersion, setListVersion] = useState(0);
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DASHBOARD_TABLE_DEFAULT_PAGE_SIZE);
+  const [videoUsageTick, setVideoUsageTick] = useState(0);
 
-  const loadStorage = useCallback(
-    async (signal?: AbortSignal) => {
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
       setSummaryError(null);
       setListError(null);
       setSummaryLoading(true);
       setListLoading(true);
       try {
         const sort = sortKey === "total" ? "size" : "name";
-        const data = await fetchStorage({ sort, order: sortDir, signal });
-        if (signal?.aborted) return;
+        const data = await fetchStorage({ sort, order: sortDir });
+        if (cancelled) return;
         setSummary(data.summary);
         setGalleries(data.galleries);
+        if (
+          data.summary.videoUsedBytes != null &&
+          data.summary.videoUploadLimitBytes != null
+        ) {
+          rememberVideoUsage({
+            usedBytes: data.summary.videoUsedBytes,
+            limitBytes: data.summary.videoUploadLimitBytes,
+          });
+          setVideoUsageTick((n) => n + 1);
+        }
       } catch (err) {
-        if (isAbortError(err) || signal?.aborted) return;
+        if (cancelled) return;
         setSummary(null);
         setGalleries([]);
         const message =
@@ -104,20 +116,16 @@ export default function StoragePage() {
         setSummaryError(message);
         setListError(message);
       } finally {
-        if (!signal?.aborted) {
+        if (!cancelled) {
           setSummaryLoading(false);
           setListLoading(false);
         }
       }
-    },
-    [sortKey, sortDir],
-  );
-
-  useEffect(() => {
-    const controller = new AbortController();
-    void loadStorage(controller.signal);
-    return () => controller.abort();
-  }, [loadStorage, listVersion]);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [sortKey, sortDir, listVersion]);
 
   useEffect(() => {
     setPage(1);
@@ -125,29 +133,46 @@ export default function StoragePage() {
 
   const sortedRows = useMemo(() => galleries.map(mapGalleryToRow), [galleries]);
 
-  const { pageRows, totalPages, rangeStart, rangeEnd, displayPage } = useMemo(() => {
+  const pageRows = useMemo(() => {
     const total = sortedRows.length;
-    const tp = Math.max(1, Math.ceil(total / PAGE_SIZE) || 1);
+    const tp = Math.max(1, Math.ceil(total / pageSize) || 1);
     const safePage = Math.min(page, tp);
-    const start = (safePage - 1) * PAGE_SIZE;
-    const slice = sortedRows.slice(start, start + PAGE_SIZE);
-    return {
-      pageRows: slice,
-      totalPages: tp,
-      rangeStart: total === 0 ? 0 : start + 1,
-      rangeEnd: Math.min(start + PAGE_SIZE, total),
-      displayPage: safePage,
-    };
-  }, [sortedRows, page]);
+    const start = (safePage - 1) * pageSize;
+    return sortedRows.slice(start, start + pageSize);
+  }, [sortedRows, page, pageSize]);
 
   useEffect(() => {
-    const maxPage = Math.max(1, Math.ceil(sortedRows.length / PAGE_SIZE) || 1);
+    const maxPage = Math.max(1, Math.ceil(sortedRows.length / pageSize) || 1);
     setPage((p) => Math.min(p, maxPage));
-  }, [sortedRows.length]);
+  }, [sortedRows.length, pageSize]);
 
   const usedBytes = summary?.usedBytes ?? 0;
-  const planBytes = summary?.limitBytes ?? plan.storageBytes;
-  const planLabel = summary?.planName ?? plan.label;
+  const planBytes = summary?.limitBytes ?? plan?.storageLimitBytes ?? 0;
+  const planLabel = summary?.planName ?? plan?.planName ?? "Free";
+  const usedPct = summary
+    ? storageUsagePercent({
+        usedBytes: summary.usedBytes,
+        limitBytes: planBytes,
+        percentOfPlan: summary.percentOfPlan,
+      })
+    : pct(usedBytes, planBytes);
+  const storageCapped = summary
+    ? isStorageCapped({ usedBytes: summary.usedBytes, limitBytes: planBytes })
+    : trialExpired;
+  const remainingBytes = Math.max(0, planBytes - usedBytes);
+  const canVideoUploads = can("videoUploads");
+  const storedVideo = useMemo(() => readVideoUsage(), [videoUsageTick, summary]);
+  const videoLimitBytes =
+    summary?.videoUploadLimitBytes ??
+    storedVideo?.limitBytes ??
+    (canVideoUploads && plan?.videoUploadLimitBytes && plan.videoUploadLimitBytes > 0
+      ? plan.videoUploadLimitBytes
+      : null);
+  const videoUsedBytes = summary?.videoUsedBytes ?? storedVideo?.usedBytes ?? null;
+  const videoLimitLabel =
+    canVideoUploads && plan?.videoUploadLimitBytes && plan.videoUploadLimitBytes > 0
+      ? plan.videoUploadLimitLabel
+      : null;
 
   function toggleSort(key: SortKey) {
     setSortKey((prev) => {
@@ -162,11 +187,13 @@ export default function StoragePage() {
 
   const showEmptyList = !listLoading && sortedRows.length === 0 && !listError;
 
-  const usedPct = pct(usedBytes, planBytes);
   const ringCircumference = 2 * Math.PI * 42;
   const ringOffset = ringCircumference - (usedPct / 100) * ringCircumference;
 
   const breakdown = summary?.breakdown;
+  const showCategorySplit =
+    breakdown != null &&
+    (breakdown.rawsBytes > 0 || breakdown.selectionsBytes > 0 || breakdown.finalsBytes > 0);
   const rawsBytes = breakdown?.rawsBytes ?? 0;
   const selectionsBytes = breakdown?.selectionsBytes ?? 0;
   const finalsBytes = breakdown?.finalsBytes ?? 0;
@@ -198,13 +225,15 @@ export default function StoragePage() {
         </nav>
       </header>
 
+      <StorageUpgradePrompt percent={usedPct} capped={storageCapped} />
+
       {summaryError ? (
         <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-200">
           {summaryError}
           <button
             type="button"
             className="ml-3 font-semibold underline"
-            onClick={() => void loadStorage()}
+            onClick={() => setListVersion((v) => v + 1)}
           >
             Retry
           </button>
@@ -222,13 +251,17 @@ export default function StoragePage() {
         </div>
       ) : (
         <section className="dashboard-panel">
-          <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
-            <div className="min-w-0 flex-1 space-y-4">
+          <div className="flex flex-col gap-6 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0 flex-1 space-y-5">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400">Plan usage</p>
-                <span className="rounded-full bg-zinc-100 px-2.5 py-0.5 text-xs font-semibold text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
+                <button
+                  type="button"
+                  onClick={() => openUpgrade({ feature: "storage" })}
+                  className="rounded-full bg-zinc-100 px-2.5 py-0.5 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+                >
                   {planLabel}
-                </span>
+                </button>
               </div>
 
               <div>
@@ -236,54 +269,43 @@ export default function StoragePage() {
                   {formatBytes(usedBytes)}
                 </p>
                 <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-                  of {formatBytes(planBytes)} · {formatBytes(Math.max(0, planBytes - usedBytes))}{" "}
-                  free
+                  {planBytes > 0
+                    ? `of ${formatBytes(planBytes)} plan storage · ${formatBytes(remainingBytes)} free`
+                    : trialExpired
+                      ? "Storage paused until you upgrade"
+                      : "Plan limit unavailable"}
                 </p>
               </div>
 
-              <div className="space-y-2.5">
-                <div
-                  className="flex h-3 overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800"
-                  role="progressbar"
-                  aria-valuenow={usedPct}
-                  aria-valuemin={0}
-                  aria-valuemax={100}
-                  aria-label="Storage breakdown by type"
-                >
-                  {rawsBytes > 0 ? (
-                    <div
-                      className="h-full bg-brand transition-[width]"
-                      style={{ width: `${pct(rawsBytes, planBytes)}%` }}
-                    />
-                  ) : null}
-                  {selectionsBytes > 0 ? (
-                    <div
-                      className="h-full bg-brand/65 transition-[width]"
-                      style={{ width: `${pct(selectionsBytes, planBytes)}%` }}
-                    />
-                  ) : null}
-                  {finalsBytes > 0 ? (
-                    <div
-                      className="h-full bg-brand/35 transition-[width]"
-                      style={{ width: `${pct(finalsBytes, planBytes)}%` }}
-                    />
-                  ) : null}
-                </div>
+              <PlanQuotaMeters
+                planUsedBytes={usedBytes}
+                planLimitBytes={planBytes > 0 ? planBytes : null}
+                planPercent={usedPct}
+                videoEnabled={canVideoUploads}
+                videoUsedBytes={videoUsedBytes}
+                videoLimitBytes={videoLimitBytes}
+                videoLimitLabel={videoLimitLabel}
+              />
+
+              {showCategorySplit ? (
                 <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-500 dark:text-zinc-400">
                   <span className="inline-flex items-center gap-1.5">
                     <span className="h-2 w-2 rounded-full bg-brand" aria-hidden />
-                    Raws {formatBytes(rawsBytes)}
+                    Proofs {formatBytes(rawsBytes)}
+                    {usedBytes > 0 ? ` · ${pct(rawsBytes, usedBytes)}%` : ""}
                   </span>
                   <span className="inline-flex items-center gap-1.5">
                     <span className="h-2 w-2 rounded-full bg-brand/65" aria-hidden />
-                    Selections {formatBytes(selectionsBytes)}
+                    Selected {formatBytes(selectionsBytes)}
+                    {usedBytes > 0 ? ` · ${pct(selectionsBytes, usedBytes)}%` : ""}
                   </span>
                   <span className="inline-flex items-center gap-1.5">
                     <span className="h-2 w-2 rounded-full bg-brand/35" aria-hidden />
                     Finals {formatBytes(finalsBytes)}
+                    {usedBytes > 0 ? ` · ${pct(finalsBytes, usedBytes)}%` : ""}
                   </span>
                 </div>
-              </div>
+              ) : null}
             </div>
 
             <div
@@ -308,7 +330,10 @@ export default function StoragePage() {
                   stroke="currentColor"
                   strokeWidth="8"
                   strokeLinecap="round"
-                  className="text-brand transition-[stroke-dashoffset]"
+                  className={cn(
+                    "transition-[stroke-dashoffset]",
+                    storageCapped || usedPct >= 90 ? "text-amber-500" : "text-brand",
+                  )}
                   strokeDasharray={ringCircumference}
                   strokeDashoffset={ringOffset}
                 />
@@ -318,7 +343,7 @@ export default function StoragePage() {
                   {formatPercentDisplay(usedPct)}
                 </span>
                 <span className="text-[10px] font-medium uppercase tracking-wide text-zinc-400">
-                  used
+                  plan
                 </span>
               </div>
             </div>
@@ -345,7 +370,8 @@ export default function StoragePage() {
               ) : null}
             </div>
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Sort by</span>
             <button
               type="button"
               onClick={() => toggleSort("total")}
@@ -440,13 +466,13 @@ export default function StoragePage() {
                   </p>
                   <div className="grid grid-cols-3 gap-2 text-[11px]">
                     <div className="rounded-lg bg-zinc-50 px-2 py-1.5 dark:bg-zinc-900/60">
-                      <p className="text-zinc-500 dark:text-zinc-400">Raws</p>
+                      <p className="text-zinc-500 dark:text-zinc-400">Proofs</p>
                       <p className="font-medium tabular-nums text-zinc-800 dark:text-zinc-200">
                         {formatBytes(row.bytesRaw)}
                       </p>
                     </div>
                     <div className="rounded-lg bg-zinc-50 px-2 py-1.5 dark:bg-zinc-900/60">
-                      <p className="text-zinc-500 dark:text-zinc-400">Selections</p>
+                      <p className="text-zinc-500 dark:text-zinc-400">Selected</p>
                       <p className="font-medium tabular-nums text-zinc-800 dark:text-zinc-200">
                         {formatBytes(row.bytesSelection)}
                       </p>
@@ -475,8 +501,8 @@ export default function StoragePage() {
                   <tr className="border-b border-zinc-100 bg-zinc-50/80 text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900/50 dark:text-zinc-400">
                     <th className="px-5 py-3 sm:px-6">Gallery</th>
                     <th className="px-3 py-3">Client</th>
-                    <th className="px-3 py-3 text-right tabular-nums">Raws</th>
-                    <th className="px-3 py-3 text-right tabular-nums">Selections</th>
+                    <th className="px-3 py-3 text-right tabular-nums">Proofs</th>
+                    <th className="px-3 py-3 text-right tabular-nums">Selected</th>
                     <th className="px-3 py-3 text-right tabular-nums">Finals</th>
                     <th className="px-5 py-3 text-right tabular-nums sm:px-6">Total</th>
                     <th className="w-px px-5 py-3 sm:px-6" />
@@ -521,44 +547,16 @@ export default function StoragePage() {
               </table>
             </div>
 
-            {sortedRows.length > PAGE_SIZE ? (
-              <div className="flex flex-col gap-4 border-t border-zinc-100 px-5 py-4 dark:border-zinc-800 sm:flex-row sm:items-center sm:justify-between sm:px-6">
-                <p className="text-center text-xs font-medium text-zinc-600 sm:text-left dark:text-zinc-400">
-                  {`${rangeStart}–${rangeEnd} of ${sortedRows.length} galleries`}
-                </p>
-                <div className="inline-flex items-center justify-center rounded-full border border-zinc-200 bg-white p-0.5 shadow-sm dark:border-zinc-700 dark:bg-zinc-950 sm:justify-end">
-                  <button
-                    type="button"
-                    disabled={displayPage <= 1}
-                    onClick={() => setPage((p) => Math.max(1, p - 1))}
-                    className="inline-flex h-8 w-8 items-center justify-center rounded-full text-zinc-600 transition hover:bg-zinc-100 disabled:opacity-40 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                    aria-label="Previous page"
-                  >
-                    <ChevronLeft className="h-4 w-4" aria-hidden />
-                  </button>
-                  <span className="min-w-[5.5rem] px-1 text-center text-xs font-medium tabular-nums text-zinc-600 dark:text-zinc-300">
-                    {displayPage} / {totalPages}
-                  </span>
-                  <button
-                    type="button"
-                    disabled={displayPage >= totalPages}
-                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                    className="inline-flex h-8 w-8 items-center justify-center rounded-full text-zinc-600 transition hover:bg-zinc-100 disabled:opacity-40 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                    aria-label="Next page"
-                  >
-                    <ChevronRight className="h-4 w-4" aria-hidden />
-                  </button>
-                </div>
-              </div>
-            ) : sortedRows.length > 0 ? (
-              <div className="border-t border-zinc-100 px-5 py-4 dark:border-zinc-800 sm:px-6">
-                <p className="text-xs font-medium text-zinc-600 dark:text-zinc-400">
-                  {sortedRows.length === 1
-                    ? "1 gallery"
-                    : `${rangeStart}–${rangeEnd} of ${sortedRows.length} galleries`}
-                </p>
-              </div>
-            ) : null}
+            <DashboardTablePagination
+              current={page}
+              pageSize={pageSize}
+              total={sortedRows.length}
+              noun={{ singular: "gallery", plural: "galleries" }}
+              onChange={(nextPage, nextPageSize) => {
+                setPage(nextPage);
+                setPageSize(nextPageSize);
+              }}
+            />
           </>
         )}
       </section>

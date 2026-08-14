@@ -5,7 +5,6 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import {
-  ArrowRight,
   ChevronRight,
   ChevronLeft,
   Headset,
@@ -20,6 +19,7 @@ import { ShowcaseSection } from "@/components/marketing/showcase-section";
 import { MarketingFooter } from "@/components/marketing/marketing-footer";
 import { MarketingSocialIconLinks } from "@/components/marketing/marketing-social-links";
 import { marketingSignInHref, marketingSignUpHref } from "@/lib/marketing/auth-links";
+import { MarketingCornerCta } from "@/components/marketing/marketing-corner-cta";
 import { usePhotographerSignedIn } from "@/lib/marketing/use-photographer-signed-in";
 import { APP_NAME } from "@/lib/branding";
 import { cn } from "@/lib/utils";
@@ -654,18 +654,20 @@ export function HomePageClient() {
                   className="mt-8 flex w-full max-w-md flex-col gap-3 animate-landing-fade-up sm:max-w-none sm:flex-row sm:flex-wrap sm:items-center sm:gap-4"
                   style={{ animationDelay: "0.4s" }}
                 >
-                  <Link
+                  <MarketingCornerCta
                     href={signUpHref}
-                    className="inline-flex items-center justify-center rounded-xl bg-[#55001F] px-6 py-3 text-sm font-medium tracking-wide text-white transition hover:bg-[#440019] sm:w-auto"
+                    className="w-full justify-center sm:w-auto"
                   >
                     {heroCopy.primaryCta}
-                  </Link>
-                  <a
+                  </MarketingCornerCta>
+                  <MarketingCornerCta
                     href="#showcase"
-                    className="inline-flex items-center justify-center rounded-xl border border-[#D5AE65]/60 px-6 py-3 text-sm font-medium tracking-wide text-[#D5AE65] transition hover:border-[#D5AE65] hover:bg-[#D5AE65]/10 sm:w-auto"
+                    tone="secondary"
+                    showSquare={false}
+                    className="w-full justify-center sm:w-auto"
                   >
                     {heroCopy.secondaryCta}
-                  </a>
+                  </MarketingCornerCta>
                 </div>
                 <p
                   className="mt-5 animate-landing-fade-up text-xs font-medium tracking-wide text-white/45 sm:text-sm"
@@ -739,13 +741,13 @@ export function HomePageClient() {
                       ))}
                     </div>
                   </div>
-                  <a
+                  <MarketingCornerCta
                     href={aboutUsCopy.ctaHref}
-                    className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#D5AE65] px-5 py-3 text-sm font-semibold text-[#55001F] transition hover:bg-[#e0be75] sm:w-fit sm:py-2.5"
+                    tone="inverse"
+                    className="min-h-11 w-full justify-center sm:w-fit"
                   >
                     {aboutUsCopy.cta}
-                    <ArrowRight className="h-4 w-4" aria-hidden />
-                  </a>
+                  </MarketingCornerCta>
                 </div>
               </div>
 
@@ -863,21 +865,20 @@ export function HomePageClient() {
                 </p>
 
                 <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
-                  <Link
+                  <MarketingCornerCta
                     href={signUpHref}
-                    className="group inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#55001F] px-6 py-3.5 text-sm font-semibold text-white shadow-[0_14px_30px_-12px_rgba(85,0,31,0.55)] transition hover:bg-[#440019] sm:w-auto"
+                    className="w-full justify-center sm:w-auto"
                   >
                     {signedIn ? "Open studio" : "Start free"}
-                    {!signedIn ? (
-                      <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" aria-hidden />
-                    ) : null}
-                  </Link>
-                  <Link
+                  </MarketingCornerCta>
+                  <MarketingCornerCta
                     href="/features"
-                    className="inline-flex w-full items-center justify-center rounded-xl border border-[#D5AE65]/80 px-6 py-3.5 text-sm font-semibold text-[#D5AE65] transition hover:border-[#D5AE65] hover:bg-[#D5AE65]/10 sm:w-auto"
+                    tone="secondary"
+                    showSquare={false}
+                    className="w-full justify-center sm:w-auto"
                   >
                     Explore features
-                  </Link>
+                  </MarketingCornerCta>
                 </div>
 
                 <p className="mt-5 text-xs font-medium tracking-wide text-white/50 sm:text-sm">

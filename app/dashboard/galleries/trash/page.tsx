@@ -23,6 +23,8 @@ import {
 import { listClients } from "@/lib/clients-api";
 import { getSettings, getSettingsDefaultCoverUrl } from "@/lib/settings-api";
 import { useToast } from "@/components/toast-provider";
+import { FeatureUpgradeButton } from "@/components/billing/plan-upgrade-modal";
+import { usePlanEntitlements } from "@/lib/use-plan-entitlements";
 import { cn } from "@/lib/utils";
 
 function trashMediaKey(row: TrashMediaRow): string {
@@ -136,6 +138,8 @@ function TrashRestoreButton({
 export default function GalleriesTrashPage() {
   const { showToast } = useToast();
   const router = useRouter();
+  const { can, openUpgrade, handlePlanError } = usePlanEntitlements();
+  const canRestore = can("restoreTrashItems");
   const [data, setData] = useState<ListFoldersTrashResponse | null>(null);
   const [extraMediaRows, setExtraMediaRows] = useState<TrashMediaRow[]>([]);
   const [mediaNextPage, setMediaNextPage] = useState<number | null>(null);
@@ -227,6 +231,8 @@ export default function GalleriesTrashPage() {
   const selectedCount = selectedFolderIds.length + selectedMediaKeys.length;
   const batchBusy = purging || restoringSelected;
   const rowBusy = batchBusy || restoringId !== null || restoringMediaKey !== null;
+  const restoreAvailable = canRestore && data?.restoreAvailable !== false;
+  const retentionDays = data?.retentionDays ?? 0;
 
   const allFoldersSelected = useMemo(() => {
     if (!data?.folders.length) return false;
@@ -300,6 +306,10 @@ export default function GalleriesTrashPage() {
   async function onRestore(row: TrashFolderRow) {
     const id = row.folder._id;
     if (restoringId || batchBusy) return;
+    if (!restoreAvailable) {
+      openUpgrade({ feature: "restoreTrashItems" });
+      return;
+    }
     setRestoringId(id);
     try {
       await restoreFolderFromTrash(id);
@@ -315,6 +325,7 @@ export default function GalleriesTrashPage() {
       );
       router.push(`/dashboard/folder/${id}`);
     } catch (e) {
+      if (handlePlanError(e)) return;
       const msg =
         e instanceof FoldersApiError
           ? e.message
@@ -333,6 +344,10 @@ export default function GalleriesTrashPage() {
   async function onRestoreMedia(row: TrashMediaRow) {
     const key = trashMediaKey(row);
     if (restoringMediaKey || batchBusy) return;
+    if (!restoreAvailable) {
+      openUpgrade({ feature: "restoreTrashItems" });
+      return;
+    }
     setRestoringMediaKey(key);
     try {
       await restoreFolderTrashedMedia(row.folderId, row.mediaId);
@@ -352,6 +367,7 @@ export default function GalleriesTrashPage() {
         prev.filter((m) => !(m.folderId === row.folderId && m.mediaId === row.mediaId)),
       );
     } catch (e) {
+      if (handlePlanError(e)) return;
       const msg =
         e instanceof FoldersApiError
           ? e.message
@@ -400,6 +416,10 @@ export default function GalleriesTrashPage() {
 
   async function onRestoreSelectedTrash() {
     if (batchBusy || selectedCount === 0) return;
+    if (!restoreAvailable) {
+      openUpgrade({ feature: "restoreTrashItems" });
+      return;
+    }
     setRestoringSelected(true);
     try {
       const mediaIds = selectedMediaKeys.map((key) => {
@@ -420,6 +440,7 @@ export default function GalleriesTrashPage() {
         "success",
       );
     } catch (e) {
+      if (handlePlanError(e)) return;
       showToast(
         e instanceof FoldersApiError
           ? e.message
@@ -564,14 +585,38 @@ export default function GalleriesTrashPage() {
 
       <div
         role="status"
-        className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-100"
+        className="flex flex-col gap-3 rounded-2xl border border-zinc-200/90 bg-white px-4 py-3.5 shadow-sm dark:border-zinc-800 dark:bg-zinc-950 sm:flex-row sm:items-center sm:justify-between sm:gap-6"
       >
-        <p>
-          Trashed galleries and files can be restored until each row&apos;s deadline. Items past
-          the retention window are removed automatically.
-        </p>
-        {(data?.retentionDays ?? 0) > 0 ? (
-          <p className="mt-2 text-sm font-medium">Default window: {data?.retentionDays} days.</p>
+        <div className="flex min-w-0 items-start gap-3">
+          <span className="mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
+            <Clock className="h-4 w-4" strokeWidth={1.75} aria-hidden />
+          </span>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
+                Restore window
+              </p>
+              {retentionDays > 0 ? (
+                <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
+                  {retentionDays} days
+                </span>
+              ) : null}
+            </div>
+            <p className="mt-0.5 text-sm leading-relaxed text-zinc-500 dark:text-zinc-400">
+              Galleries and files can be restored until each row&apos;s deadline. After that
+              they&apos;re removed automatically.
+              {!restoreAvailable
+                ? " Restore is included on Pro and Premium."
+                : null}
+            </p>
+          </div>
+        </div>
+        {!restoreAvailable ? (
+          <FeatureUpgradeButton
+            feature="restoreTrashItems"
+            label="Upgrade to Pro+"
+            className="inline-flex shrink-0 items-center justify-center self-start rounded-xl bg-brand px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-hover sm:self-center"
+          />
         ) : null}
       </div>
 
@@ -584,7 +629,7 @@ export default function GalleriesTrashPage() {
           <div className="flex shrink-0 items-center gap-0.5">
             <button
               type="button"
-              disabled={batchBusy}
+              disabled={batchBusy || !restoreAvailable}
               onClick={() => void onRestoreSelectedTrash()}
               className="inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs font-semibold text-zinc-800 transition hover:bg-white disabled:opacity-45 dark:text-zinc-100 dark:hover:bg-zinc-800"
             >
@@ -701,7 +746,7 @@ export default function GalleriesTrashPage() {
                 </div>
                 <TrashRestoreButton
                   busy={busy}
-                  disabled={rowBusy}
+                  disabled={rowBusy || !restoreAvailable}
                   onClick={() => void onRestore(row)}
                   label={`Restore gallery ${title}`}
                   compact
@@ -792,7 +837,7 @@ export default function GalleriesTrashPage() {
                 </div>
                 <TrashRestoreButton
                   busy={busy}
-                  disabled={rowBusy}
+                  disabled={rowBusy || !restoreAvailable}
                   onClick={() => void onRestoreMedia(row)}
                   label={`Restore ${label}`}
                   compact

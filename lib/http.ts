@@ -1,6 +1,6 @@
 import { apiUrl } from "@/lib/api";
 import { recordApiMetric } from "@/lib/api-metrics";
-import { clearAuth, getAuthToken } from "@/lib/auth-demo";
+import { clearAuth, getAuth, getAuthToken } from "@/lib/auth-demo";
 import {
   isPlatformAdminPath,
   photographerAuthUrl,
@@ -82,12 +82,17 @@ function isEmailNotVerified403(body: unknown): boolean {
 
 function throwIfEmailNotVerified(status: number, body: unknown): void {
   if (status !== 403 || !isEmailNotVerified403(body)) return;
+  // After OTP success the client marks emailVerified locally, but the API auth
+  // cache can still return EMAIL_NOT_VERIFIED for a short window. Don't bounce
+  // back to the OTP screen in that case — let the caller retry/recover.
+  const locallyVerified = getAuth()?.user?.emailVerified === true;
   if (
     typeof window !== "undefined" &&
-    !window.location.pathname.startsWith("/verify-email") &&
+    !locallyVerified &&
+    !window.location.pathname.startsWith("/login") &&
     !isPlatformAdminPath(window.location.pathname)
   ) {
-    window.location.href = photographerAuthUrl("/verify-email");
+    window.location.href = photographerAuthUrl("/login?screen=verify");
   }
   throw new EmailNotVerifiedError(
     extractMessage(body, "Email verification required"),
@@ -104,8 +109,18 @@ function isAuthSession401(body: unknown): boolean {
   return /not authorized|token|session expired|session ended|log in again|account no longer/i.test(msg);
 }
 
+/** Prefer preserving billing resume when a session dies mid-Paystack verify. */
+function photographerSessionExpiredLoginUrl(): string {
+  if (typeof window === "undefined") return photographerSignOutUrl();
+  const path = `${window.location.pathname}${window.location.search}`;
+  if (path.startsWith("/billing/callback")) {
+    return photographerSignOutUrl(undefined, { returnTo: path });
+  }
+  return photographerSignOutUrl();
+}
+
 export type AuthedFetchOptions = {
-  /** When false, a 401 clears auth but does not hard-navigate to `/login`. Default true. */
+  /** When false, do not clear auth or hard-navigate on 401. Default true. */
   redirectOn401?: boolean;
   /** Override retry count for transient failures. Default 2. */
   retries?: number;
@@ -152,10 +167,10 @@ async function fetchWithRetry(
         cached: false,
         retries: attempt,
       });
-      if (attempt < retries) {
-        await sleep(RETRY_BASE_MS * 2 ** attempt);
-        continue;
+      if (isAbortError(err) || attempt >= retries) {
+        break;
       }
+      await sleep(RETRY_BASE_MS * 2 ** attempt);
     }
   }
   throw lastError instanceof Error ? lastError : new Error("Network request failed.");
@@ -216,7 +231,7 @@ export async function authedFetch(
           typeof window !== "undefined" &&
           !window.location.pathname.startsWith("/login")
         ) {
-          window.location.href = photographerSignOutUrl();
+          window.location.href = photographerSessionExpiredLoginUrl();
         }
       }
       throw new HttpError(message, 401, errBody);
@@ -230,7 +245,9 @@ export async function authedFetch(
     return res;
   };
 
-  if (method === "GET") {
+  // Do not dedupe requests that can be aborted — Strict Mode cleanup would
+  // cancel the shared promise and leave later callers with an empty result.
+  if (method === "GET" && !init.signal) {
     const pending = inFlightGet.get(dedupeKey);
     if (pending) return pending;
     const promise = execute().finally(() => inFlightGet.delete(dedupeKey));
@@ -324,7 +341,7 @@ function handleAuth401(
       typeof window !== "undefined" &&
       !window.location.pathname.startsWith("/login")
     ) {
-      window.location.href = photographerSignOutUrl();
+      window.location.href = photographerSessionExpiredLoginUrl();
     }
   }
   throw new HttpError(message, 401, body);

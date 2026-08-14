@@ -69,17 +69,21 @@ import {
   type LockFinalModalState,
 } from "@/components/photographer/lock-final-modal";
 import { UploadDragger } from "@/components/photographer/upload-dragger";
+import { UploadMediaTypeSheet } from "@/components/photographer/upload-media-type-sheet";
 import {
   isFinalUploadableFile,
   isRawUploadableFile,
-  RAW_UPLOAD_ACCEPT,
+  isVideoUploadableFile,
+  partitionUploadFiles,
 } from "@/lib/upload-folder-files";
 import {
   DuplicateUploadConflictDialog,
   FALLBACK_COVER,
   statusLabel,
   UploadProgressBanner,
+  UploadPartialFailureBanner,
 } from "@/components/photographer/folder-detail-bits";
+import { isGalleryUploadPartialError } from "@/lib/gallery-upload-s3";
 import {
   FolderDetailPageSkeleton,
   InlineActionSkeleton,
@@ -94,6 +98,7 @@ import {
   apiFolderMediaToDemoAsset,
   apiFolderMediaToFinal,
   demoAssetGridSrc,
+  demoAssetLightboxSrc,
   isLocalDemoFolderId,
 } from "@/lib/folders/helpers";
 import {
@@ -114,7 +119,13 @@ import {
 } from "@/lib/gallery-photo-search";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { DashOrNativeVideo } from "@/components/media/dash-or-native-video";
-import { videoPosterSrc, type DashStatus } from "@/lib/gallery-media-streaming";
+import {
+  isImagePreviewUrl,
+  mediaNeedsGridSkeleton,
+  videoElementPreviewSrc,
+  videoPosterSrc,
+  type DashStatus,
+} from "@/lib/gallery-media-streaming";
 import {
   extractFinalMediaList,
   extractRawMediaList,
@@ -185,6 +196,7 @@ import {
 import { normalizeGalleryCoverFrame, type GalleryCoverFrame } from "@/lib/gallery-cover-frame";
 import { normalizeGalleryImageLayout } from "@/lib/gallery-image-layout";
 import { getAuth } from "@/lib/auth-demo";
+import { usePlanEntitlements } from "@/lib/use-plan-entitlements";
 import { STUDIO_NAME } from "@/lib/branding";
 import {
   filterMediaByGallerySet,
@@ -201,6 +213,13 @@ import {
 } from "@/lib/gallery-analytics";
 import { getSettings } from "@/lib/settings-api";
 import {
+  fetchStorage,
+  isStorageCapped,
+  storageUsagePercent,
+} from "@/lib/storage-api";
+import { StorageUpgradePrompt } from "@/components/billing/plan-storage-meter";
+import { rememberVideoUsage } from "@/lib/video-usage";
+import {
   SETTINGS_PREREQUISITE_FOCUS,
   folderEditorReturnUrl,
   settingsPrerequisiteUrl,
@@ -212,6 +231,7 @@ function rawUploadFormOptions(
   duplicateAction: DuplicateUploadAction,
   setId?: string | null,
   applyPreviewWatermark?: boolean,
+  mediaKind?: "photos" | "videos",
 ): UploadFolderMediaFormOptions {
   const opts: UploadFolderMediaFormOptions = {
     duplicateAction,
@@ -219,6 +239,7 @@ function rawUploadFormOptions(
   };
   if (setId !== undefined) opts.setId = setId;
   if (applyPreviewWatermark !== undefined) opts.applyPreviewWatermark = applyPreviewWatermark;
+  if (mediaKind) opts.mediaKind = mediaKind;
   return opts;
 }
 
@@ -284,25 +305,47 @@ function FolderMediaThumb({
   src,
   name,
   isVideo,
+  playbackSrc,
+  derivativesPending = false,
 }: {
   src: string;
   name: string;
   isVideo: boolean;
+  playbackSrc?: string;
+  derivativesPending?: boolean;
 }) {
+  const posterSrc = src && isImagePreviewUrl(src) ? src : "";
+  const videoSrc =
+    playbackSrc?.trim() || (isVideo && src && !isImagePreviewUrl(src) ? src : "");
+  const showPoster = isVideo && Boolean(posterSrc);
+  const showVideoFrame = isVideo && !showPoster && Boolean(videoSrc);
+  const showSkeleton =
+    (!isVideo && (derivativesPending || !src)) ||
+    (isVideo && !showPoster && !showVideoFrame);
   return (
     <>
-      {isVideo ? (
-        src ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={src}
-            alt=""
-            className="pointer-events-none h-full w-full bg-black object-cover"
-            loading="lazy"
-          />
-        ) : (
-          <div className="pointer-events-none h-full w-full bg-zinc-900" aria-label={name} />
-        )
+      {showSkeleton ? (
+        <div
+          className="pointer-events-none absolute inset-0 animate-pulse bg-zinc-200 dark:bg-zinc-800"
+          aria-label={name}
+        />
+      ) : showPoster ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={posterSrc}
+          alt=""
+          className="pointer-events-none h-full w-full bg-black object-cover"
+          loading="lazy"
+        />
+      ) : showVideoFrame ? (
+        <video
+          src={videoElementPreviewSrc(videoSrc)}
+          muted
+          playsInline
+          preload="metadata"
+          className="pointer-events-none h-full w-full bg-black object-cover"
+          aria-hidden
+        />
       ) : (
         // eslint-disable-next-line @next/next/no-img-element
         <img
@@ -343,6 +386,13 @@ function formatSelectedAt(value?: string | null) {
 export function FolderDetailView({ folderId }: { folderId: string }) {
   const router = useRouter();
   const { showToast } = useToast();
+  const { can, openUpgrade, handlePlanError } = usePlanEntitlements();
+  const canGallerySets = can("gallerySets");
+  const canVideoUploads = can("videoUploads");
+  const canNotifySms = can("smsNotifications");
+  const canGalleryAi = can("galleryAi");
+  const [storageSoftCapped, setStorageSoftCapped] = useState(false);
+  const [storageSoftPercent, setStorageSoftPercent] = useState<number | null>(null);
   const [origin, setOrigin] = useState("");
   const [folder, setFolder] = useState<ApiFolder | null>(null);
   const [apiAnalytics, setApiAnalytics] = useState<GalleryAnalyticsSnapshot | null>(null);
@@ -404,6 +454,15 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
     batchIndex?: number;
     batchCount?: number;
   } | null>(null);
+  const [uploadRetry, setUploadRetry] = useState<{
+    kind: "raw" | "final";
+    files: File[];
+    mediaKind?: "photos" | "videos";
+    selectionMediaId?: string;
+    delivery?: FinalDeliveryUploadFields;
+    succeeded: number;
+    total: number;
+  } | null>(null);
   const uploadProgressThrottleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingUploadProgressRef = useRef<NonNullable<typeof uploadProgress>>(null);
   const [expiryPresets, setExpiryPresets] = useState<ShareLinkExpiryPreset[]>([]);
@@ -458,7 +517,9 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
     files: File[];
     selectionMediaId?: string;
     conflictingNames: string[];
+    mediaKind?: "photos" | "videos";
   }>(null);
+  const [uploadKindSheetOpen, setUploadKindSheetOpen] = useState(false);
 
   /** Carries payment/lock fields through duplicate-modal flows for final uploads. */
   const pendingFinalDeliveryRef = useRef<FinalDeliveryUploadFields | null>(null);
@@ -519,6 +580,32 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
   }, [refreshStudioWatermarkSettings]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchStorage()
+      .then((data) => {
+        if (cancelled) return;
+        const capped = isStorageCapped(data.summary);
+        setStorageSoftCapped(capped);
+        setStorageSoftPercent(storageUsagePercent(data.summary));
+        if (
+          data.summary.videoUsedBytes != null &&
+          data.summary.videoUploadLimitBytes != null
+        ) {
+          rememberVideoUsage({
+            usedBytes: data.summary.videoUsedBytes,
+            limitBytes: data.summary.videoUploadLimitBytes,
+          });
+        }
+      })
+      .catch(() => {
+        /* soft-warn is optional */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [folderId]);
 
   useEffect(() => {
     if (folder) {
@@ -1369,6 +1456,10 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
   const handleCreateGallerySet = useCallback(
     async (name: string) => {
       if (!folder) return;
+      if (!canGallerySets) {
+        openUpgrade({ feature: "gallerySets" });
+        return;
+      }
       setSetsBusy(true);
       try {
         const created = await createFolderGallerySet(folder._id, name);
@@ -1376,13 +1467,14 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
         setMediaSetFilter(created.id);
         showToast(`Set “${created.name}” created — active on all media tabs.`, "success");
       } catch (e) {
+        if (handlePlanError(e)) return;
         showToast(e instanceof Error ? e.message : "Could not create set.", "error");
         throw e;
       } finally {
         setSetsBusy(false);
       }
     },
-    [folder, refreshFolder, showToast],
+    [canGallerySets, folder, handlePlanError, openUpgrade, refreshFolder, showToast],
   );
 
   const handleRenameGallerySet = useCallback(
@@ -1542,7 +1634,9 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
       return filteredRawAssets.map((a) => ({
         id: a.id,
         name: a.originalName,
-        src: a.url?.trim() || demoAssetGridSrc(a),
+        src: a.isVideo
+          ? a.url?.trim() || ""
+          : demoAssetLightboxSrc(a),
         isVideo: isFolderMediaVideo(a),
         ...(a.posterUrl ? { posterUrl: a.posterUrl } : {}),
         ...(a.dashUrl ? { dashUrl: a.dashUrl } : {}),
@@ -1553,7 +1647,9 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
       return filteredSelectionBySet.map((a) => ({
         id: a.id,
         name: a.originalName,
-        src: a.url?.trim() || demoAssetGridSrc(a),
+        src: a.isVideo
+          ? a.url?.trim() || ""
+          : demoAssetLightboxSrc(a),
         isVideo: isFolderMediaVideo(a),
         ...(a.posterUrl ? { posterUrl: a.posterUrl } : {}),
         ...(a.dashUrl ? { dashUrl: a.dashUrl } : {}),
@@ -1738,6 +1834,16 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
     [],
   );
 
+  useEffect(() => {
+    if (!uploadProgress) return;
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [uploadProgress]);
+
   const noteUploadBatchInGallery = useCallback((added: number) => {
     if (added <= 0) return;
     setUploadProgress((prev) =>
@@ -1841,6 +1947,10 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
 
   function openFinalUploadWizard(files: File[]) {
     if (!folder || busy || files.length === 0) return;
+    if (!canVideoUploads && files.some(isVideoUploadableFile)) {
+      openUpgrade({ feature: "videoUploads" });
+      return;
+    }
     setFinalWizardFiles(files);
     setFinalWizardStep("choose");
     setFinalWizardBalance("");
@@ -1908,7 +2018,20 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
           : `${files.length} final(s) uploaded. Outstanding balance noted — client may receive SMS.`,
         "success",
       );
+      setUploadRetry(null);
     } catch (e) {
+      if (handlePlanError(e)) return;
+      if (isGalleryUploadPartialError(e)) {
+        setUploadRetry({
+          kind: "final",
+          files: e.failedFiles,
+          delivery,
+          succeeded: e.succeeded,
+          total: e.total,
+        });
+        showToast(e.message, "error");
+        return;
+      }
       showToast(e instanceof Error ? e.message : "Upload failed.", "error");
     } finally {
       commitUploadProgress(null);
@@ -1991,8 +2114,12 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
     }
   }
 
-  async function onRawUpload(files: File[]) {
+  async function onRawUpload(files: File[], mediaKind: "photos" | "videos") {
     if (!folder || busy || files.length === 0) return;
+    if (mediaKind === "videos" && !canVideoUploads) {
+      openUpgrade({ feature: "videoUploads" });
+      return;
+    }
     const setId = resolveUploadSetId();
     setBusy(true);
     setUploadProgress({
@@ -2018,7 +2145,7 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
                 files.map((f) => f.name),
                 folder,
               );
-        setDuplicateFilenamePrompt({ kind: "raw", files, conflictingNames });
+        setDuplicateFilenamePrompt({ kind: "raw", files, conflictingNames, mediaKind });
         return;
       }
 
@@ -2035,11 +2162,33 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
         folder._id,
         files,
         uploadProgressHandler("raw"),
-        rawUploadFormOptions(getDuplicateUploadPreference(), setId, effectiveRawUploadPreviewWatermark),
+        rawUploadFormOptions(
+          getDuplicateUploadPreference(),
+          setId,
+          effectiveRawUploadPreviewWatermark,
+          mediaKind,
+        ),
         { onBatchComplete: rawUploadBatchCompleteHandler },
       );
-      showToast(`${files.length} file(s) uploaded.`, "success");
+      const label = mediaKind === "videos" ? "video" : "photo";
+      showToast(
+        `${files.length} ${label}${files.length === 1 ? "" : "s"} uploaded.`,
+        "success",
+      );
+      setUploadRetry(null);
     } catch (e) {
+      if (handlePlanError(e)) return;
+      if (isGalleryUploadPartialError(e)) {
+        setUploadRetry({
+          kind: "raw",
+          files: e.failedFiles,
+          mediaKind,
+          succeeded: e.succeeded,
+          total: e.total,
+        });
+        showToast(e.message, "error");
+        return;
+      }
       showToast(e instanceof Error ? e.message : "Upload failed.", "error");
     } finally {
       commitUploadProgress(null);
@@ -2074,7 +2223,12 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
           folder._id,
           p.files,
           uploadProgressHandler("raw"),
-          rawUploadFormOptions("replace", resolveUploadSetId(), effectiveRawUploadPreviewWatermark),
+          rawUploadFormOptions(
+            "replace",
+            resolveUploadSetId(),
+            effectiveRawUploadPreviewWatermark,
+            p.mediaKind,
+          ),
           { onBatchComplete: rawUploadBatchCompleteHandler },
         );
       } else {
@@ -2093,7 +2247,22 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
           : `${p.files.length} final(s) uploaded (replacing matching names).`,
         "success",
       );
+      setUploadRetry(null);
     } catch (e) {
+      if (handlePlanError(e)) return;
+      if (isGalleryUploadPartialError(e)) {
+        setUploadRetry({
+          kind: p.kind,
+          files: e.failedFiles,
+          mediaKind: p.mediaKind,
+          selectionMediaId: p.selectionMediaId,
+          delivery: pendingFinalDeliveryRef.current ?? undefined,
+          succeeded: e.succeeded,
+          total: e.total,
+        });
+        showToast(e.message, "error");
+        return;
+      }
       showToast(e instanceof Error ? e.message : "Upload failed.", "error");
     } finally {
       commitUploadProgress(null);
@@ -2146,7 +2315,12 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
           folder._id,
           filesToUpload,
           uploadProgressHandler("raw"),
-          rawUploadFormOptions("ignore", resolveUploadSetId(), effectiveRawUploadPreviewWatermark),
+          rawUploadFormOptions(
+            "ignore",
+            resolveUploadSetId(),
+            effectiveRawUploadPreviewWatermark,
+            p.mediaKind,
+          ),
           { onBatchComplete: rawUploadBatchCompleteHandler },
         );
         ignored = result?.ignoredDuplicatesCount ?? 0;
@@ -2185,12 +2359,66 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
           "success",
         );
       }
+      setUploadRetry(null);
     } catch (e) {
+      if (handlePlanError(e)) return;
+      if (isGalleryUploadPartialError(e)) {
+        setUploadRetry({
+          kind: p.kind,
+          files: e.failedFiles,
+          mediaKind: p.mediaKind,
+          selectionMediaId: p.selectionMediaId,
+          delivery: pendingFinalDeliveryRef.current ?? undefined,
+          succeeded: e.succeeded,
+          total: e.total,
+        });
+        showToast(e.message, "error");
+        return;
+      }
       showToast(e instanceof Error ? e.message : "Upload failed.", "error");
     } finally {
       commitUploadProgress(null);
       setBusy(false);
       pendingFinalDeliveryRef.current = null;
+    }
+  }
+
+  async function onRetryFailedUploads() {
+    const pending = uploadRetry;
+    if (!pending || busy || pending.files.length === 0) return;
+    setUploadRetry(null);
+    if (pending.kind === "raw") {
+      await onRawUpload(pending.files, pending.mediaKind ?? "photos");
+      return;
+    }
+    await executeFinalUploadPipeline(
+      pending.files,
+      pending.delivery ?? { clientHasPaidForFinals: true },
+    );
+  }
+
+  async function onNotifyClientViaSms() {
+    if (!folder || busy) return;
+    if (!canNotifySms) {
+      openUpgrade({ feature: "smsNotifications" });
+      return;
+    }
+    setBusy(true);
+    try {
+      const { folder: updated, smsError } = await regenerateFolderShare(folder._id, {
+        notifyClientViaSms: true,
+      });
+      setFolder(updated);
+      if (smsError?.message?.trim()) {
+        showToast(`Could not send SMS: ${smsError.message.trim()}`, "error");
+      } else {
+        showToast("Client notified by SMS.", "success");
+      }
+    } catch (e) {
+      if (handlePlanError(e)) return;
+      showToast(e instanceof Error ? e.message : "Could not send SMS.", "error");
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -3185,6 +3413,9 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
         busy={busy}
         onCopy={() => void onCopyShareLink()}
         onRegenerate={onRegenerateLink}
+        canNotifySms={canNotifySms}
+        onNotifySms={() => void onNotifyClientViaSms()}
+        onSmsLocked={() => openUpgrade({ feature: "smsNotifications" })}
       />
     </WorkspaceSidebar>
   );
@@ -3215,6 +3446,10 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
 
   return (
     <div className="dashboard-page space-y-6 pb-12">
+      <StorageUpgradePrompt
+        percent={storageSoftPercent}
+        capped={storageSoftCapped}
+      />
       <input
         ref={coverFileInputRef}
         type="file"
@@ -3242,6 +3477,9 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
           linkCopied={linkCopied}
           onCopyShare={() => void onCopyShareLink()}
           onRegenerateLink={() => void onRegenerateLink()}
+          canNotifySms={canNotifySms}
+          onNotifySms={() => void onNotifyClientViaSms()}
+          onSmsLocked={() => openUpgrade({ feature: "smsNotifications" })}
           onMarkCompleted={() => void markCompleted()}
           onEdit={() => setEditOpen(true)}
           onMoveToTrash={() => void moveToTrash()}
@@ -3273,6 +3511,8 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
             onFilterChange={setMediaSetFilter}
             items={setBarCountItems}
             onCreateSet={handleCreateGallerySet}
+            canCreateSets={canGallerySets}
+            onLockedCreate={() => openUpgrade({ feature: "gallerySets" })}
             onRenameSet={handleRenameGallerySet}
             onRenameAllSets={handleRenameAllSetsPill}
             onDeleteSet={handleDeleteGallerySet}
@@ -3294,6 +3534,17 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
           filesInGallery={uploadProgress.filesInGallery}
           batchIndex={uploadProgress.batchIndex}
           batchCount={uploadProgress.batchCount}
+        />
+      ) : null}
+
+      {uploadRetry && !uploadProgress ? (
+        <UploadPartialFailureBanner
+          succeeded={uploadRetry.succeeded}
+          total={uploadRetry.total}
+          failedCount={uploadRetry.files.length}
+          busy={busy}
+          onDismiss={() => setUploadRetry(null)}
+          onRetry={() => void onRetryFailedUploads()}
         />
       ) : null}
 
@@ -3347,13 +3598,17 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
             <FolderUploadSectionHeader
               icon={Images}
               title="Raw uploads"
-              description="Upload raw files into the active set chosen above."
+              description={
+                canVideoUploads
+                  ? "Upload photos or videos into the active set chosen above."
+                  : "Upload photos into the active set chosen above."
+              }
               count={rawUploadsTotal}
             />
             <GalleryPhotoSearchBar
               value={uploadsSearch}
               onChange={setUploadsSearch}
-              showAiFilters
+              showAiFilters={canGalleryAi}
               searching={uploadsSearchBusy}
               placeholder="Search uploads…"
             />
@@ -3369,16 +3624,55 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
             />
             <UploadDragger
               compact={rawAssets.length > 0}
-              label={rawAssets.length > 0 ? "Add more files" : "Drop files or a folder here"}
-              hint="Click to browse, or drop a folder — photos, videos, and camera RAW (CR2, NEF, ARW, DNG, HEIC, and more)"
-              accept={RAW_UPLOAD_ACCEPT}
+              label={rawAssets.length > 0 ? "Add more files" : "Upload"}
+              hint={
+                canVideoUploads
+                  ? "Tap to choose photos or videos — or drop a folder here"
+                  : "Tap to choose photos — or drop a folder here"
+              }
               allowDirectory
               filterFile={isRawUploadableFile}
               onFilteredEmpty={() =>
-                showToast("No supported files found. Try photos, videos, or camera RAW files.", "error")
+                showToast(
+                  canVideoUploads
+                    ? "No supported files found. Try photos, videos, or camera RAW files."
+                    : "No supported files found. Try photos or camera RAW files.",
+                  "error",
+                )
               }
-              disabled={busy}
-              onFiles={(files) => void onRawUpload(files)}
+              disabled={busy || storageSoftCapped}
+              onActivate={() => {
+                if (storageSoftCapped) {
+                  openUpgrade({
+                    feature: "storage",
+                    message:
+                      "You've used your included plan storage. Upgrade for more space.",
+                  });
+                  return;
+                }
+                setUploadKindSheetOpen(true);
+              }}
+              onFiles={(files) => {
+                if (storageSoftCapped) {
+                  openUpgrade({
+                    feature: "storage",
+                    message:
+                      "You've used your included plan storage. Upgrade for more space.",
+                  });
+                  return;
+                }
+                const { photos, videos } = partitionUploadFiles(files);
+                if (videos.length && !canVideoUploads) {
+                  openUpgrade({ feature: "videoUploads" });
+                  return;
+                }
+                if (photos.length && videos.length) {
+                  showToast("Drop photos or videos — not both in the same drop.", "error");
+                  return;
+                }
+                if (photos.length) void onRawUpload(photos, "photos");
+                else if (videos.length) void onRawUpload(videos, "videos");
+              }}
             />
             {filteredRawAssets.length > 0 ? (
               <FolderUploadBulkToolbar
@@ -3416,6 +3710,8 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
                     name: a.originalName,
                     mediaSrc: demoAssetGridSrc(a),
                     isVideo: isFolderMediaVideo(a),
+                    playbackSrc: isFolderMediaVideo(a) ? a.url : undefined,
+                    derivativesPending: mediaNeedsGridSkeleton(a),
                   }))}
                   selectedIds={selectedRawIds}
                   onToggleSelected={toggleRawSelected}
@@ -3516,7 +3812,13 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
                         }}
                         aria-label={`Preview ${a.originalName}`}
                       >
-                        <FolderMediaThumb src={mediaSrc} name={a.originalName} isVideo={isVideo} />
+                        <FolderMediaThumb
+                          src={mediaSrc}
+                          name={a.originalName}
+                          isVideo={isVideo}
+                          playbackSrc={isVideo ? a.url : undefined}
+                          derivativesPending={mediaNeedsGridSkeleton(a)}
+                        />
                       </button>
                     </div>
                     <div className="border-t border-zinc-100 bg-zinc-50/40 px-3.5 py-3 dark:border-zinc-800 dark:bg-zinc-900/20">
@@ -3582,15 +3884,33 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
             <UploadDragger
               compact={finalAssets.length > 0}
               label={finalAssets.length > 0 ? "Add more finals" : "Drop finals or a folder here"}
-              hint="Click to browse, or drop a folder — photos and videos"
-              accept="image/jpeg,image/png,image/webp,image/gif,video/*"
+              hint={
+                canVideoUploads
+                  ? "Click to browse, or drop a folder — photos and videos"
+                  : "Click to browse, or drop a folder — photos"
+              }
+              accept={
+                canVideoUploads
+                  ? "image/jpeg,image/png,image/webp,image/gif,video/*"
+                  : "image/jpeg,image/png,image/webp,image/gif"
+              }
               allowDirectory
               filterFile={isFinalUploadableFile}
               onFilteredEmpty={() =>
                 showToast("No supported image or video files found in that folder.", "error")
               }
-              disabled={busy}
-              onFiles={(files) => void openFinalUploadWizard(files)}
+              disabled={busy || storageSoftCapped}
+              onFiles={(files) => {
+                if (storageSoftCapped) {
+                  openUpgrade({
+                    feature: "storage",
+                    message:
+                      "You've used your included plan storage. Upgrade for more space.",
+                  });
+                  return;
+                }
+                void openFinalUploadWizard(files);
+              }}
             />
             {filteredFinalAssets.length > 0 ? (
               <FolderUploadBulkToolbar
@@ -3625,6 +3945,8 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
                     ? videoPosterSrc(f) || ""
                     : f.url,
                   isVideo: isFolderMediaVideo(f),
+                  playbackSrc: isFolderMediaVideo(f) ? f.url : undefined,
+                  derivativesPending: f.isVideo ? mediaNeedsGridSkeleton(f) : false,
                   locked: f.locked,
                   outstandingBalanceGhs: f.outstandingBalanceGhs,
                   flagged: flaggedFinalIdSet.has(f.id),
@@ -3921,6 +4243,42 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
           onReplace={() => void onDuplicatePromptReplace()}
         />
       ) : null}
+
+      <UploadMediaTypeSheet
+        open={uploadKindSheetOpen}
+        onClose={() => setUploadKindSheetOpen(false)}
+        disabled={busy || storageSoftCapped}
+        videoLocked={!canVideoUploads}
+        onVideoLocked={() => openUpgrade({ feature: "videoUploads" })}
+        onPhotos={(files) => {
+          if (storageSoftCapped) {
+            openUpgrade({
+              feature: "storage",
+              message: "You've used your included plan storage. Upgrade for more space.",
+            });
+            return;
+          }
+          void onRawUpload(files, "photos");
+        }}
+        onVideos={(files) => {
+          if (storageSoftCapped) {
+            openUpgrade({
+              feature: "storage",
+              message: "You've used your included plan storage. Upgrade for more space.",
+            });
+            return;
+          }
+          void onRawUpload(files, "videos");
+        }}
+        onFilteredEmpty={(kind) =>
+          showToast(
+            kind === "videos"
+              ? "No supported video files found in that selection."
+              : "No supported photo files found. Try images or camera RAW.",
+            "error",
+          )
+        }
+      />
     </div>
   );
 }

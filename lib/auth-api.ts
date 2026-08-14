@@ -16,9 +16,14 @@ import {
   type StudioSmsFields,
 } from "@/lib/sms-sender";
 import {
+  clearBillingReturnPath,
+  readBillingReturnPath,
+} from "@/lib/billing-api";
+import {
   photographerAuthUrl,
   redirectToTenantHostIfNeeded,
 } from "@/lib/studio-url";
+import { parseUserPlan, PLAN_RANK, type UserPlan } from "@/lib/plan-entitlements";
 
 export class AuthApiError extends HttpError {}
 
@@ -50,6 +55,7 @@ export type ApiAuthUser = {
     primaryDeliver?: string;
     referralCode?: string;
   } & Partial<StudioSmsFields>;
+  plan?: UserPlan | Record<string, unknown>;
 };
 
 export type AuthResponse = {
@@ -78,7 +84,7 @@ export function userNeedsEmailVerification(user: {
 }
 
 export function verifyEmailPath(): string {
-  return "/verify-email";
+  return "/login?screen=verify";
 }
 
 function nameFromEmail(email: string) {
@@ -102,6 +108,14 @@ export function mergeApiAuthUser(
   const onboardingComplete =
     apiUser.onboardingComplete === true || prior?.onboardingComplete === true;
 
+  // Once verified in this browser session, never let a stale /me payload flip it back.
+  const emailVerified =
+    apiUser.emailVerified === true || prior?.emailVerified === true
+      ? true
+      : apiUser.emailVerified !== undefined
+        ? apiUser.emailVerified
+        : prior?.emailVerified;
+
   return {
     ...apiUser,
     _id: apiUser._id?.trim() || prior?._id || "",
@@ -109,13 +123,53 @@ export function mergeApiAuthUser(
     onboardingComplete,
     createdAt: apiUser.createdAt ?? prior?.createdAt,
     updatedAt: apiUser.updatedAt ?? prior?.updatedAt,
-    emailVerified:
-      apiUser.emailVerified !== undefined ? apiUser.emailVerified : prior?.emailVerified,
+    emailVerified,
     emailVerifiedAt:
-      apiUser.emailVerifiedAt !== undefined ? apiUser.emailVerifiedAt : prior?.emailVerifiedAt,
+      apiUser.emailVerifiedAt !== undefined
+        ? apiUser.emailVerifiedAt
+        : emailVerified === true && prior?.emailVerifiedAt
+          ? prior.emailVerifiedAt
+          : (prior?.emailVerifiedAt ?? null),
     authProvider: apiUser.authProvider ?? prior?.authProvider,
     studio: mergeStudioProfile(apiUser.studio, prior?.studio),
+    plan: preferFresherUserPlan(parseUserPlan(apiUser.plan), prior?.plan),
   };
+}
+
+/**
+ * Prefer the richer/higher plan when /me briefly lags behind a just-verified upgrade.
+ */
+export function preferFresherUserPlan(
+  incoming: UserPlan | null | undefined,
+  prior: UserPlan | null | undefined,
+): UserPlan | undefined {
+  if (!incoming) return prior ?? undefined;
+  if (!prior) return incoming;
+  const incomingRank = PLAN_RANK[incoming.planId] ?? 0;
+  const priorRank = PLAN_RANK[prior.planId] ?? 0;
+  if (incomingRank >= priorRank) return incoming;
+  // Keep the post-checkout plan until /me catches up (avoid silent downgrade).
+  if (
+    prior.subscription.status === "active" ||
+    prior.subscription.status === "non_renewing" ||
+    prior.subscription.status === "past_due"
+  ) {
+    return prior;
+  }
+  return incoming;
+}
+
+/** Write an upgraded plan into the persisted session so entitlements update without a hard refresh. */
+export function applyAuthUserPlan(plan: UserPlan): AuthUser | null {
+  const token = getAuthToken()?.trim();
+  const auth = getAuth();
+  if (!token || !auth?.user) return null;
+  const user = {
+    ...auth.user,
+    plan: preferFresherUserPlan(plan, auth.user.plan) ?? plan,
+  };
+  setAuthSession({ ...auth, token, user });
+  return user;
 }
 
 /** Refresh the stored session from GET /api/auth/me without losing onboarding progress. */
@@ -134,24 +188,38 @@ export function refreshAuthSessionFromApi(apiUser: ApiAuthUser): AuthUser | null
 }
 
 /** Save JWT + user from register, login, Google, verify-email, or reset-password. */
-export function persistAuthResponse(res: AuthResponse): AuthUser {
+export function persistAuthResponse(
+  res: AuthResponse,
+  options?: { emailJustVerified?: boolean },
+): AuthUser {
   const token = res.token?.trim();
   if (!token) {
     throw new Error("Login succeeded but no token was returned. Check the API URL.");
   }
   const prior = getAuth()?.user;
-  const user = mapApiUserToAuthUser(mergeApiAuthUser(res.user, prior));
+  const merged = mergeApiAuthUser(
+    {
+      ...res.user,
+      ...(options?.emailJustVerified ? { emailVerified: true } : {}),
+    },
+    prior,
+  );
+  const user = mapApiUserToAuthUser(merged);
+  const nextUser =
+    options?.emailJustVerified || user.emailVerified === true
+      ? { ...user, emailVerified: true as const }
+      : user;
   setAuthSession({
-    email: user.email,
+    email: nextUser.email,
     token,
-    user,
+    user: nextUser,
   });
-  if (user.onboardingComplete && user.studio) {
-    cacheOnboardingProfile(user, user.studio);
+  if (nextUser.onboardingComplete && nextUser.studio) {
+    cacheOnboardingProfile(nextUser, nextUser.studio);
   } else {
-    clearOnboardingProfileCache(user);
+    clearOnboardingProfileCache(nextUser);
   }
-  return user;
+  return nextUser;
 }
 
 export function authRedirectPath(user: AuthUser): string {
@@ -171,6 +239,24 @@ function studioHostOptionsFromUser(user: AuthUser) {
  * - Setup → apex `/onboarding` (studio slug unknown to the URL until they finish)
  * - Done → `{slug}.localhost` `/dashboard` only
  */
+/** Relative in-app path after login (blocks open redirects). */
+export function safeAuthReturnPath(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const value = raw.trim();
+  if (!value.startsWith("/") || value.startsWith("//")) return null;
+  if (value.includes("://")) return null;
+  // Billing verify resume + normal app destinations only.
+  if (
+    value.startsWith("/billing/callback") ||
+    value.startsWith("/dashboard") ||
+    value.startsWith("/settings") ||
+    value.startsWith("/onboarding")
+  ) {
+    return value;
+  }
+  return null;
+}
+
 /** @returns Whether navigation away from the current auth/onboarding screen was started. */
 export function navigateAfterAuth(
   user: AuthUser,
@@ -190,16 +276,31 @@ export function navigateAfterAuth(
   }
 
   if (!user.onboardingComplete) {
-    const apexOnboarding = photographerAuthUrl("/onboarding");
-    if (
-      typeof window !== "undefined" &&
-      window.location.origin !== new URL(apexOnboarding).origin
-    ) {
-      window.location.replace(apexOnboarding);
+    // Hard navigate so the login/verify screen fully unmounts and cannot
+    // overwrite the fresh verified session with a stale /me response.
+    if (typeof window !== "undefined") {
+      window.location.replace(photographerAuthUrl("/onboarding"));
       return true;
     }
     router.replace("/onboarding");
     return false;
+  }
+
+  const returnTo =
+    typeof window !== "undefined"
+      ? safeAuthReturnPath(new URLSearchParams(window.location.search).get("returnTo")) ||
+        safeAuthReturnPath(readBillingReturnPath())
+      : null;
+
+  // Finish Paystack verify (or other deep links) on the apex host before tenant redirect.
+  if (returnTo) {
+    clearBillingReturnPath();
+    if (typeof window !== "undefined") {
+      window.location.replace(photographerAuthUrl(returnTo));
+      return true;
+    }
+    router.replace(returnTo);
+    return true;
   }
 
   const slug = user.studio?.companySlug?.trim();
@@ -285,6 +386,10 @@ export function mapApiUserToAuthUser(
     ...(user.emailVerifiedAt !== undefined ? { emailVerifiedAt: user.emailVerifiedAt } : {}),
     ...(user.authProvider ? { authProvider: user.authProvider } : {}),
     studio,
+    ...((): { plan?: UserPlan } => {
+      const plan = parseUserPlan(user.plan);
+      return plan ? { plan } : {};
+    })(),
   });
 }
 
@@ -334,13 +439,15 @@ export async function registerWithEmail(
 }
 
 /** GET /api/auth/me — refresh session user from the server. */
-export async function fetchAuthMe(): Promise<{ user: ApiAuthUser }> {
+export async function fetchAuthMe(
+  options: { redirectOn401?: boolean } = {},
+): Promise<{ user: ApiAuthUser }> {
   return authedJson<{ user: ApiAuthUser }>(
     "/api/auth/me",
     { method: "GET" },
     "Could not load account",
     AuthApiError,
-    { redirectOn401: true },
+    { redirectOn401: options.redirectOn401 ?? true },
   );
 }
 
