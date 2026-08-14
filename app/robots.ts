@@ -11,6 +11,7 @@ export default function robots(): MetadataRoute.Robots {
         allow: ["/", "/features", "/pricing", "/contact", "/terms", "/privacy", "/login"],
         disallow: [
           "/dashboard/",
+          "/admin/",
           "/api/",
           "/billing/",
           "/onboarding/",
@@ -18,6 +19,7 @@ export default function robots(): MetadataRoute.Robots {
           "/reset-password/",
           "/g/",
           "/share/",
+          "/studio",
         ],
       },
     ],

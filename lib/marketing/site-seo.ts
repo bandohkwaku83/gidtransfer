@@ -5,7 +5,7 @@ import {
   MARKETING_SITE_ORIGIN,
   PRODUCT_TAGLINE,
 } from "@/lib/branding";
-import { contactEmail } from "@/lib/marketing/faqs";
+import { contactEmail, faqs } from "@/lib/marketing/faqs";
 
 /** Public marketing routes that search engines should index. */
 export const INDEXABLE_MARKETING_PATHS = [
@@ -21,7 +21,16 @@ const DEFAULT_PRODUCTION_HOST = "gidtransfer.com";
 
 export function marketingSiteOrigin(): string {
   const trimmed = MARKETING_SITE_ORIGIN.trim().replace(/\/$/, "");
-  if (trimmed) return trimmed;
+  if (trimmed) {
+    try {
+      const u = new URL(trimmed);
+      if (u.hostname !== "localhost" && u.hostname !== "127.0.0.1") {
+        return `${u.protocol}//${u.host}`;
+      }
+    } catch {
+      /* fall through */
+    }
+  }
   return `https://${DEFAULT_PRODUCTION_HOST}`;
 }
 
@@ -39,15 +48,29 @@ export function absoluteMarketingUrl(path: string): string {
   return `${origin}${path.startsWith("/") ? path : `/${path}`}`;
 }
 
+/** Exact-brand spellings Google should associate with this product (not GetTransfer rides). */
 const BRAND_KEYWORDS = [
   APP_NAME,
-  "gid transfer",
-  "photographer gallery",
-  "client proofing",
-  "photo delivery",
-  "online gallery",
+  "gidtransfer",
+  "Gid Transfer",
+  "gidtransfer.com",
+  "gidtransfer photography",
+  "gidtransfer gallery",
+  "gidtransfer photographer",
+  "photographer gallery software",
+  "client proofing gallery",
+  "photo delivery platform",
+  "online photography gallery",
   "photography studio software",
+  "client gallery for photographers",
 ] as const;
+
+const OG_IMAGE = {
+  url: absoluteMarketingUrl("/images/hero.png"),
+  width: 1536,
+  height: 1024,
+  alt: `${APP_NAME} — photographer workspace and client galleries`,
+} as const;
 
 function sharedOpenGraph(title: string, description: string, path = "/") {
   const url = absoluteMarketingUrl(path);
@@ -58,20 +81,7 @@ function sharedOpenGraph(title: string, description: string, path = "/") {
     siteName: APP_NAME,
     type: "website" as const,
     locale: "en_US",
-    images: [
-      {
-        url: "/images/icon.png",
-        width: 512,
-        height: 512,
-        alt: `${APP_NAME} logo`,
-      },
-      {
-        url: "/images/hero.png",
-        width: 1536,
-        height: 1024,
-        alt: `${APP_NAME} — photographer workspace and client galleries`,
-      },
-    ],
+    images: [OG_IMAGE],
   };
 }
 
@@ -80,7 +90,7 @@ function sharedTwitter(title: string, description: string) {
     card: "summary_large_image" as const,
     title,
     description,
-    images: ["/images/hero.png"],
+    images: [OG_IMAGE.url],
   };
 }
 
@@ -115,13 +125,14 @@ export function buildRootSiteMetadata(): Metadata {
         follow: true,
         "max-image-preview": "large",
         "max-snippet": -1,
+        "max-video-preview": -1,
       },
     },
     openGraph: sharedOpenGraph(title, description),
     twitter: sharedTwitter(title, description),
     icons: {
       icon: "/svgs/dashboard_logo.svg",
-      apple: "/svgs/dashboard_logo.svg",
+      apple: "/apple-icon.png",
     },
     ...(googleVerification
       ? {
@@ -134,14 +145,16 @@ export function buildRootSiteMetadata(): Metadata {
 }
 
 export function buildHomePageMetadata(): Metadata {
-  const title = `${APP_NAME} — Photographer workspace & client galleries`;
+  // Lead with the exact brand name so navigational queries for "gidtransfer" match.
+  const title = `${APP_NAME} | Photographer galleries & studio software`;
   const description =
-    "Gidtransfer is the online gallery and studio platform for professional photographers. Share branded client galleries, run proofing, deliver finals, and manage your studio in one place.";
+    "Gidtransfer (gidtransfer.com) is the online gallery and studio platform for professional photographers — branded client galleries, proofing, delivery, bookings, and studio tools in one place.";
   const canonical = absoluteMarketingUrl("/");
 
   return {
-    title,
+    title: { absolute: title },
     description,
+    keywords: [...BRAND_KEYWORDS],
     alternates: { canonical },
     openGraph: sharedOpenGraph(title, description, "/"),
     twitter: sharedTwitter(title, description),
@@ -168,12 +181,30 @@ export function marketingOrganizationJsonLd() {
   return {
     "@context": "https://schema.org",
     "@type": "Organization",
+    "@id": `${url}#organization`,
     name: APP_NAME,
-    alternateName: ["Gid Transfer", "gidtransfer"],
+    legalName: APP_NAME,
+    alternateName: [
+      "gidtransfer",
+      "Gid Transfer",
+      "Gidtransfer.com",
+      "gidtransfer.com",
+    ],
     url,
-    logo: absoluteMarketingUrl("/images/icon.png"),
+    logo: {
+      "@type": "ImageObject",
+      url: absoluteMarketingUrl("/svgs/dashboard_logo.svg"),
+    },
+    image: absoluteMarketingUrl("/images/hero.png"),
     email: contactEmail,
     description: FOOTER_DESCRIPTION,
+    foundingDate: "2024",
+    knowsAbout: [
+      "photography client galleries",
+      "online proofing",
+      "photo delivery",
+      "studio management software",
+    ],
     sameAs: [] as string[],
   };
 }
@@ -183,14 +214,14 @@ export function marketingWebsiteJsonLd() {
   return {
     "@context": "https://schema.org",
     "@type": "WebSite",
+    "@id": `${url}#website`,
     name: APP_NAME,
-    alternateName: ["gidtransfer", "Gid Transfer"],
+    alternateName: ["gidtransfer", "Gid Transfer", "gidtransfer.com"],
     url,
     description: FOOTER_DESCRIPTION,
+    inLanguage: "en",
     publisher: {
-      "@type": "Organization",
-      name: APP_NAME,
-      url,
+      "@id": `${url}#organization`,
     },
     potentialAction: {
       "@type": "SearchAction",
@@ -209,20 +240,42 @@ export function marketingSoftwareApplicationJsonLd() {
     "@context": "https://schema.org",
     "@type": "SoftwareApplication",
     name: APP_NAME,
+    alternateName: ["gidtransfer", "Gid Transfer"],
     applicationCategory: "BusinessApplication",
+    applicationSubCategory: "Photography studio software",
     operatingSystem: "Web",
     url,
     description: FOOTER_DESCRIPTION,
+    featureList: [
+      "Branded client photo galleries",
+      "Online proofing and selections",
+      "Photo and video delivery",
+      "Bookings and studio tools",
+    ],
     offers: {
       "@type": "Offer",
       price: "0",
-      priceCurrency: "USD",
-      description: "Free plan available",
+      priceCurrency: "GHS",
+      description: "30-day free trial, then paid plans",
+      url: absoluteMarketingUrl("/pricing"),
     },
     publisher: {
-      "@type": "Organization",
-      name: APP_NAME,
-      url,
+      "@id": `${url}#organization`,
     },
+  };
+}
+
+export function marketingFaqJsonLd() {
+  return {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    mainEntity: faqs.map((faq) => ({
+      "@type": "Question",
+      name: faq.question,
+      acceptedAnswer: {
+        "@type": "Answer",
+        text: faq.answer,
+      },
+    })),
   };
 }

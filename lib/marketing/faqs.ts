@@ -2,7 +2,12 @@ export const faqs = [
   {
     question: "What is Gidtransfer?",
     answer:
-      "Gidtransfer is a platform for professional photographers to create private client galleries, share proofing links, collect selections, and run studio work — bookings, client contacts, and income tracking — from one place.",
+      "Gidtransfer (gidtransfer.com) is a platform for professional photographers to create private client galleries, share proofing links, collect selections, and run studio work — bookings, client contacts, and income tracking — from one place. It is photography studio software, not a ride or transfer booking service.",
+  },
+  {
+    question: "How do you spell Gidtransfer?",
+    answer:
+      "The brand is spelled Gidtransfer — one word, G-I-D-transfer — and the website is https://gidtransfer.com. Photographers use it for client galleries and studio delivery.",
   },
   {
     question: "Is there a free plan?",

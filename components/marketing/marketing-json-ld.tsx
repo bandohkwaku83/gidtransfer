@@ -1,4 +1,5 @@
 import {
+  marketingFaqJsonLd,
   marketingOrganizationJsonLd,
   marketingSoftwareApplicationJsonLd,
   marketingWebsiteJsonLd,
@@ -20,6 +21,7 @@ export function MarketingJsonLd() {
       <JsonLdScript data={marketingOrganizationJsonLd()} />
       <JsonLdScript data={marketingWebsiteJsonLd()} />
       <JsonLdScript data={marketingSoftwareApplicationJsonLd()} />
+      <JsonLdScript data={marketingFaqJsonLd()} />
     </>
   );
 }
