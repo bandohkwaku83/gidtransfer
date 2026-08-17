@@ -55,26 +55,15 @@ export const SHARE_LIGHTBOX_SIZES = "(max-width: 1280px) 100vw, 896px";
 export const SHARE_GALLERY_INITIAL_VISIBLE = 60;
 export const SHARE_GALLERY_LOAD_MORE_COUNT = 40;
 
-export function GalleryViewMoreButton({
-  onClick,
-  remainingCount,
-}: {
-  onClick: () => void;
-  remainingCount: number;
-}) {
+export function GalleryViewMoreButton({ onClick }: { onClick: () => void }) {
   return (
     <div className="mt-8 flex justify-center">
       <button
         type="button"
         onClick={onClick}
-        className="inline-flex items-center justify-center rounded-lg border border-zinc-200 bg-white px-6 py-2.5 text-sm font-semibold text-zinc-800 transition hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
+        className="inline-flex items-center justify-center rounded-md border border-zinc-300 bg-white px-5 py-2.5 text-sm font-medium text-zinc-800 transition hover:border-zinc-400 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
       >
         View more
-        {remainingCount > 0 ? (
-          <span className="ml-2 tabular-nums text-zinc-500 dark:text-zinc-400">
-            ({remainingCount} left)
-          </span>
-        ) : null}
       </button>
     </div>
   );

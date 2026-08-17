@@ -271,6 +271,8 @@ function finalUploadFormOptions(
 }
 
 const VIDEO_FILE_RE = /\.(mp4|mov|webm|m4v|avi|mkv|ogv)(?:[?#].*)?$/i;
+/** Visible tiles before "View more" — keep this cap while new uploads stream in. */
+const FOLDER_UPLOADS_PAGE_SIZE = 50;
 
 async function fetchMediaAsCoverFile(url: string, name: string): Promise<File> {
   const response = await fetch(url, { credentials: "include" });
@@ -414,6 +416,7 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
   const [mediaSetFilter, setMediaSetFilter] = useState<GallerySetFilter>("all");
   const [setsBusy, setSetsBusy] = useState(false);
   const [loadingMoreUploads, setLoadingMoreUploads] = useState(false);
+  const [uploadsVisibleLimit, setUploadsVisibleLimit] = useState(FOLDER_UPLOADS_PAGE_SIZE);
   const [uploadsSearch, setUploadsSearch] = useState<GalleryPhotoSearchFilters>(
     EMPTY_GALLERY_PHOTO_SEARCH,
   );
@@ -771,6 +774,7 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
           uploadsPagination: page.pagination,
         };
       });
+      setUploadsVisibleLimit((n) => n + (page.pagination.limit ?? FOLDER_UPLOADS_PAGE_SIZE));
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Could not load more uploads.", "error");
     } finally {
@@ -788,6 +792,7 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
   useEffect(() => {
     setUploadsSearch(EMPTY_GALLERY_PHOTO_SEARCH);
     uploadsSearchWasActiveRef.current = false;
+    setUploadsVisibleLimit(FOLDER_UPLOADS_PAGE_SIZE);
   }, [folderId]);
 
   useEffect(() => {
@@ -830,6 +835,7 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
             uploadsPagination: page.pagination,
           };
         });
+        setUploadsVisibleLimit(page.pagination.limit ?? FOLDER_UPLOADS_PAGE_SIZE);
       } catch (e) {
         if (cancelled) return;
         if (e instanceof DOMException && e.name === "AbortError") return;
@@ -850,9 +856,36 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
     (rows: ReturnType<typeof galleryPhotoToApiFolderMedia>[]) => {
       setFolder((prev) => {
         if (!prev || rows.length === 0) return prev;
+        const existing = extractRawMediaList(prev);
+        const existingIds = new Set(
+          existing.map((row) => String(row.id ?? row._id ?? "")).filter(Boolean),
+        );
+        const incomingNew = rows.filter((row) => {
+          const id = String(row.id ?? row._id ?? "");
+          return Boolean(id) && !existingIds.has(id);
+        });
+        const incomingExisting = rows.filter((row) => {
+          const id = String(row.id ?? row._id ?? "");
+          return Boolean(id) && existingIds.has(id);
+        });
+        const patched = incomingExisting.length
+          ? upsertGalleryUploadRows(existing, incomingExisting)
+          : existing;
+        const merged = incomingNew.length > 0 ? [...incomingNew, ...patched] : patched;
+        const pageLimit = prev.uploadsPagination?.limit ?? FOLDER_UPLOADS_PAGE_SIZE;
+        const prevTotal = prev.uploadsPagination?.total ?? existing.length;
+        const total = Math.max(prevTotal + incomingNew.length, merged.length);
         return {
           ...prev,
-          uploads: upsertGalleryUploadRows(extractRawMediaList(prev), rows),
+          uploads: merged,
+          uploadsPagination: {
+            hasMore: prev.uploadsPagination?.hasMore === true,
+            nextCursor: prev.uploadsPagination?.nextCursor ?? null,
+            page: prev.uploadsPagination?.page,
+            limit: pageLimit,
+            total,
+            totalPages: prev.uploadsPagination?.totalPages,
+          },
         };
       });
     },
@@ -1309,11 +1342,6 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
     return rawAssets.length;
   }, [folder?.uploadsPagination?.total, rawAssets.length]);
 
-  const rawUploadsRemaining = useMemo(
-    () => Math.max(0, rawUploadsTotal - rawAssets.length),
-    [rawUploadsTotal, rawAssets.length],
-  );
-
   const finalAssets = useMemo(() => {
     const base = folder ? extractFinalMediaList(folder).map(apiFolderMediaToFinal) : [];
     return finalOrderIds ? applyOrderByIds(base, finalOrderIds) : base;
@@ -1415,6 +1443,25 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
     () => filterMediaByGallerySet(rawAssets, mediaSetFilter),
     [rawAssets, mediaSetFilter],
   );
+
+  const uploadsPageSize = folder?.uploadsPagination?.limit ?? FOLDER_UPLOADS_PAGE_SIZE;
+  const visibleRawAssets = useMemo(
+    () => filteredRawAssets.slice(0, uploadsVisibleLimit),
+    [filteredRawAssets, uploadsVisibleLimit],
+  );
+  const hasMoreUploadsToShow =
+    filteredRawAssets.length > uploadsVisibleLimit ||
+    folder?.uploadsPagination?.hasMore === true ||
+    (folder?.uploadsPagination?.total != null &&
+      folder.uploadsPagination.total > visibleRawAssets.length);
+
+  const onViewMoreUploads = useCallback(() => {
+    if (filteredRawAssets.length > uploadsVisibleLimit) {
+      setUploadsVisibleLimit((n) => n + uploadsPageSize);
+      return;
+    }
+    void loadMoreUploads();
+  }, [filteredRawAssets.length, uploadsVisibleLimit, uploadsPageSize, loadMoreUploads]);
 
   const filteredSelectionBySet = useMemo(
     () => filterMediaByGallerySet(filteredSelectionAssets, mediaSetFilter),
@@ -3705,7 +3752,7 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
             ) : (
               <>
                 <FolderUploadMediaGrid
-                  items={filteredRawAssets.map((a) => ({
+                  items={visibleRawAssets.map((a) => ({
                     id: a.id,
                     name: a.originalName,
                     mediaSrc: demoAssetGridSrc(a),
@@ -3729,11 +3776,8 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
                   reorderDisabled={busy}
                   onReorder={onReorderRawMedia}
                 />
-                {folder?.uploadsPagination?.hasMore ? (
-                  <GalleryViewMoreButton
-                    onClick={() => void loadMoreUploads()}
-                    remainingCount={rawUploadsRemaining}
-                  />
+                {hasMoreUploadsToShow ? (
+                  <GalleryViewMoreButton onClick={onViewMoreUploads} />
                 ) : null}
                 {loadingMoreUploads ? (
                   <p className="mt-2 text-center text-xs text-zinc-500 dark:text-zinc-400">

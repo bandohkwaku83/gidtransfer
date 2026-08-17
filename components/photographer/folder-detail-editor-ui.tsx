@@ -464,17 +464,8 @@ export function FolderEditorChrome({
         disabled: !shareActive,
       });
     }
-    items.push(
-      { type: "divider" },
-      {
-        key: "regenerate",
-        label: "Regenerate link",
-        icon: <RefreshCw className="h-3.5 w-3.5" aria-hidden />,
-        disabled: busy,
-      },
-    );
     return items;
-  }, [shareActive, linkCopied, busy, canNativeShare, canNotifySms]);
+  }, [shareActive, linkCopied, canNativeShare, canNotifySms]);
 
   const moreMenuItems = useMemo<MenuProps["items"]>(() => {
     const items: NonNullable<MenuProps["items"]> = [
@@ -545,10 +536,6 @@ export function FolderEditorChrome({
   const handleShareMenuClick = ({ key }: { key: string }) => {
     if (key === "copy") {
       onCopyShare?.();
-      return;
-    }
-    if (key === "regenerate") {
-      onRegenerateLink?.();
       return;
     }
     if (!shareActive || !shareUrl || !shareMessage) return;

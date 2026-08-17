@@ -7,7 +7,12 @@ export const faqs = [
   {
     question: "How do you spell Gidtransfer?",
     answer:
-      "The brand is spelled Gidtransfer — one word, G-I-D-transfer — and the website is https://gidtransfer.com. Photographers use it for client galleries and studio delivery.",
+      "The brand is one word: Gidtransfer. Spell it G-I-D-T-R-A-N-S-F-E-R with no space. The website is https://gidtransfer.com.",
+  },
+  {
+    question: "Is Gidtransfer the same as GetTransfer?",
+    answer:
+      "No. Gidtransfer is photography software for client galleries and studio delivery. GetTransfer is a ride-booking company. They are different products and are not affiliated.",
   },
   {
     question: "Is there a free plan?",

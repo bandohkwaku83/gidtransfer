@@ -1041,12 +1041,6 @@ export function ClientGalleryApp({ publicKey }: { publicKey: PublicGalleryKey })
   const hasMoreAssets = photoSearchIsActive
     ? photoSearchHasMore
     : visibleAssets.length > visibleMediaLimit;
-  const remainingFinalsCount = Math.max(0, visibleFinals.length - visibleMediaLimit);
-  const remainingAssetsCount = photoSearchIsActive
-    ? photoSearchHasMore
-      ? 48
-      : 0
-    : Math.max(0, visibleAssets.length - visibleMediaLimit);
 
   const loadMoreGalleryMedia = useCallback(() => {
     if (photoSearchIsActive) {
@@ -2422,10 +2416,7 @@ export function ClientGalleryApp({ publicKey }: { publicKey: PublicGalleryKey })
               })}
             </ul>
               {hasMoreFinals ? (
-                <GalleryViewMoreButton
-                  onClick={loadMoreGalleryMedia}
-                  remainingCount={remainingFinalsCount}
-                />
+                <GalleryViewMoreButton onClick={loadMoreGalleryMedia} />
               ) : null}
             </>
           )
@@ -2491,10 +2482,7 @@ export function ClientGalleryApp({ publicKey }: { publicKey: PublicGalleryKey })
             commentsEnabled={commentsEnabled}
           />
           {hasMoreAssets ? (
-            <GalleryViewMoreButton
-              onClick={loadMoreGalleryMedia}
-              remainingCount={remainingAssetsCount}
-            />
+            <GalleryViewMoreButton onClick={loadMoreGalleryMedia} />
           ) : null}
           {photoSearchLoadingMore ? (
             <p className="mt-2 text-center text-xs text-zinc-500 dark:text-zinc-400">

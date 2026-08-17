@@ -131,7 +131,11 @@ export function buildRootSiteMetadata(): Metadata {
     openGraph: sharedOpenGraph(title, description),
     twitter: sharedTwitter(title, description),
     icons: {
-      icon: "/svgs/dashboard_logo.svg",
+      icon: [
+        { url: "/favicon.ico", sizes: "32x32", type: "image/x-icon" },
+        { url: "/images/logo.svg", type: "image/svg+xml" },
+        { url: "/icon.png", type: "image/png", sizes: "512x512" },
+      ],
       apple: "/apple-icon.png",
     },
     ...(googleVerification
@@ -145,10 +149,9 @@ export function buildRootSiteMetadata(): Metadata {
 }
 
 export function buildHomePageMetadata(): Metadata {
-  // Lead with the exact brand name so navigational queries for "gidtransfer" match.
-  const title = `${APP_NAME} | Photographer galleries & studio software`;
+  const title = "Gidtransfer | gidtransfer.com — photographer galleries";
   const description =
-    "Gidtransfer (gidtransfer.com) is the online gallery and studio platform for professional photographers — branded client galleries, proofing, delivery, bookings, and studio tools in one place.";
+    "Gidtransfer is photographer gallery software at gidtransfer.com — branded client galleries, proofing, delivery, and studio tools. Not GetTransfer rides.";
   const canonical = absoluteMarketingUrl("/");
 
   return {
@@ -183,17 +186,18 @@ export function marketingOrganizationJsonLd() {
     "@type": "Organization",
     "@id": `${url}#organization`,
     name: APP_NAME,
-    legalName: APP_NAME,
     alternateName: [
       "gidtransfer",
-      "Gid Transfer",
-      "Gidtransfer.com",
       "gidtransfer.com",
+      "Gidtransfer.com",
+      "Gid Transfer",
     ],
     url,
     logo: {
       "@type": "ImageObject",
-      url: absoluteMarketingUrl("/svgs/dashboard_logo.svg"),
+      url: absoluteMarketingUrl("/icon.png"),
+      width: 512,
+      height: 512,
     },
     image: absoluteMarketingUrl("/images/hero.png"),
     email: contactEmail,
@@ -216,7 +220,7 @@ export function marketingWebsiteJsonLd() {
     "@type": "WebSite",
     "@id": `${url}#website`,
     name: APP_NAME,
-    alternateName: ["gidtransfer", "Gid Transfer", "gidtransfer.com"],
+    alternateName: ["gidtransfer", "gidtransfer.com"],
     url,
     description: FOOTER_DESCRIPTION,
     inLanguage: "en",
@@ -240,7 +244,7 @@ export function marketingSoftwareApplicationJsonLd() {
     "@context": "https://schema.org",
     "@type": "SoftwareApplication",
     name: APP_NAME,
-    alternateName: ["gidtransfer", "Gid Transfer"],
+    alternateName: ["gidtransfer", "gidtransfer.com"],
     applicationCategory: "BusinessApplication",
     applicationSubCategory: "Photography studio software",
     operatingSystem: "Web",
