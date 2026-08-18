@@ -10,8 +10,8 @@ import {
 
 /**
  * Next.js treats any POST with a `Next-Action` header as a Server Action.
- * This app has none — scanners still send `Next-Action: x` (and similar) and
- * Railway logs fill with "Failed to find Server Action". Drop those probes.
+ * This app has none — scanners still send `Next-Action: x` (and similar).
+ * Drop those probes so logs are not filled with "Failed to find Server Action".
  */
 function isJunkServerActionProbe(request: NextRequest): boolean {
   if (request.method !== "POST") return false;

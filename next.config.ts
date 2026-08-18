@@ -111,7 +111,6 @@ const nextConfig: NextConfig = {
         "gidtransfer.com",
         "www.gidtransfer.com",
         "*.gidtransfer.com",
-        "*.up.railway.app",
       ],
     },
   },
