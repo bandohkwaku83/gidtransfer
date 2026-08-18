@@ -1,0 +1,14 @@
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "services": {
+    "gid-transfer": {
+      "networking": {
+        "port": 8080,
+        "serviceDomains": {
+          "gidtransfer.com": {"port": 8080},
+          "*.gidtransfer.com": {"port": 8080}
+        }
+      }
+    }
+  }
+}
