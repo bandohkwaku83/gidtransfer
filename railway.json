@@ -27,18 +27,14 @@
       },
       "networking": {
         "port": 8080,
-        "domains": [
-          {
-            "domain": "gidtransfer.com",
-            "type": "custom",
+        "serviceDomains": {
+          "gidtransfer.com": {
             "port": 8080
           },
-          {
-            "domain": "gid-transfer-production.up.railway.app",
-            "type": "railway",
+          "gid-transfer-production.up.railway.app": {
             "port": 8080
           }
-        ]
+        }
       },
       "variables": {
         "NEXT_PUBLIC_GOOGLE_CLIENT_ID": "${{NEXT_PUBLIC_GOOGLE_CLIENT_ID}}",
