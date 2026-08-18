@@ -641,6 +641,7 @@ export default function GalleriesPage() {
                   reorderable={canReorderGrid}
                   isDragging={state.isDragging}
                   isDropTarget={state.isDropTarget}
+                  isPressing={state.isPressing}
                   blockNavigation={state.blockNavigation}
                   onReorderPointerDown={state.onReorderPointerDown}
                   onEdit={(f) => {

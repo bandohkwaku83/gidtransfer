@@ -20,10 +20,12 @@ import {
   sortGallerySets,
 } from "@/lib/gallery-set-filter";
 import { moveIdInList } from "@/lib/move-id-in-list";
+import {
+  releasePointer,
+  usePointerReorderArm,
+} from "@/lib/pointer-reorder";
 import { FormInput } from "@/components/ui/form-input";
 import { cn } from "@/lib/utils";
-
-const DRAG_START_PX = 6;
 
 type GallerySetBarProps = {
   sets: ApiGallerySet[];
@@ -78,16 +80,6 @@ export function GallerySetBar({
     filter !== "all" ? sorted.find((s) => s.id === filter) : undefined;
 
   const pillRefs = useRef(new Map<string, HTMLSpanElement>());
-  const pendingDragRef = useRef<{
-    id: string;
-    label: string;
-    startX: number;
-    startY: number;
-    offsetX: number;
-    offsetY: number;
-    width: number;
-    height: number;
-  } | null>(null);
   const activeDragRef = useRef<{
     id: string;
     label: string;
@@ -95,6 +87,8 @@ export function GallerySetBar({
     offsetY: number;
     width: number;
     height: number;
+    pointerId: number;
+    captureEl: HTMLElement | null;
   } | null>(null);
   const orderedIdsRef = useRef<string[]>([]);
 
@@ -228,21 +222,46 @@ export function GallerySetBar({
     (
       id: string,
       label: string,
+      pointerX: number,
+      pointerY: number,
       offsetX: number,
       offsetY: number,
       width: number,
       height: number,
+      pointerId: number,
+      captureEl: HTMLElement | null,
     ) => {
-      activeDragRef.current = { id, label, offsetX, offsetY, width, height };
+      activeDragRef.current = { id, label, offsetX, offsetY, width, height, pointerId, captureEl };
+      setGhostPos({ x: pointerX, y: pointerY });
       setDraggingId(id);
       setHoverId(id);
     },
     [],
   );
 
+  const { arm, clearPending } = usePointerReorderArm<{ id: string; label: string }>({
+    enabled: canReorder,
+    isDragging: Boolean(draggingId),
+    onBegin: (armed, pointerX, pointerY) => {
+      beginDrag(
+        armed.payload.id,
+        armed.payload.label,
+        pointerX,
+        pointerY,
+        armed.offsetX,
+        armed.offsetY,
+        armed.width,
+        armed.height,
+        armed.pointerId,
+        armed.captureEl,
+      );
+    },
+  });
+
   const endDrag = useCallback(() => {
     const drag = activeDragRef.current;
-    pendingDragRef.current = null;
+    if (drag) releasePointer(drag.captureEl, drag.pointerId);
+    clearPending();
     activeDragRef.current = null;
     setDraggingId(null);
     setHoverId(null);
@@ -257,7 +276,7 @@ export function GallerySetBar({
     if (changed) {
       void onReorderSets(finalIds);
     }
-  }, [canonicalOrder, onReorderSets]);
+  }, [canonicalOrder, clearPending, onReorderSets]);
 
   useEffect(() => {
     if (!draggingId) return;
@@ -297,64 +316,11 @@ export function GallerySetBar({
     };
   }, [draggingId, endDrag, findHoverIndex]);
 
-  useEffect(() => {
-    if (draggingId) return;
-
-    const onPointerMove = (event: PointerEvent) => {
-      const pending = pendingDragRef.current;
-      if (!pending) return;
-
-      const dx = event.clientX - pending.startX;
-      const dy = event.clientY - pending.startY;
-      if (Math.hypot(dx, dy) < DRAG_START_PX) return;
-
-      pendingDragRef.current = null;
-      beginDrag(
-        pending.id,
-        pending.label,
-        pending.offsetX,
-        pending.offsetY,
-        pending.width,
-        pending.height,
-      );
-    };
-
-    const onPointerUp = () => {
-      pendingDragRef.current = null;
-    };
-
-    window.addEventListener("pointermove", onPointerMove);
-    window.addEventListener("pointerup", onPointerUp);
-    window.addEventListener("pointercancel", onPointerUp);
-    return () => {
-      window.removeEventListener("pointermove", onPointerMove);
-      window.removeEventListener("pointerup", onPointerUp);
-      window.removeEventListener("pointercancel", onPointerUp);
-    };
-  }, [beginDrag, draggingId]);
-
   const armDrag = useCallback(
     (event: React.PointerEvent<HTMLElement>, id: string, label: string) => {
-      if (!canReorder) return;
-      const pill = pillRefs.current.get(id);
-      if (!pill) return;
-
-      event.preventDefault();
-      event.stopPropagation();
-
-      const rect = pill.getBoundingClientRect();
-      pendingDragRef.current = {
-        id,
-        label,
-        startX: event.clientX,
-        startY: event.clientY,
-        offsetX: event.clientX - rect.left,
-        offsetY: event.clientY - rect.top,
-        width: rect.width,
-        height: rect.height,
-      };
+      arm(event, pillRefs.current.get(id) ?? null, { id, label }, { captureImmediately: true });
     },
-    [canReorder],
+    [arm],
   );
 
   function pillClass(active: boolean, isDragging?: boolean) {
@@ -408,13 +374,14 @@ export function GallerySetBar({
             <button
               type="button"
               className={cn(
-                "-ml-0.5 inline-flex cursor-grab touch-none items-center rounded p-0.5 active:cursor-grabbing",
+                "-ml-1 inline-flex cursor-grab touch-none items-center rounded p-1.5 active:cursor-grabbing sm:-ml-0.5 sm:p-0.5",
                 active
                   ? "text-white/70 hover:text-white"
                   : "text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300",
               )}
               aria-label={`Drag to reorder ${label}`}
               onPointerDown={(event) => armDrag(event, id, label)}
+              onContextMenu={(event) => event.preventDefault()}
             >
               <GripVertical className="h-3 w-3" aria-hidden />
             </button>
@@ -539,12 +506,17 @@ export function GallerySetBar({
     <div
       className={cn(
         "flex min-h-[2.5rem] items-center gap-2 py-0.5",
-        draggingId && "select-none",
+        draggingId && "select-none touch-none",
         className,
       )}
       title={setsTitle}
     >
-      <div className="min-w-0 flex-1 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <div
+        className={cn(
+          "min-w-0 flex-1 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+          draggingId && "overflow-hidden touch-none",
+        )}
+      >
         <div
           role="tablist"
           aria-label={setsTitle}

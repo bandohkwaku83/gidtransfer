@@ -16,10 +16,12 @@ import { Flag, ImageIcon, Lock, MoreVertical, Trash2, Unlock, Upload, X } from "
 import { InlineActionSkeleton } from "@/components/ui/skeletons";
 import { isImagePreviewUrl, videoElementPreviewSrc } from "@/lib/gallery-media-streaming";
 import { moveIdInList } from "@/lib/move-id-in-list";
+import {
+  releasePointer,
+  usePointerReorderArm,
+} from "@/lib/pointer-reorder";
 import { usePlanEntitlements } from "@/lib/use-plan-entitlements";
 import { cn } from "@/lib/utils";
-
-const DRAG_START_PX = 6;
 
 export type FolderUploadGridItem = {
   id: string;
@@ -105,6 +107,7 @@ type UploadTileProps = {
   isDropTarget: boolean;
   canReorder: boolean;
   isDragging: boolean;
+  isPressing: boolean;
   mediaDeleteBlocked: boolean;
   deleteKeyPrefix: "raw" | "final";
   onToggleSelected: (id: string) => void;
@@ -126,6 +129,7 @@ const UploadTile = memo(function UploadTile({
   isDropTarget,
   canReorder,
   isDragging,
+  isPressing,
   mediaDeleteBlocked,
   deleteKeyPrefix,
   onToggleSelected,
@@ -217,16 +221,21 @@ const UploadTile = memo(function UploadTile({
         "group relative overflow-hidden rounded-xl bg-zinc-100 ring-1 ring-zinc-900/5 transition-[transform,opacity,box-shadow] duration-200 ease-out dark:bg-zinc-800/80 dark:ring-white/10",
         selected && "ring-2 ring-inset ring-brand",
         isDragging && "opacity-0",
+        isPressing && "scale-[0.97] ring-2 ring-brand/50",
         !isDragging && canReorder && "hover:shadow-md",
       )}
       onPointerDown={(event) => onTilePointerDown(event, item)}
+      onContextMenu={(event) => {
+        if (!canReorder) return;
+        event.preventDefault();
+      }}
     >
       <div className="relative aspect-square w-full overflow-hidden">
         <button
           type="button"
           className={cn(
             "absolute inset-0 z-0 flex h-full w-full text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand/50",
-            canReorder && "cursor-grab active:cursor-grabbing",
+            canReorder && "cursor-grab touch-manipulation [-webkit-touch-callout:none] active:cursor-grabbing",
           )}
           onClick={() => onOpenPreview(item.id)}
           aria-label={`Preview ${item.name}`}
@@ -605,6 +614,8 @@ type ActiveDrag = {
   width: number;
   height: number;
   item: FolderUploadGridItem;
+  pointerId: number;
+  captureEl: HTMLElement | null;
 };
 
 export function FolderUploadMediaGrid({
@@ -643,17 +654,7 @@ export function FolderUploadMediaGrid({
   onReorder?: (orderedIds: string[]) => void;
 }) {
   const tileRefs = useRef(new Map<string, HTMLLIElement>());
-  const pendingDragRef = useRef<{
-    id: string;
-    startX: number;
-    startY: number;
-    offsetX: number;
-    offsetY: number;
-    width: number;
-    height: number;
-    item: FolderUploadGridItem;
-  } | null>(null);
-  const activeDragRef = useRef<Omit<ActiveDrag, "pointerX" | "pointerY"> | null>(null);
+  const activeDragRef = useRef<ActiveDrag | null>(null);
   const suppressPreviewRef = useRef(false);
   const orderedIdsRef = useRef<string[]>([]);
 
@@ -702,6 +703,8 @@ export function FolderUploadMediaGrid({
       offsetY: number,
       width: number,
       height: number,
+      pointerId: number,
+      captureEl: HTMLElement | null,
     ) => {
       activeDragRef.current = {
         id: item.id,
@@ -710,6 +713,8 @@ export function FolderUploadMediaGrid({
         width,
         height,
         item,
+        pointerId,
+        captureEl,
       };
       setGhostPos({ x: pointerX, y: pointerY });
       setDraggingId(item.id);
@@ -718,12 +723,38 @@ export function FolderUploadMediaGrid({
     [],
   );
 
+  const { arm, clearPending, pressingId } = usePointerReorderArm<FolderUploadGridItem>({
+    enabled: canReorder,
+    isDragging: Boolean(draggingId),
+    onBegin: (armed, pointerX, pointerY) => {
+      beginDrag(
+        armed.payload,
+        pointerX,
+        pointerY,
+        armed.offsetX,
+        armed.offsetY,
+        armed.width,
+        armed.height,
+        armed.pointerId,
+        armed.captureEl,
+      );
+    },
+  });
+
   const endDrag = useCallback(() => {
     const drag = activeDragRef.current;
-    pendingDragRef.current = null;
+    if (drag) releasePointer(drag.captureEl, drag.pointerId);
+    clearPending();
     activeDragRef.current = null;
     setDraggingId(null);
     setHoverId(null);
+
+    if (drag) {
+      suppressPreviewRef.current = true;
+      window.setTimeout(() => {
+        suppressPreviewRef.current = false;
+      }, 400);
+    }
 
     if (!drag || !onReorder) return;
 
@@ -734,10 +765,9 @@ export function FolderUploadMediaGrid({
       finalIds.some((id, index) => id !== initialIds[index]);
 
     if (changed) {
-      suppressPreviewRef.current = true;
       onReorder(finalIds);
     }
-  }, [items, onReorder]);
+  }, [clearPending, items, onReorder]);
 
   useEffect(() => {
     if (!draggingId) return;
@@ -777,65 +807,11 @@ export function FolderUploadMediaGrid({
     };
   }, [draggingId, endDrag, findHoverIndex]);
 
-  useEffect(() => {
-    if (draggingId) return;
-
-    const onPointerMove = (event: PointerEvent) => {
-      const pending = pendingDragRef.current;
-      if (!pending) return;
-
-      const dx = event.clientX - pending.startX;
-      const dy = event.clientY - pending.startY;
-      if (Math.hypot(dx, dy) < DRAG_START_PX) return;
-
-      pendingDragRef.current = null;
-      beginDrag(
-        pending.item,
-        event.clientX,
-        event.clientY,
-        pending.offsetX,
-        pending.offsetY,
-        pending.width,
-        pending.height,
-      );
-    };
-
-    const onPointerUp = () => {
-      pendingDragRef.current = null;
-    };
-
-    window.addEventListener("pointermove", onPointerMove);
-    window.addEventListener("pointerup", onPointerUp);
-    window.addEventListener("pointercancel", onPointerUp);
-    return () => {
-      window.removeEventListener("pointermove", onPointerMove);
-      window.removeEventListener("pointerup", onPointerUp);
-      window.removeEventListener("pointercancel", onPointerUp);
-    };
-  }, [beginDrag, draggingId]);
-
   const armDrag = useCallback(
     (event: React.PointerEvent<HTMLElement>, item: FolderUploadGridItem) => {
-      if (!canReorder) return;
-      const tile = tileRefs.current.get(item.id);
-      if (!tile) return;
-
-      const rect = tile.getBoundingClientRect();
-      const offsetX = event.clientX - rect.left;
-      const offsetY = event.clientY - rect.top;
-
-      pendingDragRef.current = {
-        id: item.id,
-        startX: event.clientX,
-        startY: event.clientY,
-        offsetX,
-        offsetY,
-        width: rect.width,
-        height: rect.height,
-        item,
-      };
+      arm(event, tileRefs.current.get(item.id) ?? null, item, { pressKey: item.id });
     },
-    [canReorder],
+    [arm],
   );
 
   const onPreviewClick = useCallback(
@@ -880,13 +856,13 @@ export function FolderUploadMediaGrid({
     <div className="space-y-2">
       {canReorder ? (
         <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
-          Hold and drag a photo to reposition — other tiles shift as you move.
+          Hold a photo, then drag to reposition. Scroll as usual if you move first.
         </p>
       ) : null}
       <ul
         className={cn(
           "grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6",
-          draggingId && "select-none",
+          draggingId && "select-none touch-none",
         )}
       >
         {displayItems.map((item) => {
@@ -916,6 +892,7 @@ export function FolderUploadMediaGrid({
                 isDropTarget={isDropTarget}
                 canReorder={canReorder}
                 isDragging={isDragging}
+                isPressing={pressingId === item.id}
                 mediaDeleteBlocked={mediaDeleteBlocked}
                 deleteKeyPrefix={deleteKeyPrefix}
                 onToggleSelected={onToggleSelected}

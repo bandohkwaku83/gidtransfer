@@ -38,6 +38,7 @@ export function FolderCard({
   reorderable = false,
   isDragging = false,
   isDropTarget = false,
+  isPressing = false,
   blockNavigation = false,
   onReorderPointerDown,
 }: {
@@ -51,6 +52,7 @@ export function FolderCard({
   reorderable?: boolean;
   isDragging?: boolean;
   isDropTarget?: boolean;
+  isPressing?: boolean;
   blockNavigation?: boolean;
   onReorderPointerDown?: (event: React.PointerEvent<HTMLElement>) => void;
 }) {
@@ -68,8 +70,10 @@ export function FolderCard({
       className={cn(
         "group relative flex flex-col overflow-hidden border border-zinc-200/80 bg-white shadow-sm transition duration-200 hover:-translate-y-0.5 hover:border-zinc-300/90 hover:shadow-md dark:border-zinc-800 dark:bg-zinc-950 dark:hover:border-zinc-700",
         compact ? "rounded-lg" : "rounded-xl shadow-[0_1px_3px_rgba(0,0,0,0.04)] ring-1 ring-zinc-900/[0.03] hover:ring-zinc-900/[0.06] dark:ring-white/[0.04]",
+        reorderable && "[-webkit-touch-callout:none]",
         busy && "pointer-events-none opacity-60",
         isDragging && "opacity-35",
+        isPressing && "scale-[0.98] ring-2 ring-brand/40",
         isDropTarget && "ring-2 ring-brand/40 ring-offset-2 ring-offset-white dark:ring-offset-zinc-950",
       )}
       onPointerDown={(event) => {
@@ -77,6 +81,10 @@ export function FolderCard({
         const target = event.target as HTMLElement;
         if (target.closest("button, [data-card-more-menu]")) return;
         onReorderPointerDown(event);
+      }}
+      onContextMenu={(event) => {
+        if (!reorderable) return;
+        event.preventDefault();
       }}
       onClickCapture={(event) => {
         if (!blockNavigation) return;

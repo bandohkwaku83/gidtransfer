@@ -10,13 +10,16 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { moveIdInList } from "@/lib/move-id-in-list";
+import {
+  releasePointer,
+  usePointerReorderArm,
+} from "@/lib/pointer-reorder";
 import { cn } from "@/lib/utils";
-
-const DRAG_START_PX = 6;
 
 export type ReorderableGalleryGridRenderState = {
   isDragging: boolean;
   isDropTarget: boolean;
+  isPressing: boolean;
   blockNavigation: boolean;
   onReorderPointerDown: (event: React.PointerEvent<HTMLElement>) => void;
 };
@@ -43,16 +46,6 @@ export function ReorderableGalleryGrid<T>({
   renderGhost,
 }: ReorderableGalleryGridProps<T>) {
   const tileRefs = useRef(new Map<string, HTMLLIElement>());
-  const pendingDragRef = useRef<{
-    id: string;
-    startX: number;
-    startY: number;
-    offsetX: number;
-    offsetY: number;
-    width: number;
-    height: number;
-    item: T;
-  } | null>(null);
   const activeDragRef = useRef<{
     id: string;
     offsetX: number;
@@ -60,6 +53,8 @@ export function ReorderableGalleryGrid<T>({
     width: number;
     height: number;
     item: T;
+    pointerId: number;
+    captureEl: HTMLElement | null;
   } | null>(null);
   const orderedIdsRef = useRef<string[]>([]);
 
@@ -108,27 +103,55 @@ export function ReorderableGalleryGrid<T>({
   const beginDrag = useCallback(
     (
       item: T,
+      pointerX: number,
+      pointerY: number,
       offsetX: number,
       offsetY: number,
       width: number,
       height: number,
+      pointerId: number,
+      captureEl: HTMLElement | null,
     ) => {
       const id = getItemId(item);
-      activeDragRef.current = { id, offsetX, offsetY, width, height, item };
+      activeDragRef.current = { id, offsetX, offsetY, width, height, item, pointerId, captureEl };
+      setGhostPos({ x: pointerX, y: pointerY });
       setDraggingId(id);
       setHoverId(id);
+      setBlockNavigation(true);
     },
     [getItemId],
   );
 
+  const { arm, clearPending, pressingId } = usePointerReorderArm<T>({
+    enabled: canReorder,
+    isDragging: Boolean(draggingId),
+    onBegin: (armed, pointerX, pointerY) => {
+      beginDrag(
+        armed.payload,
+        pointerX,
+        pointerY,
+        armed.offsetX,
+        armed.offsetY,
+        armed.width,
+        armed.height,
+        armed.pointerId,
+        armed.captureEl,
+      );
+    },
+  });
+
   const endDrag = useCallback(() => {
     const drag = activeDragRef.current;
-    pendingDragRef.current = null;
+    if (drag) releasePointer(drag.captureEl, drag.pointerId);
+    clearPending();
     activeDragRef.current = null;
     setDraggingId(null);
     setHoverId(null);
 
-    if (!drag || !onReorder) return;
+    if (!drag || !onReorder) {
+      window.setTimeout(() => setBlockNavigation(false), 0);
+      return;
+    }
 
     const finalIds = orderedIdsRef.current;
     const initialIds = items.map(getItemId);
@@ -137,11 +160,12 @@ export function ReorderableGalleryGrid<T>({
       finalIds.some((id, index) => id !== initialIds[index]);
 
     if (changed) {
-      setBlockNavigation(true);
       window.setTimeout(() => setBlockNavigation(false), 0);
       onReorder(finalIds);
+      return;
     }
-  }, [getItemId, items, onReorder]);
+    window.setTimeout(() => setBlockNavigation(false), 0);
+  }, [clearPending, getItemId, items, onReorder]);
 
   useEffect(() => {
     if (!draggingId) return;
@@ -181,64 +205,12 @@ export function ReorderableGalleryGrid<T>({
     };
   }, [draggingId, endDrag, findHoverIndex]);
 
-  useEffect(() => {
-    if (draggingId) return;
-
-    const onPointerMove = (event: PointerEvent) => {
-      const pending = pendingDragRef.current;
-      if (!pending) return;
-
-      const dx = event.clientX - pending.startX;
-      const dy = event.clientY - pending.startY;
-      if (Math.hypot(dx, dy) < DRAG_START_PX) return;
-
-      pendingDragRef.current = null;
-      beginDrag(
-        pending.item,
-        pending.offsetX,
-        pending.offsetY,
-        pending.width,
-        pending.height,
-      );
-    };
-
-    const onPointerUp = () => {
-      pendingDragRef.current = null;
-    };
-
-    window.addEventListener("pointermove", onPointerMove);
-    window.addEventListener("pointerup", onPointerUp);
-    window.addEventListener("pointercancel", onPointerUp);
-    return () => {
-      window.removeEventListener("pointermove", onPointerMove);
-      window.removeEventListener("pointerup", onPointerUp);
-      window.removeEventListener("pointercancel", onPointerUp);
-    };
-  }, [beginDrag, draggingId]);
-
   const armDrag = useCallback(
     (event: React.PointerEvent<HTMLElement>, item: T) => {
-      if (!canReorder) return;
       const id = getItemId(item);
-      const tile = tileRefs.current.get(id);
-      if (!tile) return;
-
-      event.preventDefault();
-      event.stopPropagation();
-
-      const rect = tile.getBoundingClientRect();
-      pendingDragRef.current = {
-        id,
-        startX: event.clientX,
-        startY: event.clientY,
-        offsetX: event.clientX - rect.left,
-        offsetY: event.clientY - rect.top,
-        width: rect.width,
-        height: rect.height,
-        item,
-      };
+      arm(event, tileRefs.current.get(id) ?? null, item, { pressKey: id });
     },
-    [canReorder, getItemId],
+    [arm, getItemId],
   );
 
   const ghostItem =
@@ -269,7 +241,7 @@ export function ReorderableGalleryGrid<T>({
         <p className="text-[11px] text-zinc-500 dark:text-zinc-400">{hint}</p>
       ) : null}
       <ul
-        className={cn("m-0 list-none p-0", className, draggingId && "select-none")}
+        className={cn("m-0 list-none p-0", className, draggingId && "select-none touch-none")}
         aria-live={draggingId ? "polite" : undefined}
       >
         {displayItems.map((item) => {
@@ -295,6 +267,7 @@ export function ReorderableGalleryGrid<T>({
               {renderItem(item, {
                 isDragging,
                 isDropTarget,
+                isPressing: pressingId === id,
                 blockNavigation,
                 onReorderPointerDown: (event) => armDrag(event, item),
               })}
