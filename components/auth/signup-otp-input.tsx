@@ -14,7 +14,7 @@ type SignupOtpInputProps = {
 };
 
 export function SignupOtpInput({
-  length = 6,
+  length = 4,
   value,
   onChange,
   disabled = false,

@@ -30,7 +30,7 @@ import { cn } from "@/lib/utils";
 
 type AuthScreen = "signin" | "signup" | "forgot" | "verify";
 
-const OTP_LENGTH = 6;
+const OTP_LENGTH = 4;
 const DEFAULT_RESEND_SECONDS = 60;
 
 const slides = [
@@ -733,6 +733,7 @@ function LoginPageForm() {
                       ) : null}
 
                       <SignupOtpInput
+                        length={OTP_LENGTH}
                         value={otp}
                         onChange={(value) => {
                           setOtp(value);
