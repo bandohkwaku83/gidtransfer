@@ -4,7 +4,7 @@ export const API_BASE_URL =
   "";
 
 function uploadsProxyHostSet(): Set<string> {
-  const set = new Set<string>(["api.gidophotography.com"]);
+  const set = new Set<string>(["api.gidtransfer.com"]);
   const extra = process.env.NEXT_PUBLIC_UPLOADS_PROXY_HOSTS;
   if (extra) {
     for (const h of extra.split(",")) {

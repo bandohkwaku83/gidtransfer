@@ -52,7 +52,7 @@ export function absoluteMarketingUrl(path: string): string {
 const BRAND_KEYWORDS = [
   APP_NAME,
   "gidtransfer",
-  "Gid Transfer",
+  "Gidtransfer",
   "gidtransfer.com",
   "gidtransfer photography",
   "gidtransfer gallery",
@@ -190,7 +190,7 @@ export function marketingOrganizationJsonLd() {
       "gidtransfer",
       "gidtransfer.com",
       "Gidtransfer.com",
-      "Gid Transfer",
+      "GidTransfer",
     ],
     url,
     logo: {
@@ -202,7 +202,7 @@ export function marketingOrganizationJsonLd() {
     image: absoluteMarketingUrl("/images/hero.png"),
     email: contactEmail,
     description: FOOTER_DESCRIPTION,
-    foundingDate: "2024",
+    foundingDate: "2025",
     knowsAbout: [
       "photography client galleries",
       "online proofing",

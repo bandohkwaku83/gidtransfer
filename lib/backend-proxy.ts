@@ -4,7 +4,7 @@ import { NextResponse } from "next/server";
 export function getBackendApiUrl(): string {
   return (
     process.env.BACKEND_API_URL?.trim() ||
-    "https://api.gidophotography.com"
+    "https://api.gidtransfer.com"
   ).replace(/\/$/, "");
 }
 

@@ -36,7 +36,7 @@ const aboutUsCopy = {
   ctaHref: "/features",
 } as const;
 
-const whyChooseGido = {
+const whyChooseGidtransfer = {
   title: "Why photographers choose Gidtransfer",
   reasons: [
     {
@@ -751,17 +751,17 @@ export function HomePageClient() {
                 </div>
               </div>
 
-              {/* Right — Why photographers choose Gido */}
+              {/* Right — Why photographers choose Gidtransfer */}
               <div className="order-3 flex w-full lg:order-none lg:pl-4 xl:pl-5">
                 <div className="flex w-full flex-col justify-center rounded-2xl border border-slate-200/80 bg-white p-6 shadow-[0_12px_40px_-12px_rgba(85,0,31,0.12)] sm:p-8 lg:min-h-[32rem] lg:p-10">
                   <p className="text-[0.7rem] font-semibold uppercase tracking-[0.22em] text-[#D5AE65] sm:text-xs">
                     Why Gidtransfer
                   </p>
                   <h2 className="mt-2 font-display text-xl font-semibold leading-snug tracking-tight text-[#55001F] sm:text-[1.65rem]">
-                    {whyChooseGido.title}
+                    {whyChooseGidtransfer.title}
                   </h2>
                   <ul className="mt-6 divide-y divide-slate-100 sm:mt-8 sm:space-y-0">
-                    {whyChooseGido.reasons.map(({ title, description, icon: Icon }) => (
+                    {whyChooseGidtransfer.reasons.map(({ title, description, icon: Icon }) => (
                       <li key={title} className="flex items-start gap-3.5 py-5 first:pt-0 last:pb-0 sm:gap-4 sm:py-6">
                         <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#D5AE65] text-white sm:h-11 sm:w-11 sm:rounded-lg">
                           <Icon className="h-[1.125rem] w-[1.125rem] sm:h-5 sm:w-5" aria-hidden />

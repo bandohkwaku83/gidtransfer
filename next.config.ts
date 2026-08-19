@@ -14,7 +14,7 @@ const PROJECT_ROOT = path.dirname(fileURLToPath(import.meta.url));
 loadEnvConfig(PROJECT_ROOT);
 
 const BACKEND_API_URL = (
-  process.env.BACKEND_API_URL ?? "https://api.gidophotography.com"
+  process.env.BACKEND_API_URL ?? "https://api.gidtransfer.com"
 ).replace(/\/$/, "");
 
 function buildImageRemotePatterns(): RemotePattern[] {
@@ -60,17 +60,12 @@ function buildImageRemotePatterns(): RemotePattern[] {
     }
   }
 
-  const hasGido = [...map.values()].some((p) => p.hostname === "api.gidophotography.com");
-  if (!hasGido) {
-    add({ protocol: "https", hostname: "api.gidophotography.com", pathname: "/**" });
+  const hasApiHost = [...map.values()].some((p) => p.hostname === "api.gidtransfer.com");
+  if (!hasApiHost) {
+    add({ protocol: "https", hostname: "api.gidtransfer.com", pathname: "/**" });
   }
 
   /* Absolute image URLs from S3 / CDN (e.g. gallery cover on client share). */
-  add({
-    protocol: "https",
-    hostname: "gidophotography-images.s3.us-east-1.amazonaws.com",
-    pathname: "/**",
-  });
   add({
     protocol: "https",
     hostname: "gidtransfer.s3.amazonaws.com",

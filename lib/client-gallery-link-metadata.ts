@@ -7,10 +7,11 @@ import {
   type PublicGalleryKey,
   ShareGalleryError,
 } from "@/lib/share-gallery-api";
+import { APP_NAME } from "@/lib/branding";
 import { isLocalDevHostname } from "@/lib/studio-url";
 
 /** Link preview description for shared client galleries (WhatsApp, iMessage, etc.). */
-export const CLIENT_GALLERY_OG_DESCRIPTION = "Photo collection by Gidophotography";
+export const CLIENT_GALLERY_OG_DESCRIPTION = `Photo collection by ${APP_NAME}`;
 
 export function decodeGalleryToken(raw: string): string {
   try {
@@ -93,7 +94,7 @@ async function galleryMetadataFromKey(
       description,
       type: "website",
       url: canonical,
-      siteName: "Gidophotography",
+      siteName: APP_NAME,
     },
     twitter: {
       card: hasCoverArt ? "summary_large_image" : "summary",

@@ -12,8 +12,8 @@ export default function HomePage() {
       {/* Server-rendered brand copy for crawlers; visually hidden from the UI. */}
       <section className="sr-only">
         <p>
-          <strong>Gidtransfer</strong> (one word, gidtransfer.com) is photography gallery software
-          for professional photographers — not GetTransfer rides. Create branded client galleries,
+          <strong>Gidtransfer</strong> is photography gallery software
+          for professional photographers. Create branded client galleries,
           run proofing, deliver finals, and manage bookings from one workspace. Search for
           gidtransfer or visit https://gidtransfer.com.
         </p>

@@ -1,9 +1,6 @@
 import type { MetadataRoute } from "next";
-import { absoluteMarketingUrl } from "@/lib/marketing/site-seo";
 
 export default function robots(): MetadataRoute.Robots {
-  const sitemap = absoluteMarketingUrl("/sitemap.xml");
-
   return {
     rules: [
       {
@@ -23,7 +20,7 @@ export default function robots(): MetadataRoute.Robots {
         ],
       },
     ],
-    sitemap,
-    host: absoluteMarketingUrl("/").replace(/\/$/, ""),
+    sitemap: "https://gidtransfer.com/sitemap.xml",
+    host: "https://gidtransfer.com",
   };
 }
