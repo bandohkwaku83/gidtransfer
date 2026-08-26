@@ -26,7 +26,9 @@ export type PlanFeatureKey =
   | "customBranding"
   | "advancedAnalytics"
   | "restoreTrashItems"
-  | "galleryAi";
+  | "galleryAi"
+  | "collaboration"
+  | "studioTeam";
 
 export type PlanFeatures = Partial<Record<PlanFeatureKey | string, boolean>>;
 
@@ -142,6 +144,8 @@ export const FALLBACK_FREE_FEATURES: PlanFeatures = {
   advancedAnalytics: false,
   restoreTrashItems: false,
   galleryAi: false,
+  collaboration: false,
+  studioTeam: false,
 };
 
 const FEATURE_CHECKOUT_DEFAULT: Partial<Record<string, CheckoutPlanId>> = {
@@ -155,6 +159,8 @@ const FEATURE_CHECKOUT_DEFAULT: Partial<Record<string, CheckoutPlanId>> = {
   advancedAnalytics: "pro",
   restoreTrashItems: "pro",
   galleryAi: "premium",
+  collaboration: "premium",
+  studioTeam: "premium",
   storage: "basic",
 };
 

@@ -10,11 +10,13 @@ import {
   getAuthToken,
   refreshAuthFromPersisted,
 } from "@/lib/auth-demo";
-import { userNeedsEmailVerification, verifyEmailPath } from "@/lib/auth-api";
+import { safeAuthReturnPath, userNeedsEmailVerification, verifyEmailPath } from "@/lib/auth-api";
+import { isStudioMember } from "@/lib/studio-access";
 import {
   endHostAuthHandoff,
   isHostAuthHandoffInFlight,
   photographerAuthUrl,
+  photographerLoginUrl,
   redirectToTenantHostIfNeeded,
 } from "@/lib/studio-url";
 
@@ -30,29 +32,47 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
 
     const auth = getAuth();
     const token = getAuthToken();
+    const returnTo =
+      safeAuthReturnPath(`${window.location.pathname}${window.location.search}`) ??
+      undefined;
+
     if (!auth?.user || !token) {
       // Apex cleared localStorage right before navigating to `{slug}.localhost?_auth=…`.
       // A Strict Mode remount must not overwrite that navigation with bare /login.
       if (isHostAuthHandoffInFlight()) {
-        return;
+        // If the handoff never arrives (blocked navigation / failed consume),
+        // don't leave the user on an endless Loading screen.
+        const t = window.setTimeout(() => {
+          if (isHostAuthHandoffInFlight() && !getAuthToken()) {
+            endHostAuthHandoff();
+            window.location.replace(photographerLoginUrl({ returnTo }));
+          }
+        }, 4000);
+        return () => window.clearTimeout(t);
       }
-      window.location.replace(photographerAuthUrl("/login"));
+      window.location.replace(photographerLoginUrl({ returnTo }));
       return;
     }
     refreshAuthFromPersisted();
     const next = getAuth()?.user;
     if (!next) {
       if (isHostAuthHandoffInFlight()) {
-        return;
+        const t = window.setTimeout(() => {
+          if (isHostAuthHandoffInFlight() && !getAuthToken()) {
+            endHostAuthHandoff();
+            window.location.replace(photographerLoginUrl({ returnTo }));
+          }
+        }, 4000);
+        return () => window.clearTimeout(t);
       }
-      window.location.replace(photographerAuthUrl("/login"));
+      window.location.replace(photographerLoginUrl({ returnTo }));
       return;
     }
     if (userNeedsEmailVerification(next)) {
       window.location.replace(photographerAuthUrl(verifyEmailPath()));
       return;
     }
-    if (!next.onboardingComplete) {
+    if (!next.onboardingComplete && !isStudioMember(next)) {
       window.location.replace(photographerAuthUrl("/onboarding"));
       return;
     }

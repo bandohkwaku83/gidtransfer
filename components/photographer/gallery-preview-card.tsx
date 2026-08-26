@@ -34,8 +34,8 @@ export function GalleryPreviewCard({
   return (
     <Link
       href={`/dashboard/folder/${folder._id}`}
-      className={`group flex flex-col overflow-hidden border border-zinc-200/80 bg-white shadow-[0_1px_3px_rgba(0,0,0,0.04)] ring-1 ring-zinc-900/[0.03] transition hover:-translate-y-0.5 hover:shadow-md hover:ring-zinc-900/[0.06] dark:border-zinc-800 dark:bg-zinc-950 dark:ring-white/[0.04] ${
-        compact ? "rounded-lg" : "rounded-xl"
+      className={`group flex flex-col overflow-hidden border border-zinc-200/70 bg-white shadow-[0_1px_2px_rgba(0,0,0,0.04)] transition hover:-translate-y-0.5 hover:shadow-[0_10px_28px_-16px_rgba(15,23,42,0.18)] dark:border-zinc-800 dark:bg-zinc-950 ${
+        compact ? "rounded-[1rem]" : "rounded-[1.15rem]"
       }`}
     >
       <div

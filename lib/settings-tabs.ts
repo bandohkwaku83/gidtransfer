@@ -4,7 +4,10 @@ import {
   LifeBuoy,
   SlidersHorizontal,
   UserRound,
+  Users,
 } from "lucide-react";
+import type { AuthUser } from "@/lib/auth-demo";
+import { canManageTeam, canOpen, isOwner } from "@/lib/studio-access";
 
 export const SETTINGS_TABS = [
   {
@@ -12,6 +15,12 @@ export const SETTINGS_TABS = [
     label: "Profile",
     description: "Studio identity, contact details, and account",
     icon: UserRound,
+  },
+  {
+    id: "team",
+    label: "Team",
+    description: "Studio assistants and menu access",
+    icon: Users,
   },
   {
     id: "billing",
@@ -57,4 +66,20 @@ export function activeSettingsTabFromSearch(
   tabParam: string | null | undefined,
 ): SettingsTabId {
   return isSettingsTabId(tabParam) ? tabParam : "profile";
+}
+
+/** Settings tabs visible for the signed-in user (staff never see Billing/Team). */
+export function visibleSettingsTabs(user: AuthUser | null | undefined) {
+  return SETTINGS_TABS.filter((tab) => {
+    if (tab.id === "billing") {
+      return isOwner(user) && canOpen(user, "billing");
+    }
+    if (tab.id === "team") {
+      return canManageTeam(user);
+    }
+    if (!isOwner(user) && !canOpen(user, "settings")) {
+      return false;
+    }
+    return true;
+  });
 }

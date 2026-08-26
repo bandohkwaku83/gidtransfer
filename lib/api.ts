@@ -24,7 +24,7 @@ function s3GalleryMediaToUploadsPath(url: string): string | null {
     const parsed = new URL(url.trim());
     if (!parsed.hostname.includes("amazonaws.com")) return null;
     const match = parsed.pathname.match(
-      /^\/(gallery-photos|gallery-finals|gallery-videos)\/(.+)$/,
+      /^\/(gallery-photos|gallery-finals|gallery-videos|gallery-covers|collaboration-assets|studio-logos)\/(.+)$/,
     );
     if (!match) return null;
     return `/uploads/${match[1]}/${match[2]}${parsed.search}`;
@@ -37,6 +37,10 @@ function s3GalleryMediaToUploadsPath(url: string): string | null {
  * If the URL points at an API host under `/uploads`, return same-origin `/uploads/...`
  * so Next.js can proxy to `BACKEND_API_URL` (see `app/uploads/[...path]/route.ts`).
  * Leaves other absolute URLs unchanged.
+ *
+ * Always rewrite API-host uploads (including gallery-covers): loading
+ * `https://api.../uploads/...` directly from the browser often fails, while
+ * same-origin `/uploads/...` via the Next proxy works in local and production.
  */
 export function sameOriginUploadsUrl(url: string): string {
   const raw = url.trim();
@@ -51,6 +55,10 @@ export function sameOriginUploadsUrl(url: string): string {
   if (/^uploads\//i.test(noProto) && !raw.includes("://")) {
     return `/${noProto}`;
   }
+  // Bare cover paths from some API payloads.
+  if (/^gallery-covers\//i.test(noProto) && !raw.includes("://")) {
+    return `/uploads/${noProto}`;
+  }
   let parsed: URL;
   try {
     parsed = new URL(raw);
@@ -59,9 +67,6 @@ export function sameOriginUploadsUrl(url: string): string {
   }
   const host = parsed.hostname.toLowerCase();
   if (uploadsProxyHostSet().has(host) && parsed.pathname.startsWith("/uploads")) {
-    // Gallery covers are frequently served only by the backend host.
-    // Rewriting them to same-origin `/uploads/*` can yield 404s in production.
-    if (parsed.pathname.startsWith("/uploads/gallery-covers/")) return raw;
     return `${parsed.pathname}${parsed.search}`;
   }
   return raw;
@@ -79,7 +84,6 @@ export function resolveGridThumbUrl(url?: string | null): string | undefined {
       const parsed = new URL(raw);
       const host = parsed.hostname.toLowerCase();
       if (uploadsProxyHostSet().has(host) && parsed.pathname.startsWith("/uploads")) {
-        if (parsed.pathname.startsWith("/uploads/gallery-covers/")) return raw;
         return `${parsed.pathname}${parsed.search}`;
       }
     } catch {

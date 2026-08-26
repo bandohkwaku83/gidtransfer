@@ -3,39 +3,30 @@ import { contactEmail } from "@/lib/marketing/faqs";
 
 export { contactEmail };
 
-export const contactTopics = [
-  { id: "general", label: "General question" },
-  { id: "pricing", label: "Pricing or plans" },
-  { id: "migration", label: "Moving from another tool" },
-  { id: "studio", label: "Studio / team setup" },
-  { id: "support", label: "Help with my account" },
-] as const;
-
-export type ContactTopicId = (typeof contactTopics)[number]["id"];
+/** Public studio phone on the contact page. */
+export const contactPhone = "+233 20 000 0000";
+export const contactPhoneHref = `tel:${contactPhone.replace(/\s+/g, "")}`;
 
 export type ContactFormValues = {
   name: string;
   email: string;
   studio?: string;
-  topic: ContactTopicId;
+  role?: string;
   message: string;
+  scheduleCall: boolean;
 };
 
-export function contactTopicLabel(id: ContactTopicId): string {
-  return contactTopics.find((t) => t.id === id)?.label ?? "General question";
-}
-
 export function buildContactMailto(values: ContactFormValues): string {
-  const topic = contactTopicLabel(values.topic);
-  const subject = `${APP_NAME}: ${topic} — ${values.name.trim() || "inquiry"}`;
+  const subject = `${APP_NAME}: inquiry — ${values.name.trim() || "contact"}`;
   const lines = [
     values.message.trim(),
     "",
     "---",
-    `Topic: ${topic}`,
     `Name: ${values.name.trim()}`,
     `Email: ${values.email.trim()}`,
-    values.studio?.trim() ? `Studio: ${values.studio.trim()}` : null,
+    values.studio?.trim() ? `Studio / company: ${values.studio.trim()}` : null,
+    values.role?.trim() ? `Role: ${values.role.trim()}` : null,
+    values.scheduleCall ? "Prefers: schedule a call instead of email follow-up" : null,
   ].filter(Boolean);
 
   const params = new URLSearchParams({
@@ -44,9 +35,3 @@ export function buildContactMailto(values: ContactFormValues): string {
   });
   return `mailto:${contactEmail}?${params.toString()}`;
 }
-
-export const contactEditorialImage = {
-  src: "/images/gallery-covers/IMG_5566.JPG",
-  alt: "Portrait session in a photography studio",
-  caption: "Studios worldwide deliver with Gidtransfer",
-} as const;

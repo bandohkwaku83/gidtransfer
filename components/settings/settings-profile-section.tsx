@@ -17,6 +17,7 @@ import {
   type DemoAuthUser,
 } from "@/lib/auth-demo";
 import { verifyEmailPath } from "@/lib/auth-api";
+import { studioLogoSrc } from "@/lib/branding";
 import {
   galleriesOverviewDisplay,
   planNameToPlanId,
@@ -160,7 +161,7 @@ export function SettingsProfileSection({
     setWebsite(apiStudio?.website?.trim() ?? studio?.website?.trim() ?? "");
     setLogoDataUrl(
       (apiStudio ? studioLogoUrlFromSettings(apiStudio) : undefined) ??
-        studio?.logoDataUrl,
+        (studio?.logoDataUrl ? studioLogoSrc(studio.logoDataUrl) : undefined),
     );
     setLogoFile(null);
     setClearBrandLogo(false);

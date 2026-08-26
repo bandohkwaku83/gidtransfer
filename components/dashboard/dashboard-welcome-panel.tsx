@@ -84,7 +84,7 @@ export function DashboardWelcomePanel({
         </h1>
 
         <p className="dashboard-hero-tagline">
-          {PRODUCT_TAGLINE} — bookings, proofing, and delivery in one place.
+          {PRODUCT_TAGLINE} — bookings, selections, and delivery in one place.
         </p>
 
         <div className="dashboard-hero-actions">

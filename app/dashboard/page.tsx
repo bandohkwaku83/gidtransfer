@@ -2,20 +2,16 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { ArrowRight, CheckCircle2, Clock3, FolderOpen, Images, Users } from "lucide-react";
-import { DashboardOverviewRow } from "@/components/dashboard/dashboard-overview-row";
-import { DashboardStatCards } from "@/components/dashboard/dashboard-stat-cards";
+import { ArrowRight, Images } from "lucide-react";
+import { DashboardSoftEduQuickAccess } from "@/components/dashboard/dashboard-soft-edu-quick-access";
+import { DashboardSoftEduCalendar } from "@/components/dashboard/dashboard-soft-edu-calendar";
+import { DashboardSoftEduProfile } from "@/components/dashboard/dashboard-soft-edu-profile";
+import { DashboardSoftEduSuccess } from "@/components/dashboard/dashboard-soft-edu-success";
 import { DashboardActivityPanel } from "@/components/dashboard/dashboard-activity-panel";
-import {
-  ChartCardSkeleton,
-  StorageBreakdownCard,
-  WeeklyActivityCard,
-} from "@/components/dashboard/dashboard-charts";
 import { StorageUpgradePrompt } from "@/components/billing/plan-storage-meter";
 import { usePlanEntitlements } from "@/lib/use-plan-entitlements";
 import { galleryLimitLabel, isAtGalleryLimit } from "@/lib/plan-entitlements";
 import { isStorageCapped } from "@/lib/storage-api";
-import type { DashboardStatItem } from "@/components/dashboard/dashboard-stat-strip";
 import type { WeeklyBar } from "@/lib/dashboard-chart-data";
 import {
   activityItemToLabel,
@@ -24,11 +20,14 @@ import {
   DashboardApiError,
   fetchDashboard,
   LIVE_FEED_LIMIT,
+  type DashboardCurrentSelection,
+  type DashboardNewClient,
+  type DashboardSchedule,
   type DashboardStats,
   type DashboardWeeklyActivity,
 } from "@/lib/dashboard-api";
 import { getAuth, getAuthToken } from "@/lib/auth-demo";
-import { CreateClientModal } from "@/components/photographer/create-client-modal";
+import { canOpen } from "@/lib/studio-access";
 import { CreateFolderModal } from "@/components/photographer/create-folder-modal";
 import { GalleryPreviewCard } from "@/components/photographer/gallery-preview-card";
 import {
@@ -39,8 +38,10 @@ import {
 } from "@/lib/folders-api";
 import { resolveFolderCoverSrc } from "@/lib/folders/helpers";
 import { listClients } from "@/lib/clients-api";
+import { listBookings } from "@/lib/bookings-api";
 import { getSettings, getSettingsDefaultCoverUrl } from "@/lib/settings-api";
 import { GalleryCardSkeleton } from "@/components/ui/skeletons";
+import { STUDIO_NAME } from "@/lib/branding";
 
 function firstWordFromName(name: string): string {
   const t = name.trim();
@@ -69,14 +70,17 @@ type ActivityRow = {
   title: string;
   when: string;
   galleryId?: string;
+  href?: string;
   coverUrl?: string | null;
   kind?: "new" | "updated" | "completed" | "selection";
+  action?: string;
+  meta?: string;
+  progressPercent?: number;
 };
 
 export default function DashboardPage() {
   const { plan, openUpgrade, trialExpired } = usePlanEntitlements();
   const [createOpen, setCreateOpen] = useState(false);
-  const [addClientOpen, setAddClientOpen] = useState(false);
   const [folders, setFolders] = useState<ApiFolder[]>([]);
   const [clientCount, setClientCount] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -85,6 +89,9 @@ export default function DashboardPage() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [serverDateIso, setServerDateIso] = useState<string | null>(null);
   const [dashboardActivity, setDashboardActivity] = useState<ActivityRow[]>([]);
+  const [newClients, setNewClients] = useState<DashboardNewClient[]>([]);
+  const [currentSelections, setCurrentSelections] = useState<DashboardCurrentSelection[]>([]);
+  const [schedules, setSchedules] = useState<DashboardSchedule[]>([]);
   const [storageBytes, setStorageBytes] = useState<{
     total: number;
     raws: number;
@@ -102,8 +109,14 @@ export default function DashboardPage() {
 
   useEffect(() => {
     let cancelled = false;
+    // Settings chrome is owner/settings-menu only — avoid MENU_FORBIDDEN for staff.
+    if (!canOpen(getAuth()?.user, "settings")) {
+      return;
+    }
     void getSettings().then((settings) => {
       if (!cancelled) setStudioDefaultCoverUrl(getSettingsDefaultCoverUrl(settings));
+    }).catch(() => {
+      /* optional cover fallback */
     });
     return () => {
       cancelled = true;
@@ -121,22 +134,57 @@ export default function DashboardPage() {
           setServerDateIso(d.serverDate);
           const fromUser = firstWordFromName(d.user.name);
           setGreeting(fromUser || firstNameFromAuth());
-          setFolders(d.recentGalleries.map(dashboardRecentGalleryToApiFolder));
+          setFolders(d.newGalleries.map(dashboardRecentGalleryToApiFolder));
           setClientCount(d.stats.totalClients);
           const clientMap = new Map<string, string>();
-          for (const g of d.recentGalleries) {
+          for (const g of d.newGalleries) {
             if (g.clientId) clientMap.set(g.clientId, g.clientName);
           }
+          for (const c of d.newClients) clientMap.set(c.id, c.name);
           setClientNameById(clientMap);
           setDashboardActivity(
             d.activity.map((a) => ({
-              title: activityItemToLabel(a),
+              title: a.targetName?.trim() || activityItemToLabel(a),
+              action: a.actionLabel?.trim() || a.action,
+              meta: a.clientName,
               when: a.at,
               galleryId: a.galleryId,
               coverUrl: a.thumbnailUrl ?? null,
               kind: a.kind,
             })),
           );
+          setNewClients(d.newClients);
+          setCurrentSelections(d.currentSelections);
+          if (d.schedules.length > 0) {
+            setSchedules(d.schedules);
+          } else {
+            // Fallback when dashboard schedules is empty — use month bookings.
+            const now = new Date();
+            try {
+              const res = await listBookings({
+                year: now.getFullYear(),
+                month: now.getMonth() + 1,
+              });
+              setSchedules(
+                res.bookings.map((b) => ({
+                  id: b._id,
+                  title: b.title,
+                  startsAt: b.startsAt,
+                  endsAt: b.endsAt ?? undefined,
+                  clientName: b.client?.name?.trim() || "Client",
+                  clientId: b.client?._id,
+                  location: b.location?.trim() || undefined,
+                  coordinates: null,
+                  shootType: b.shootType,
+                  category: b.category,
+                  color: b.color,
+                  description: b.description ?? b.notes,
+                })),
+              );
+            } catch {
+              setSchedules([]);
+            }
+          }
           setStorageBytes({
             total: d.storage.total,
             raws: d.storage.raws,
@@ -156,6 +204,9 @@ export default function DashboardPage() {
       setStats(null);
       setServerDateIso(null);
       setDashboardActivity([]);
+      setNewClients([]);
+      setCurrentSelections([]);
+      setSchedules([]);
       setWeeklyFromApi(null);
       const [foldersList, clientsRes] = await Promise.all([
         listFolders().catch(() => [] as ApiFolder[]),
@@ -190,8 +241,7 @@ export default function DashboardPage() {
       else if (s === "SELECTION_PENDING") selectionPending += 1;
       else draft += 1;
     }
-    const inProgress = draft + selectionPending;
-    return { draft, selectionPending, completed, inProgress };
+    return { draft, selectionPending, completed, inProgress: draft + selectionPending };
   }, [folders]);
 
   const displayStats = useMemo(() => {
@@ -207,12 +257,14 @@ export default function DashboardPage() {
   const recentGalleries = useMemo(() => {
     return [...folders]
       .sort((a, b) => {
-        const ta = a.updatedAt ?? a.createdAt ?? "";
-        const tb = b.updatedAt ?? b.createdAt ?? "";
+        const ta = a.createdAt ?? a.updatedAt ?? "";
+        const tb = b.createdAt ?? b.updatedAt ?? "";
         return tb.localeCompare(ta);
       })
       .slice(0, DASHBOARD_HOME_LIST_LIMIT);
   }, [folders]);
+
+  const featuredGallery = recentGalleries[0] ?? null;
 
   const derivedActivity = useMemo(() => {
     return [...folders]
@@ -223,12 +275,16 @@ export default function DashboardPage() {
         const when = updated || created;
         const isLikelyNew =
           created &&
-          (!updated || updated === created || new Date(updated).getTime() - new Date(created).getTime() < 120000);
+          (!updated ||
+            updated === created ||
+            new Date(updated).getTime() - new Date(created).getTime() < 120000);
         return {
-          title: isLikelyNew ? `New gallery, ${displayName}` : `Updated, ${displayName}`,
+          title: displayName,
+          action: isLikelyNew ? "New gallery" : "Updated",
           when,
           galleryId: f._id,
           coverUrl: resolveFolderCoverSrc(f, studioDefaultCoverUrl),
+          kind: (isLikelyNew ? "new" : "updated") as ActivityRow["kind"],
         };
       })
       .filter((a) => a.when)
@@ -249,89 +305,49 @@ export default function DashboardPage() {
     }));
   }, [stats, dashboardActivity, derivedActivity, folders, studioDefaultCoverUrl]);
 
-  const compact = (n: number) => {
-    if (n >= 1000) return `${(n / 1000).toFixed(1).replace(/\.0$/, "")}k`;
-    return String(n);
-  };
+  const selectionRows = useMemo((): ActivityRow[] => {
+    return currentSelections.map((s) => ({
+      title: s.galleryName,
+      action: s.statusLabel || "Selecting",
+      meta: [s.clientName, s.progressLabel].filter(Boolean).join(" · "),
+      when: s.lastSelectedAt || s.updatedAt || "",
+      galleryId: s.galleryId,
+      coverUrl: s.thumbnailUrl ?? null,
+      kind: "selection" as const,
+      progressPercent: s.progressPercent,
+    }));
+  }, [currentSelections]);
 
-  const todayLabel = useMemo(() => {
-    if (serverDateIso) {
-      try {
-        const d = new Date(serverDateIso);
-        if (!Number.isNaN(d.getTime())) {
-          return d.toLocaleDateString(undefined, {
-            weekday: "long",
-            month: "long",
-            day: "numeric",
-          });
-        }
-      } catch {
-        /* ignore */
-      }
-    }
-    return new Date().toLocaleDateString(undefined, {
-      weekday: "long",
-      month: "long",
-      day: "numeric",
-    });
-  }, [serverDateIso]);
+  const clientRows = useMemo((): ActivityRow[] => {
+    return newClients.map((c) => ({
+      title: c.name,
+      action: "New client",
+      meta: [c.location, c.email, c.phone].filter(Boolean).join(" · ") || undefined,
+      when: c.createdAt,
+      href: `/dashboard/clients/${c.id}`,
+      kind: "new" as const,
+    }));
+  }, [newClients]);
 
   const weeklyActivity = useMemo((): WeeklyBar[] => {
     if (weeklyFromApi?.chart.length) return weeklyFromApi.chart;
     return [];
   }, [weeklyFromApi]);
 
-  const activityDeltas = useMemo(() => {
-    if (weeklyFromApi) {
-      return {
-        todayDelta: weeklyFromApi.todayDelta,
-        weekDelta: weeklyFromApi.weekDelta,
-      };
-    }
-    return { todayDelta: 0, weekDelta: 0 };
-  }, [weeklyFromApi]);
-
-  const todayCount = weeklyFromApi?.today ?? 0;
   const weekTotal = weeklyFromApi?.thisWeek ?? weeklyActivity.reduce((sum, bar) => sum + bar.value, 0);
+  const weekDelta = weeklyFromApi?.weekDelta ?? 0;
 
-  const statItems: DashboardStatItem[] = [
-    {
-      label: "Clients",
-      value: compact(displayStats.totalClients),
-      hint: "CRM directory",
-      href: "/dashboard/clients",
-      icon: Users,
-      iconWrap: "bg-brand-soft ring-1 ring-brand/10 dark:bg-brand/15 dark:ring-brand/20",
-      iconColor: "text-brand dark:text-brand-on-dark",
-    },
-    {
-      label: "Galleries",
-      value: compact(displayStats.totalGalleries),
-      hint: "Delivery projects",
-      href: "/dashboard/galleries",
-      icon: FolderOpen,
-      iconWrap: "bg-brand-soft ring-1 ring-brand/10 dark:bg-brand/15 dark:ring-brand/20",
-      iconColor: "text-brand dark:text-brand-on-dark",
-    },
-    {
-      label: "In progress",
-      value: compact(displayStats.inProgressGalleries),
-      hint: "Draft or proofing",
-      href: "/dashboard/galleries",
-      icon: Clock3,
-      iconWrap: "bg-amber-50 ring-1 ring-amber-200/80 dark:bg-amber-950/40 dark:ring-amber-900/50",
-      iconColor: "text-amber-700 dark:text-amber-300",
-    },
-    {
-      label: "Completed",
-      value: compact(displayStats.completedGalleries),
-      hint: "Delivered",
-      href: "/dashboard/galleries",
-      icon: CheckCircle2,
-      iconWrap: "bg-emerald-50 ring-1 ring-emerald-200/80 dark:bg-emerald-950/40 dark:ring-emerald-900/50",
-      iconColor: "text-emerald-700 dark:text-emerald-300",
-    },
-  ];
+  const calendarShoots = useMemo(
+    () =>
+      schedules.map((s) => ({
+        id: s.id,
+        title: s.title,
+        startsAt: s.startsAt,
+        clientName: s.clientName,
+        location: s.location,
+      })),
+    [schedules],
+  );
 
   function formatRelativeTime(iso: string) {
     if (!iso) return "N/A";
@@ -357,29 +373,6 @@ export default function DashboardPage() {
     });
   }
 
-  function formatDateColumn(iso: string) {
-    if (!iso) return "—";
-    const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return "—";
-
-    const ref = serverDateIso ? new Date(serverDateIso) : new Date();
-    const sameDay =
-      d.getFullYear() === ref.getFullYear() &&
-      d.getMonth() === ref.getMonth() &&
-      d.getDate() === ref.getDate();
-    if (sameDay) return "Today";
-
-    const yesterday = new Date(ref);
-    yesterday.setDate(yesterday.getDate() - 1);
-    const isYesterday =
-      d.getFullYear() === yesterday.getFullYear() &&
-      d.getMonth() === yesterday.getMonth() &&
-      d.getDate() === yesterday.getDate();
-    if (isYesterday) return "Yday";
-
-    return d.toLocaleDateString(undefined, { day: "2-digit", month: "2-digit" });
-  }
-
   const activeGalleryCount = stats?.totalGalleries ?? folders.length;
   const galleryLimitReached = isAtGalleryLimit(plan, activeGalleryCount);
 
@@ -399,14 +392,36 @@ export default function DashboardPage() {
     setCreateOpen(true);
   }
 
+  const todayLabel = useMemo(() => {
+    if (serverDateIso) {
+      try {
+        const d = new Date(serverDateIso);
+        if (!Number.isNaN(d.getTime())) {
+          return d.toLocaleDateString(undefined, {
+            weekday: "long",
+            month: "long",
+            day: "numeric",
+          });
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+    return new Date().toLocaleDateString(undefined, {
+      weekday: "long",
+      month: "long",
+      day: "numeric",
+    });
+  }, [serverDateIso]);
+
   return (
-    <div className="dashboard-page space-y-5 pb-6 sm:space-y-6">
-      <DashboardOverviewRow
-        greeting={greeting}
-        todayLabel={todayLabel}
-        onNewGallery={requestNewGallery}
-        onAddClient={() => setAddClientOpen(true)}
-      />
+    <div className="dashboard-page space-y-5 pb-8 sm:space-y-6">
+      <div>
+        <p className="text-xs font-medium tabular-nums text-zinc-400">{todayLabel}</p>
+        <h1 className="mt-1 font-display text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
+          Hi, {greeting}
+        </h1>
+      </div>
 
       <StorageUpgradePrompt
         percent={
@@ -426,80 +441,94 @@ export default function DashboardPage() {
         )}
       />
 
-      <DashboardStatCards items={statItems} loading={loading} />
+      <div className="grid gap-4 lg:grid-cols-12 lg:gap-5">
+        <div className="lg:col-span-5">
+          <DashboardSoftEduQuickAccess
+            onNewGallery={requestNewGallery}
+            totalGalleries={displayStats.totalGalleries}
+            clientCount={displayStats.totalClients}
+            loading={loading}
+          />
+        </div>
+        <div className="lg:col-span-4">
+          <DashboardSoftEduCalendar
+            shoots={calendarShoots}
+            serverDateIso={serverDateIso}
+          />
+        </div>
+        <div className="lg:col-span-3">
+          <DashboardSoftEduProfile
+            folder={featuredGallery}
+            clientNameById={clientNameById}
+            studioDefaultCoverUrl={studioDefaultCoverUrl}
+            studioName={STUDIO_NAME}
+            onNewGallery={requestNewGallery}
+            loading={loading}
+          />
+        </div>
+      </div>
 
-      <div className="grid gap-5 lg:grid-cols-3 lg:gap-6">
-        <DashboardActivityPanel
-          rows={recentActivity}
-          loading={loading}
-          formatRelativeTime={formatRelativeTime}
-          formatDateColumn={formatDateColumn}
-        />
-
-        {loading && !storageBytes ? (
-          <>
-            <ChartCardSkeleton variant="storage" />
-            <ChartCardSkeleton variant="activity" />
-          </>
-        ) : storageBytes ? (
-          <>
-            <StorageBreakdownCard
-              totalBytes={storageBytes.total}
-              raws={storageBytes.raws}
-              selections={storageBytes.selections}
-              finals={storageBytes.finals}
-              planBytes={storageBytes.planBytes || plan?.storageLimitBytes || 0}
-            />
-            <WeeklyActivityCard
-              bars={weeklyActivity}
-              todayCount={todayCount}
-              weekTotal={weekTotal}
-              todayDelta={activityDeltas.todayDelta}
-              weekDelta={activityDeltas.weekDelta}
-            />
-          </>
-        ) : null}
+      <div className="grid gap-4 lg:grid-cols-12 lg:gap-5">
+        <div className="rounded-[1.35rem] bg-white p-5 dark:bg-zinc-950 sm:p-6 lg:col-span-5">
+          <DashboardActivityPanel
+            rows={recentActivity}
+            selectionRows={stats ? selectionRows : undefined}
+            clientRows={stats ? clientRows : undefined}
+            loading={loading}
+            formatRelativeTime={formatRelativeTime}
+          />
+        </div>
+        <div className="lg:col-span-7">
+          <DashboardSoftEduSuccess
+            bars={weeklyActivity}
+            weekTotal={weekTotal}
+            weekDelta={weekDelta}
+            completedGalleries={displayStats.completedGalleries}
+            storageUsed={storageBytes?.total ?? null}
+            storageLimit={storageBytes?.planBytes ?? plan?.storageLimitBytes ?? null}
+            statusLabel={weeklyFromApi?.statusLabel ?? null}
+            loading={loading}
+          />
+        </div>
       </div>
 
       <section>
         <div className="flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <p className="dashboard-section-label">Portfolio</p>
-            <h2 className="mt-1 font-display text-xl font-semibold text-zinc-900 dark:text-zinc-50">
-              Recent galleries
-            </h2>
-          </div>
+          <h2 className="text-lg font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
+            New galleries
+          </h2>
           <Link
             href="/dashboard/galleries"
-            className="inline-flex items-center gap-1 text-sm font-semibold text-brand transition hover:text-brand-hover dark:text-brand-on-dark"
+            className="inline-flex items-center gap-1 text-sm font-semibold text-zinc-500 transition hover:text-zinc-900 dark:hover:text-zinc-100"
           >
             View all
-            <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+            <ArrowRight className="h-3.5 w-3.5" aria-hidden />
           </Link>
         </div>
+
         {loading && recentGalleries.length === 0 ? (
-          <div className="gallery-card-grid-compact mt-5">
+          <div className="gallery-card-grid-compact mt-4">
             {Array.from({ length: DASHBOARD_HOME_LIST_LIMIT }).map((_, i) => (
               <GalleryCardSkeleton key={i} compact />
             ))}
           </div>
         ) : recentGalleries.length === 0 ? (
-          <div className="dashboard-panel mt-5 flex flex-col items-center py-16 text-center">
-            <Images className="h-8 w-8 text-zinc-300 dark:text-zinc-600" aria-hidden="true" />
+          <div className="mt-4 flex flex-col items-center rounded-[1.35rem] bg-white py-14 text-center dark:bg-zinc-950">
+            <Images className="h-8 w-8 text-zinc-300 dark:text-zinc-600" aria-hidden />
             <p className="mt-3 text-sm font-medium text-zinc-700 dark:text-zinc-200">No galleries yet</p>
             <p className="mt-1 max-w-sm text-xs text-zinc-500">
-              Create a client gallery for delivery, proofing, and sharing.
+              Create a client gallery for delivery, selections, and sharing.
             </p>
             <button
               type="button"
               onClick={requestNewGallery}
-              className="dashboard-btn-primary mt-5"
+              className="mt-5 inline-flex items-center justify-center rounded-2xl bg-zinc-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-black dark:bg-zinc-100 dark:text-zinc-950"
             >
               New gallery
             </button>
           </div>
         ) : (
-          <div className="gallery-card-grid-compact mt-5">
+          <div className="gallery-card-grid-compact mt-4">
             {recentGalleries.map((g) => (
               <GalleryPreviewCard
                 key={g._id}
@@ -518,13 +547,6 @@ export default function DashboardPage() {
         onClose={() => setCreateOpen(false)}
         activeGalleryCount={activeGalleryCount}
         onSaved={handleSaved}
-      />
-      <CreateClientModal
-        open={addClientOpen}
-        onClose={() => setAddClientOpen(false)}
-        onSaved={() => {
-          void refresh();
-        }}
       />
     </div>
   );

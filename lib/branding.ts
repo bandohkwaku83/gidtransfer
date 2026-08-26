@@ -1,3 +1,5 @@
+import { sameOriginUploadsUrl } from "@/lib/api";
+
 /** Product identity — workspace + client galleries SaaS. */
 export const APP_NAME = "Gidtransfer";
 
@@ -39,7 +41,14 @@ export const BRAND_RGB: [number, number, number] = [85, 0, 31];
 /** Fallback when a photographer has not uploaded a studio logo. */
 export const DEFAULT_STUDIO_LOGO_PATH = "/svgs/dashboard_logo.svg";
 
+/**
+ * Studio / product logo URL for `<img>` tags.
+ * API-hosted logos (`https://api…/uploads/studio-logos/…`) must be rewritten to
+ * same-origin `/uploads/…` so the Next uploads proxy can serve them locally and in production.
+ */
 export function studioLogoSrc(logo?: string | null): string {
   const trimmed = logo?.trim();
-  return trimmed || DEFAULT_STUDIO_LOGO_PATH;
+  if (!trimmed) return DEFAULT_STUDIO_LOGO_PATH;
+  if (trimmed.startsWith("data:")) return trimmed;
+  return sameOriginUploadsUrl(trimmed) || DEFAULT_STUDIO_LOGO_PATH;
 }

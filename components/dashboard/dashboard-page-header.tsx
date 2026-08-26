@@ -12,11 +12,11 @@ export function DashboardPageHeader({
   children,
   className,
   innerClassName,
-  hideArt = false,
+  hideArt = true,
 }: DashboardPageHeaderProps) {
   return (
     <section className={cn("dashboard-page-header", !hideArt && "dashboard-page-header--with-art", className)}>
-      <div className="dashboard-page-header-glow" aria-hidden />
+      {!hideArt ? <div className="dashboard-page-header-glow" aria-hidden /> : null}
       {!hideArt ? <DashboardPageHeaderArt /> : null}
       <div className={cn("dashboard-page-header-inner", innerClassName)}>{children}</div>
     </section>

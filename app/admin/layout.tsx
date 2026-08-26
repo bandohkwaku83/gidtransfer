@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { AntdRegistry } from "@ant-design/nextjs-registry";
+import { AdminAntdProviders } from "@/components/admin-antd-providers";
 import { AuthProvider } from "@/lib/admin/use-admin-auth";
 import { AdminToastProvider } from "@/lib/admin/use-admin-toast";
 import "./admin.css";
@@ -17,9 +18,11 @@ export default function AdminRootLayout({
   return (
     <div className="admin-app min-h-full bg-[#f4f6f9] font-sans text-slate-900 antialiased">
       <AntdRegistry>
-        <AuthProvider>
-          <AdminToastProvider>{children}</AdminToastProvider>
-        </AuthProvider>
+        <AdminAntdProviders>
+          <AuthProvider>
+            <AdminToastProvider>{children}</AdminToastProvider>
+          </AuthProvider>
+        </AdminAntdProviders>
       </AntdRegistry>
     </div>
   );

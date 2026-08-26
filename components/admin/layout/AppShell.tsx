@@ -10,7 +10,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const { admin, loading } = useAdminAuth();
   const [badges, setBadges] = useState<{
     support?: number;
-    sms?: number;
     trash?: number;
   }>({});
 
@@ -20,7 +19,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       .then((stats) => {
         setBadges({
           support: stats.support.openIssueReports,
-          sms: stats.photographers.pendingSmsSenders,
           trash: stats.galleries.trashed,
         });
       })

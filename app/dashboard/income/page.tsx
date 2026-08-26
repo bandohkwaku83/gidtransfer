@@ -346,7 +346,7 @@ export default function IncomePage() {
         loading={loading}
       />
 
-      <section className="overflow-hidden rounded-2xl border border-zinc-200/90 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
+      <section className="dashboard-panel !overflow-hidden !p-0">
         <div className="border-b border-zinc-100 px-4 py-4 dark:border-zinc-800 sm:px-5">
           <div className="flex items-center justify-between gap-3">
             <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">

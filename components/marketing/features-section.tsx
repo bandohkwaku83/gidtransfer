@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
+import { motion, useInView } from "framer-motion";
 import {
   useEffect,
   useRef,
@@ -12,7 +13,7 @@ import {
   ShowcaseCoverPreview,
   ShowcasePhonePreview,
 } from "@/components/marketing/showcase-cover-preview";
-import { MarketingHeader } from "@/components/marketing/marketing-header";
+import { SectionHeading } from "@/components/marketing/egg/SectionHeading";
 import {
   featureSectionHeaders,
   featureSpotlights,
@@ -96,11 +97,7 @@ function FeaturesHero({ signUpHref, signedIn }: { signUpHref: string; signedIn: 
         </div>
       </div>
 
-      <div className="relative z-20">
-        <MarketingHeader />
-      </div>
-
-      <div className="relative z-10 mx-auto grid min-h-[calc(100svh-5.5rem)] max-w-7xl grid-cols-1 items-stretch px-5 pb-10 pt-8 sm:px-8 sm:pb-12 lg:grid-cols-12 lg:px-12 lg:pb-14 xl:max-w-[90rem] xl:px-14">
+      <div className="relative z-10 mx-auto grid min-h-[calc(100svh-5.5rem)] max-w-7xl grid-cols-1 items-stretch px-5 pt-24 pb-10 sm:px-8 sm:pt-28 sm:pb-12 lg:grid-cols-12 lg:px-12 lg:pb-14 xl:max-w-[90rem] xl:px-14">
         <div className="relative flex flex-col lg:col-span-6 xl:col-span-5">
           {/* Keep the white headline fully inside the photo band */}
           <div className="flex min-h-[calc(58svh-5.5rem)] flex-col justify-end pb-6 sm:min-h-[calc(56svh-5.5rem)] sm:pb-8 lg:pb-10">
@@ -536,72 +533,181 @@ function WhySwitchSection() {
   );
 }
 
-function HowItWorksSection() {
+const howItWorksTabs = featureWorkflowSteps.map((step, i) => {
+  const images = [
+    {
+      src: "/images/how-it-work/photo_2026-08-22_19-10-57.jpg",
+      alt: "Uploading a client gallery",
+    },
+    {
+      src: "/images/how-it-work/photo_2026-08-22_19-11-58.jpg",
+      alt: "Protected gallery previews",
+    },
+    {
+      src: "/images/how-it-work/IMG_7292.JPG",
+      alt: "Sharing a gallery link",
+    },
+    {
+      src: "/images/how-it-work/IMG_7351-2.JPG",
+      alt: "Client proofing selections",
+    },
+    {
+      src: "/images/gallery-covers/WOED0075.JPG",
+      alt: "Delivering final photographs",
+    },
+  ] as const;
+  const image = images[i] ?? images[0]!;
+
+  return {
+    id: step.label.toLowerCase(),
+    label: step.label,
+    title: step.label,
+    body: step.description,
+    image: image.src,
+    alt: image.alt,
+  };
+});
+
+const howEaseOut = [0.22, 1, 0.36, 1] as const;
+
+function HowItWorksPanel({
+  tab,
+  index,
+  onActive,
+}: {
+  tab: (typeof howItWorksTabs)[number];
+  index: number;
+  onActive: (index: number) => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const inView = useInView(ref, {
+    amount: 0.45,
+    margin: "-15% 0px -15% 0px",
+  });
+
+  useEffect(() => {
+    if (inView) onActive(index);
+  }, [inView, index, onActive]);
+
   return (
-    <section id="how-it-works" className="relative scroll-mt-24 overflow-hidden bg-white py-20 sm:py-28">
-      <VerticalSpine />
+    <div
+      id={`how-${tab.id}`}
+      ref={ref}
+      className="grid min-h-[68vh] items-center gap-8 py-2 lg:grid-cols-[1fr_1.05fr] lg:gap-12 xl:gap-16"
+    >
+      <motion.div
+        initial={{ opacity: 0, y: 36 }}
+        whileInView={{ opacity: 1, y: 0 }}
+        viewport={{ once: false, amount: 0.35 }}
+        transition={{ duration: 0.65, ease: howEaseOut }}
+        className="relative mx-auto aspect-[4/5] w-full max-h-[62vh] overflow-hidden rounded-[1.75rem] bg-white/5"
+      >
+        <Image
+          src={tab.image}
+          alt={tab.alt}
+          fill
+          sizes="(max-width: 1024px) 100vw, 40vw"
+          className="object-cover object-[center_18%]"
+          priority={index === 0}
+        />
+      </motion.div>
 
-      <div className="marketing-container relative">
-        <div className="grid gap-12 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.35fr)] lg:gap-16 xl:gap-24">
-          <Reveal className="lg:sticky lg:top-28 lg:self-start">
-            <p className="text-[11px] font-medium uppercase tracking-[0.28em] text-slate-400">
-              How it works
-            </p>
-            <h2 className="mt-3 max-w-sm font-display text-[clamp(1.85rem,3.8vw,2.75rem)] font-normal leading-[1.1] tracking-tight text-slate-900">
-              Five steps from shoot to delivery
-            </h2>
-            <div className="mt-5 h-px w-10 bg-slate-200" aria-hidden />
-            <p className="mt-5 max-w-sm text-sm leading-relaxed text-slate-600 sm:text-base">
-              One gallery workspace. One share link. Proofing and delivery without the zip-file
-              chase.
-            </p>
-          </Reveal>
+      <motion.div
+        initial={{ opacity: 0, y: 24 }}
+        whileInView={{ opacity: 1, y: 0 }}
+        viewport={{ once: false, amount: 0.4 }}
+        transition={{ duration: 0.55, delay: 0.06, ease: howEaseOut }}
+        className="max-w-md"
+      >
+        <p className="mb-3 text-xs tracking-[0.14em] uppercase text-white/45">
+          Step {String(index + 1).padStart(2, "0")}
+        </p>
+        <h3 className="mb-5 font-sans text-2xl font-semibold leading-tight tracking-[-0.02em] text-white md:text-[2.35rem]">
+          {tab.title}
+        </h3>
+        <p className="text-lg leading-relaxed text-white/65">{tab.body}</p>
+      </motion.div>
+    </div>
+  );
+}
 
-          <ol className="relative">
-            <span
-              aria-hidden
-              className="absolute bottom-6 left-[1.15rem] top-6 hidden w-px bg-gradient-to-b from-[#55001F]/25 via-[#D5AE65]/50 to-[#55001F]/15 sm:left-[1.35rem] md:block"
-            />
+function HowItWorksSection() {
+  const [active, setActive] = useState(0);
 
-            {featureWorkflowSteps.map((step, i) => (
-              <Reveal key={step.label} delayMs={i * 60}>
-                <li className="relative grid grid-cols-[auto_minmax(0,1fr)] gap-5 border-b border-slate-200/80 py-7 last:border-b-0 sm:gap-7 sm:py-8 md:grid-cols-[4.5rem_minmax(0,1fr)]">
-                  <div className="relative z-10 flex h-9 w-9 items-center justify-center rounded-full bg-white sm:h-11 sm:w-11">
-                    <span className="font-mono text-[11px] font-semibold tabular-nums tracking-wider text-[#55001F] sm:text-xs">
-                      {String(i + 1).padStart(2, "0")}
-                    </span>
-                    <span
-                      aria-hidden
-                      className="absolute inset-0 rounded-full ring-1 ring-[#55001F]/20"
-                    />
-                    {i === featureWorkflowSteps.length - 1 ? (
-                      <span
-                        aria-hidden
-                        className="absolute inset-[-3px] rounded-full ring-1 ring-[#D5AE65]/45"
-                      />
-                    ) : null}
-                  </div>
+  const scrollToTab = (i: number) => {
+    document
+      .getElementById(`how-${howItWorksTabs[i]!.id}`)
+      ?.scrollIntoView({ behavior: "smooth", block: "center" });
+  };
 
-                  <div className="min-w-0 pt-0.5 sm:pt-1">
-                    <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-                      <h3 className="font-display text-2xl font-medium tracking-tight text-slate-900 sm:text-[1.75rem]">
-                        {step.label}
-                      </h3>
-                      <span
-                        aria-hidden
-                        className="hidden font-mono text-[10px] uppercase tracking-[0.22em] text-[#D5AE65] sm:inline"
-                      >
-                        Step {String(i + 1).padStart(2, "0")}
-                      </span>
-                    </div>
-                    <p className="mt-2 max-w-xl text-sm leading-relaxed text-slate-600 sm:text-[0.95rem]">
-                      {step.description}
-                    </p>
-                  </div>
-                </li>
-              </Reveal>
+  return (
+    <section
+      id="how-it-works"
+      className="relative scroll-mt-24 text-white"
+      style={{ backgroundColor: "#55001F" }}
+    >
+      <div className="marketing-container pt-16 md:pt-24 pb-10 md:pb-14">
+        <SectionHeading
+          tone="dark"
+          align="left"
+          className="!mx-0 !max-w-4xl !text-left [&_h2]:md:text-[2.6rem] [&_h2]:lg:text-[2.8rem]"
+          label="How it works"
+          title="Five steps from shoot to delivery"
+          body="One gallery workspace. One share link. Proofing and delivery without the zip-file chase."
+        />
+      </div>
+
+      <div className="marketing-container pb-24 md:pb-32">
+        <div className="mb-8 flex flex-wrap gap-2 lg:hidden">
+          {howItWorksTabs.map((tab, i) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => scrollToTab(i)}
+              className={`rounded-full px-3.5 py-1.5 text-sm transition ${
+                active === i
+                  ? "bg-white text-[#55001F]"
+                  : "bg-white/10 text-white/70"
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="grid gap-10 lg:grid-cols-[0.72fr_2.1fr] lg:gap-12 xl:gap-16">
+          <aside className="relative hidden lg:block">
+            <nav
+              aria-label="How it works"
+              className="sticky top-[28vh] flex flex-col"
+            >
+              {howItWorksTabs.map((tab, i) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => scrollToTab(i)}
+                  className={`border-b border-white/15 py-5 text-left text-lg transition-colors duration-300 ${
+                    active === i
+                      ? "text-white"
+                      : "text-white/35 hover:text-white/60"
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </nav>
+          </aside>
+
+          <div className="flex flex-col gap-8 md:gap-10 lg:gap-12">
+            {howItWorksTabs.map((tab, i) => (
+              <HowItWorksPanel
+                key={tab.id}
+                tab={tab}
+                index={i}
+                onActive={setActive}
+              />
             ))}
-          </ol>
+          </div>
         </div>
       </div>
     </section>

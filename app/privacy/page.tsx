@@ -1,9 +1,6 @@
 "use client";
 
-import {
-  LegalDocumentSection,
-  LegalHeaderBackdrop,
-} from "@/components/marketing/legal-document-section";
+import { LegalDocumentSection } from "@/components/marketing/legal-document-section";
 import { MarketingFooter } from "@/components/marketing/marketing-footer";
 import { MarketingHeader } from "@/components/marketing/marketing-header";
 import { privacyPolicy } from "@/lib/marketing/legal";
@@ -15,21 +12,17 @@ export default function PrivacyPage() {
         <div className="absolute inset-0 bg-noise opacity-[0.08] mix-blend-multiply" />
       </div>
 
-      <div className="relative">
-        <LegalHeaderBackdrop />
+      <div className="relative z-10">
+        <MarketingHeader />
 
-        <div className="relative z-10">
-          <MarketingHeader />
+        <main>
+          <LegalDocumentSection
+            document={privacyPolicy}
+            alternate={{ label: "Terms of Service", href: "/terms" }}
+          />
+        </main>
 
-          <main>
-            <LegalDocumentSection
-              document={privacyPolicy}
-              alternate={{ label: "Terms of Service", href: "/terms" }}
-            />
-          </main>
-
-          <MarketingFooter />
-        </div>
+        <MarketingFooter />
       </div>
     </div>
   );

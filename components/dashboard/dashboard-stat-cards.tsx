@@ -22,16 +22,13 @@ export function DashboardStatCards({ items, loading }: DashboardStatCardsProps) 
 function StatMiniCard({ item, loading }: { item: DashboardStatItem; loading?: boolean }) {
   const Icon = item.icon;
   const isZero = !loading && item.value === "0";
+  const delta = item.delta;
+  const hasDelta = typeof delta === "number" && delta !== 0;
 
   return (
     <Link href={item.href} className="dashboard-stat-card group">
-      <span className="dashboard-stat-card-glow" aria-hidden />
-
       <div className="dashboard-stat-card-head">
-        <div className="min-w-0">
-          <p className="dashboard-stat-card-title">{item.label}</p>
-          <p className="dashboard-stat-card-hint">{item.hint}</p>
-        </div>
+        <p className="dashboard-stat-card-title">{item.label}</p>
         <span className={cn("dashboard-stat-card-icon", item.iconWrap)}>
           <Icon className={cn("h-3.5 w-3.5", item.iconColor)} strokeWidth={1.75} aria-hidden />
         </span>
@@ -41,14 +38,33 @@ function StatMiniCard({ item, loading }: { item: DashboardStatItem; loading?: bo
         {loading ? (
           <span className="dashboard-stat-card-value-skeleton" aria-hidden />
         ) : (
-          <p
-            className={cn(
-              "dashboard-stat-card-value",
-              isZero && "text-zinc-300 dark:text-zinc-600",
+          <div className="flex items-end justify-between gap-2">
+            <p
+              className={cn(
+                "dashboard-stat-card-value",
+                isZero && "text-zinc-300 dark:text-zinc-600",
+              )}
+            >
+              {item.value}
+            </p>
+            {hasDelta ? (
+              <span
+                className={cn(
+                  "mb-0.5 shrink-0 text-[11px] font-semibold tabular-nums",
+                  delta! > 0
+                    ? "text-emerald-600 dark:text-emerald-400"
+                    : "text-red-500 dark:text-red-400",
+                )}
+              >
+                {delta! > 0 ? "+" : ""}
+                {delta}
+              </span>
+            ) : (
+              <span className="mb-0.5 truncate text-[11px] text-zinc-400 dark:text-zinc-500">
+                {item.hint}
+              </span>
             )}
-          >
-            {item.value}
-          </p>
+          </div>
         )}
       </div>
     </Link>

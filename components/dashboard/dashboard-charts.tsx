@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowRight, CheckCircle2, ChevronDown } from "lucide-react";
+import { ArrowRight, CheckCircle2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   formatBytesShort,
@@ -71,7 +71,7 @@ function formatDelta(value: number): string {
 function DeltaBadge({ delta }: { delta: number }) {
   if (delta === 0) {
     return (
-      <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
+      <span className="rounded-md bg-zinc-100 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
         0
       </span>
     );
@@ -80,7 +80,7 @@ function DeltaBadge({ delta }: { delta: number }) {
   return (
     <span
       className={cn(
-        "rounded-full px-2 py-0.5 text-[11px] font-semibold tabular-nums",
+        "rounded-md px-2 py-0.5 text-[11px] font-semibold tabular-nums",
         positive
           ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300"
           : "bg-red-50 text-red-600 dark:bg-red-950/40 dark:text-red-300",
@@ -208,93 +208,38 @@ export function StorageBreakdownCard({
     dominant && total > 0 ? Math.round((dominant.bytes / total) * 100) : 0;
 
   return (
-    <div className={cn(cardClass, "min-h-[320px]")}>
+    <div className={cn(cardClass, "min-h-[280px]")}>
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h3 className="text-base font-semibold text-zinc-900 dark:text-zinc-50">
-            Storage breakdown
+          <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
+            Storage
           </h3>
-          <p className="mt-0.5 text-sm text-zinc-500">
+          <p className="mt-0.5 text-xs text-zinc-500">
             {dominant ? dominant.label : "Proofs, selected & finals"}
           </p>
         </div>
         {href ? (
-          <Link href={href} className="dashboard-icon-btn" aria-label="Open storage">
-            <ArrowRight className="h-4 w-4" aria-hidden />
+          <Link
+            href={href}
+            className="text-xs font-semibold text-brand transition hover:text-brand-hover dark:text-brand-on-dark"
+          >
+            Details
           </Link>
         ) : null}
       </div>
 
-      <p className="mt-5 font-display text-[2rem] font-medium leading-none tabular-nums tracking-tight text-[#3D4D48] dark:text-zinc-100">
+      <p className="mt-4 font-display text-[1.75rem] font-medium leading-none tabular-nums tracking-tight text-zinc-900 dark:text-zinc-100">
         {formatBytesShort(totalBytes)}
       </p>
-      <p className="mt-2 text-sm text-zinc-500">
+      <p className="mt-1.5 text-xs text-zinc-500">
         {dominant
           ? `${dominant.label} are ${dominantPct}% of total storage`
           : "No storage data yet"}
       </p>
 
-      <div className="mt-auto flex flex-1 flex-col justify-end pt-6">
+      <div className="mt-auto flex flex-1 flex-col justify-end pt-4">
         <SemiCircularGauge percent={planPct} />
       </div>
-    </div>
-  );
-}
-
-function WeeklyActivityAreaChart({ bars }: { bars: WeeklyBar[] }) {
-  const width = 400;
-  const height = 140;
-  const padX = 4;
-  const padY = 12;
-  const innerW = width - padX * 2;
-  const innerH = height - padY * 2;
-  const max = Math.max(1, ...bars.map((b) => b.value));
-
-  const points = bars.map((bar, i) => {
-    const x = padX + (i / Math.max(1, bars.length - 1)) * innerW;
-    const y = padY + innerH - (bar.value / max) * innerH;
-    return { x, y, bar };
-  });
-
-  const linePath =
-    points.length > 0
-      ? points
-          .map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`)
-          .join(" ")
-      : "";
-
-  const areaPath =
-    points.length > 0
-      ? `${linePath} L ${points[points.length - 1]!.x} ${height} L ${points[0]!.x} ${height} Z`
-      : "";
-
-  return (
-    <div className="mt-5 w-full" role="img" aria-label="Gallery activity over the last 7 days">
-      <svg
-        viewBox={`0 0 ${width} ${height}`}
-        preserveAspectRatio="none"
-        className="block h-[140px] w-full"
-        aria-hidden
-      >
-        <defs>
-          <linearGradient id="weekly-activity-fill" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#a1a1aa" stopOpacity={0.35} />
-            <stop offset="100%" stopColor="#a1a1aa" stopOpacity={0} />
-          </linearGradient>
-        </defs>
-        {areaPath ? <path d={areaPath} fill="url(#weekly-activity-fill)" stroke="none" /> : null}
-        {linePath ? (
-          <path
-            d={linePath}
-            fill="none"
-            stroke="#52525b"
-            strokeWidth={2.5}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className="dark:stroke-zinc-300"
-          />
-        ) : null}
-      </svg>
     </div>
   );
 }
@@ -305,6 +250,7 @@ export type WeeklyActivityCardProps = {
   weekTotal: number;
   todayDelta: number;
   weekDelta: number;
+  highlightDateKey?: string;
 };
 
 export function WeeklyActivityCard({
@@ -313,39 +259,38 @@ export function WeeklyActivityCard({
   weekTotal,
   todayDelta,
   weekDelta,
+  highlightDateKey,
 }: WeeklyActivityCardProps) {
   const onTrack = weekDelta >= 0;
+  const highlightKey =
+    highlightDateKey ?? (bars.length > 0 ? bars[bars.length - 1]!.dateKey : undefined);
 
   return (
     <div className={cn(cardClass, "min-h-[320px]")}>
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <h3 className="text-base font-semibold text-zinc-900 dark:text-zinc-50">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
             Weekly activity
           </h3>
-          <span className="inline-flex items-center gap-1 text-xs font-medium text-zinc-500">
-            <CheckCircle2
-              className={cn(
-                "h-3.5 w-3.5",
-                onTrack ? "text-emerald-500" : "text-amber-500",
-              )}
-              aria-hidden
-            />
-            {onTrack ? "On track" : "Slower week"}
-          </span>
+          <p className="mt-0.5 text-xs text-zinc-500">
+            By keeping track of activity, you can see how delivery is trending.
+          </p>
         </div>
-        <button
-          type="button"
-          className="inline-flex items-center gap-1 rounded-lg border border-zinc-200 bg-white px-2.5 py-1 text-xs font-medium text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
-          aria-label="Activity period: weekly"
+        <span
+          className={cn(
+            "inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold",
+            onTrack
+              ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
+              : "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300",
+          )}
         >
-          Weekly
-          <ChevronDown className="h-3 w-3 opacity-60" aria-hidden />
-        </button>
+          <CheckCircle2 className="h-3 w-3" aria-hidden />
+          {onTrack ? "On track" : "Slower week"}
+        </span>
       </div>
 
-      <div className="mt-5 grid grid-cols-2 gap-3">
-        <div className="rounded-xl border border-zinc-200/80 bg-white px-3.5 py-3 shadow-[0_1px_6px_-2px_rgba(15,23,42,0.06)] dark:border-zinc-800/80 dark:bg-zinc-950">
+      <div className="mt-5 grid grid-cols-2 gap-3 sm:max-w-xs">
+        <div className="rounded-xl border border-zinc-100 bg-zinc-50/60 px-3.5 py-3 dark:border-zinc-800 dark:bg-zinc-900/40">
           <p className="text-xs font-medium text-zinc-500">Today</p>
           <div className="mt-1.5 flex items-center justify-between gap-2">
             <span className="font-display text-2xl font-medium tabular-nums text-zinc-900 dark:text-zinc-50">
@@ -354,7 +299,7 @@ export function WeeklyActivityCard({
             <DeltaBadge delta={todayDelta} />
           </div>
         </div>
-        <div className="rounded-xl border border-zinc-200/80 bg-white px-3.5 py-3 shadow-[0_1px_6px_-2px_rgba(15,23,42,0.06)] dark:border-zinc-800/80 dark:bg-zinc-950">
+        <div className="rounded-xl border border-zinc-100 bg-zinc-50/60 px-3.5 py-3 dark:border-zinc-800 dark:bg-zinc-900/40">
           <p className="text-xs font-medium text-zinc-500">This week</p>
           <div className="mt-1.5 flex items-center justify-between gap-2">
             <span className="font-display text-2xl font-medium tabular-nums text-zinc-900 dark:text-zinc-50">
@@ -365,7 +310,9 @@ export function WeeklyActivityCard({
         </div>
       </div>
 
-      <WeeklyActivityAreaChart bars={bars} />
+      <div className="mt-6">
+        <WeeklyActivityChart bars={bars} highlightDateKey={highlightKey} />
+      </div>
     </div>
   );
 }
@@ -492,47 +439,73 @@ function ChartLegend({
   );
 }
 
-export function WeeklyActivityChart({ bars }: { bars: WeeklyBar[] }) {
+export function WeeklyActivityChart({
+  bars,
+  highlightDateKey,
+}: {
+  bars: WeeklyBar[];
+  highlightDateKey?: string;
+}) {
   const max = Math.max(1, ...bars.map((b) => b.value));
-  const chartH = 120;
+  const chartH = 140;
+  const highlightIdx = highlightDateKey
+    ? bars.findIndex((b) => b.dateKey === highlightDateKey)
+    : -1;
 
   return (
-    <div
-      className="flex items-end justify-between gap-1.5 sm:gap-2"
-      style={{ height: chartH }}
-      role="img"
-      aria-label="Gallery activity over the last 7 days"
-    >
-      {bars.map((bar) => {
-        const h = bar.value === 0 ? 4 : Math.max(8, (bar.value / max) * chartH);
-        return (
-          <div key={bar.dateKey} className="group flex flex-1 flex-col items-center gap-2">
-            <span className="text-[10px] font-medium tabular-nums text-zinc-400 opacity-0 transition group-hover:opacity-100">
-              {bar.value || ""}
-            </span>
-            <div className="flex w-full flex-1 items-end justify-center">
-              <ActivityBar h={h} bar={bar} />
+    <div className="w-full" role="img" aria-label="Gallery activity over the last 7 days">
+      <div
+        className="relative flex items-end justify-between gap-1.5 sm:gap-2"
+        style={{ height: chartH }}
+      >
+        {bars.map((bar, idx) => {
+          const h = bar.value === 0 ? 6 : Math.max(12, (bar.value / max) * chartH);
+          const highlighted = idx === highlightIdx;
+          return (
+            <div key={bar.dateKey} className="group relative flex flex-1 flex-col items-center gap-2">
+              {highlighted && bar.value > 0 ? (
+                <span className="absolute -top-7 z-10 whitespace-nowrap rounded-lg bg-brand px-2 py-0.5 text-[10px] font-semibold text-white shadow-sm dark:bg-brand/90">
+                  {bar.value} event{bar.value === 1 ? "" : "s"}
+                </span>
+              ) : (
+                <span className="text-[10px] font-medium tabular-nums text-zinc-400 opacity-0 transition group-hover:opacity-100">
+                  {bar.value || ""}
+                </span>
+              )}
+              <div className="flex w-full flex-1 items-end justify-center">
+                <div
+                  className={cn(
+                    "relative w-full max-w-[36px] rounded-t-xl transition-colors duration-300",
+                    highlighted
+                      ? "bg-brand dark:bg-brand/80"
+                      : bar.value > 0
+                        ? "bg-zinc-200 group-hover:bg-zinc-300 dark:bg-zinc-700 dark:group-hover:bg-zinc-600"
+                        : "bg-zinc-100 dark:bg-zinc-800/80",
+                  )}
+                  style={{ height: h }}
+                  title={`${bar.label}: ${bar.value} event${bar.value === 1 ? "" : "s"}`}
+                >
+                  {highlighted ? (
+                    <span
+                      className="absolute -top-1.5 left-1/2 h-2.5 w-2.5 -translate-x-1/2 rounded-full bg-brand ring-2 ring-white dark:ring-zinc-950"
+                      aria-hidden
+                    />
+                  ) : null}
+                </div>
+              </div>
+              <span
+                className={cn(
+                  "text-[10px] font-medium",
+                  highlighted ? "font-semibold text-brand dark:text-brand-on-dark" : "text-zinc-500",
+                )}
+              >
+                {bar.label}
+              </span>
             </div>
-            <span className="text-[10px] font-medium text-zinc-500">{bar.label}</span>
-          </div>
-        );
-      })}
+          );
+        })}
+      </div>
     </div>
-  );
-}
-
-function ActivityBar({ h, bar }: { h: number; bar: WeeklyBar }) {
-  return (
-    <div
-      className={cn(
-        "w-full max-w-[28px] rounded-t-md bg-gradient-to-t transition-all duration-300",
-        bar.value > 0
-          ? "from-brand/70 to-brand shadow-sm shadow-brand/20 group-hover:from-brand group-hover:to-brand-hover"
-          : "from-zinc-200 to-zinc-100 dark:from-zinc-800 dark:to-zinc-800/60",
-      )}
-      style={{ height: h }}
-      title={`${bar.label}: ${bar.value} event${bar.value === 1 ? "" : "s"}`}
-    />
   );
 }
 
@@ -552,7 +525,7 @@ export function ChartCardSkeleton({ variant = "storage" }: { variant?: "storage"
             />
           ))}
         </div>
-        <div className="mt-5 h-[140px] animate-pulse rounded-xl bg-zinc-100 dark:bg-zinc-800/60" />
+        <div className="mt-6 h-[168px] animate-pulse rounded-xl bg-zinc-100 dark:bg-zinc-800/60" />
       </div>
     );
   }

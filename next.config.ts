@@ -124,6 +124,10 @@ const nextConfig: NextConfig = {
         // Static marketing assets in `public/images/`.
         pathname: "/images/**",
       },
+      {
+        // Brand / product SVGs in `public/svgs/`.
+        pathname: "/svgs/**",
+      },
     ],
   },
   /** LAN / alternate hostnames that may load the dev server (HMR, dev endpoints). */
@@ -182,6 +186,11 @@ const nextConfig: NextConfig = {
       {
         source: "/dashboard/settings/billing/callback",
         destination: "/billing/callback",
+        permanent: false,
+      },
+      {
+        source: "/settings/team",
+        destination: "/dashboard/settings?tab=team",
         permanent: false,
       },
     ];

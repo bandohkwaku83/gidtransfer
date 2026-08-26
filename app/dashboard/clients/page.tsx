@@ -215,7 +215,7 @@ export default function ClientsPage() {
           </div>
 
           {loading ? (
-            <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
+            <div className="dashboard-panel !overflow-hidden !p-0">
               <div className="space-y-0 divide-y divide-zinc-100 dark:divide-zinc-800">
                 {Array.from({ length: 5 }).map((_, i) => (
                   <div
@@ -252,7 +252,7 @@ export default function ClientsPage() {
               </button>
             </div>
           ) : (
-            <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
+            <div className="dashboard-panel !overflow-hidden !p-0">
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[640px] text-left text-sm">
                   <thead>

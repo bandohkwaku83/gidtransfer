@@ -23,11 +23,31 @@ export type PhotographerStudioProfile = {
 
 export type AuthProvider = "email" | "google" | "apple";
 
+/** Studio account: owner (lead photographer) or staff member. */
+export type AuthAccountType = "owner" | "member";
+
+export type StudioMembership = {
+  id: string;
+  studioOwnerId: string;
+  userId: string;
+  email: string;
+  displayName: string;
+  role: "admin" | "editor" | "viewer" | string;
+  menuKeys: string[];
+  status: "active" | "disabled" | string;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
 export type AuthUser = {
   _id: string;
   email: string;
   name: string;
   role: string;
+  /** Defaults to owner when omitted (legacy sessions). */
+  accountType?: AuthAccountType;
+  studioOwnerId?: string;
+  membership?: StudioMembership;
   createdAt?: string;
   updatedAt?: string;
   onboardingComplete?: boolean;

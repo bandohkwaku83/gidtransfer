@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   createContext,
   useCallback,
@@ -15,7 +15,7 @@ import {
 import { PlanQuotaMeters } from "@/components/billing/plan-storage-meter";
 import { readVideoUsage, rememberVideoUsage } from "@/lib/video-usage";
 import { TrialActiveBanner, TrialExpiredWall } from "@/components/billing/trial-gate";
-import { getAuth, logout } from "@/lib/auth-demo";
+import { getAuth, logout, type AuthUser } from "@/lib/auth-demo";
 import { APP_NAME, STUDIO_NAME, studioLogoSrc } from "@/lib/branding";
 import { fetchStorage, storageUsagePercent, type StorageSummary } from "@/lib/storage-api";
 import { photographerSignOutUrl } from "@/lib/studio-url";
@@ -27,6 +27,7 @@ import { useDashboardUiTheme } from "@/components/dashboard-ui-theme";
 import { NotificationsBell } from "@/components/photographer/notifications-bell";
 import {
   CalendarDays,
+  FolderKanban,
   GalleryHorizontal,
   HardDrive,
   LayoutGrid,
@@ -44,11 +45,19 @@ import {
 } from "lucide-react";
 import { SettingsSidebarNav } from "@/components/photographer/settings-sidebar-nav";
 import { SidebarCollapseContext } from "@/components/photographer/sidebar-collapse-context";
+import {
+  canAccessPath,
+  canOpen,
+  firstAllowedHref,
+  isOwner,
+  type StudioMenuKey,
+} from "@/lib/studio-access";
 
 type ShellNavItem = {
   href: string;
   label: string;
   icon: LucideIcon;
+  menuKey: StudioMenuKey | null;
   isActive: (pathname: string) => boolean;
 };
 
@@ -65,9 +74,7 @@ const sidebarAccentClass = {
   text: "text-[#55001F] dark:text-[#e899b0]",
   border: "border-[#55001F] dark:border-[#e899b0]",
   bgSoft: "bg-[#55001F]/10 dark:bg-[#55001F]/15",
-  bgSoftMedium: "bg-[#55001F]/15 dark:bg-[#55001F]/25",
   bgSolid: "bg-[#55001F]",
-  shadowMd: "shadow-md shadow-[#55001F]/25",
 } as const;
 
 function SidebarBrandIcon({
@@ -97,6 +104,7 @@ const NAV_OVERVIEW: ShellNavItem[] = [
     href: "/dashboard",
     label: "Dashboard",
     icon: LayoutGrid,
+    menuKey: "dashboard",
     isActive: (p) => p === "/dashboard",
   },
 ];
@@ -106,18 +114,21 @@ const NAV_CLIENT_WORK: ShellNavItem[] = [
     href: "/dashboard/clients",
     label: "Clients",
     icon: Users,
+    menuKey: "clients",
     isActive: (p) => p.startsWith("/dashboard/clients"),
   },
   {
     href: "/dashboard/schedules",
     label: "Bookings",
     icon: CalendarDays,
+    menuKey: "bookings",
     isActive: (p) => p.startsWith("/dashboard/schedules"),
   },
   {
     href: "/dashboard/income",
     label: "Income",
     icon: Wallet,
+    menuKey: "income",
     isActive: (p) => p.startsWith("/dashboard/income"),
   },
 ];
@@ -127,6 +138,7 @@ const NAV_GALLERIES: ShellNavItem[] = [
     href: "/dashboard/galleries",
     label: "Galleries",
     icon: GalleryHorizontal,
+    menuKey: "galleries",
     isActive: (p) =>
       (p.startsWith("/dashboard/galleries") && !p.startsWith("/dashboard/galleries/trash")) ||
       p.startsWith("/dashboard/folder"),
@@ -135,25 +147,44 @@ const NAV_GALLERIES: ShellNavItem[] = [
     href: "/dashboard/galleries/trash",
     label: "Trash",
     icon: Trash2,
+    menuKey: "trash",
     isActive: (p) => p.startsWith("/dashboard/galleries/trash"),
   },
 ];
 
 const NAV_STUDIO: ShellNavItem[] = [
   {
+    href: "/collaborations",
+    label: "Collaborations",
+    icon: FolderKanban,
+    menuKey: "collaborations",
+    isActive: (p) => p.startsWith("/collaborations"),
+  },
+  {
     href: "/dashboard/storage",
     label: "Storage",
     icon: HardDrive,
+    menuKey: "storage",
     isActive: (p) => p.startsWith("/dashboard/storage"),
   },
   {
     href: "/dashboard/sms",
     label: "SMS",
     icon: MessageSquare,
+    menuKey: null,
     isActive: (p) => p.startsWith("/dashboard/sms"),
   },
 ];
 
+function filterNavItems(items: ShellNavItem[], user: AuthUser | null | undefined): ShellNavItem[] {
+  return items.filter((item) => {
+    if (item.menuKey == null) {
+      // Owner-only chrome (e.g. SMS) — staff never see it.
+      return isOwner(user);
+    }
+    return canOpen(user, item.menuKey);
+  });
+}
 type SearchCtx = {
   query: string;
   setQuery: (q: string) => void;
@@ -196,20 +227,24 @@ function NavLink({
       aria-label={collapsed ? label : undefined}
       aria-current={active ? "page" : undefined}
       className={cn(
-        "group relative flex items-center rounded-xl text-[13px] transition-all duration-200",
+        "group relative flex items-center rounded-xl text-[13px] transition-colors duration-150",
         collapsed ? "h-10 w-10 justify-center" : "h-10 w-full gap-2.5 px-2.5",
         active
           ? collapsed
-            ? cn(sidebarAccentClass.bgSolid, "text-white", sidebarAccentClass.shadowMd)
-            : cn(
-                "border-l-[3px] pl-2",
-                sidebarAccentClass.border,
-                sidebarAccentClass.bgSoft,
-                sidebarAccentClass.text,
-              )
-          : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800/70 dark:hover:text-zinc-100",
+            ? cn(sidebarAccentClass.bgSolid, "text-white")
+            : cn(sidebarAccentClass.bgSoft, sidebarAccentClass.text)
+          : "text-zinc-600 hover:bg-zinc-100/80 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800/60 dark:hover:text-zinc-100",
       )}
     >
+      {active && !collapsed ? (
+        <span
+          className={cn(
+            "absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full",
+            sidebarAccentClass.bgSolid,
+          )}
+          aria-hidden
+        />
+      ) : null}
       <span
         className={cn(
           "flex shrink-0 items-center justify-center rounded-lg transition-colors",
@@ -217,7 +252,7 @@ function NavLink({
           active
             ? collapsed
               ? "text-white [&>svg]:stroke-[2]"
-              : cn(sidebarAccentClass.bgSoftMedium, sidebarAccentClass.text, "[&>svg]:stroke-[2]")
+              : cn(sidebarAccentClass.text, "[&>svg]:stroke-[2]")
             : "text-zinc-500 group-hover:text-zinc-700 dark:text-zinc-400 dark:group-hover:text-zinc-200",
           "[&>svg]:h-[17px] [&>svg]:w-[17px] [&>svg]:stroke-[1.75]",
         )}
@@ -267,18 +302,48 @@ function SidebarSectionDivider() {
 
 export function PhotographerShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
   const { darkUi } = useDashboardUiTheme();
   const [query, setQuery] = useState("");
   const searchValue = useMemo(() => ({ query, setQuery }), [query]);
 
-  const studio = useMemo(() => getAuth()?.user?.studio, []);
+  const authUser = getAuth()?.user ?? null;
+  const authUserId = authUser?._id ?? "";
+  const accountType = authUser?.accountType ?? "owner";
+  const menuKeysKey = (authUser?.membership?.menuKeys ?? []).join(",");
+  const studio = authUser?.studio;
   const brandTitle = studio?.companyName?.trim() || STUDIO_NAME;
   const { plan, trialExpired, trialActive, can } = usePlanEntitlements();
   const allowThroughTrialWall =
     pathname.startsWith("/dashboard/settings") || pathname.startsWith("/billing");
   const [storageSummary, setStorageSummary] = useState<StorageSummary | null>(null);
+  const [menuDenied, setMenuDenied] = useState(false);
+
+  const navOverview = filterNavItems(NAV_OVERVIEW, authUser);
+  const navClientWork = filterNavItems(NAV_CLIENT_WORK, authUser);
+  const navGalleries = filterNavItems(NAV_GALLERIES, authUser);
+  const navStudio = filterNavItems(NAV_STUDIO, authUser);
+  const showSettingsNav = isOwner(authUser) || canOpen(authUser, "settings");
+  const canFetchStorage = canOpen(authUser, "storage");
 
   useEffect(() => {
+    const search = typeof window !== "undefined" ? window.location.search : "";
+    if (!canAccessPath(authUser, pathname, search)) {
+      setMenuDenied(true);
+      const home = firstAllowedHref(authUser);
+      if (`${pathname}${search}` !== home) {
+        router.replace(home);
+      }
+      return;
+    }
+    setMenuDenied(false);
+  }, [accountType, authUser, authUserId, menuKeysKey, pathname, router]);
+
+  useEffect(() => {
+    if (!canFetchStorage) {
+      setStorageSummary(null);
+      return;
+    }
     let cancelled = false;
     void fetchStorage()
       .then((data) => {
@@ -300,7 +365,7 @@ export function PhotographerShell({ children }: { children: React.ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [plan?.planId]);
+  }, [canFetchStorage, plan?.planId]);
 
   const email = getAuth()?.email ?? "doe@gmail.com";
   const planName = plan?.planName ?? storageSummary?.planName;
@@ -400,81 +465,99 @@ export function PhotographerShell({ children }: { children: React.ReactNode }) {
 
   const sidebarSections = (onNavigate?: () => void, inDrawer = false) => (
     <>
-      <NavSection title="Overview">
-        {NAV_OVERVIEW.map((item) => (
-          <NavLink
-            key={item.href}
-            href={item.href}
-            label={item.label}
-            icon={<item.icon aria-hidden="true" />}
-            active={item.isActive(pathname)}
-            onNavigate={onNavigate}
-          />
-        ))}
-      </NavSection>
+      {navOverview.length > 0 ? (
+        <NavSection title="Overview">
+          {navOverview.map((item) => (
+            <NavLink
+              key={item.href}
+              href={item.href}
+              label={item.label}
+              icon={<item.icon aria-hidden="true" />}
+              active={item.isActive(pathname)}
+              onNavigate={onNavigate}
+            />
+          ))}
+        </NavSection>
+      ) : null}
 
-      {collapsed ? <SidebarSectionDivider /> : null}
+      {collapsed && navOverview.length > 0 && navClientWork.length > 0 ? (
+        <SidebarSectionDivider />
+      ) : null}
 
-      <NavSection title="Clients & bookings">
-        {NAV_CLIENT_WORK.map((item) => (
-          <NavLink
-            key={item.href}
-            href={item.href}
-            label={item.label}
-            icon={<item.icon aria-hidden="true" />}
-            active={item.isActive(pathname)}
-            onNavigate={onNavigate}
-          />
-        ))}
-      </NavSection>
+      {navClientWork.length > 0 ? (
+        <NavSection title="Clients & bookings">
+          {navClientWork.map((item) => (
+            <NavLink
+              key={item.href}
+              href={item.href}
+              label={item.label}
+              icon={<item.icon aria-hidden="true" />}
+              active={item.isActive(pathname)}
+              onNavigate={onNavigate}
+            />
+          ))}
+        </NavSection>
+      ) : null}
 
-      {collapsed ? <SidebarSectionDivider /> : null}
+      {collapsed && navClientWork.length > 0 && navGalleries.length > 0 ? (
+        <SidebarSectionDivider />
+      ) : null}
 
-      <NavSection title="Client galleries">
-        {NAV_GALLERIES.map((item) => (
-          <NavLink
-            key={item.href}
-            href={item.href}
-            label={item.label}
-            icon={<item.icon aria-hidden="true" />}
-            active={item.isActive(pathname)}
-            onNavigate={onNavigate}
-          />
-        ))}
-      </NavSection>
+      {navGalleries.length > 0 ? (
+        <NavSection title="Client galleries">
+          {navGalleries.map((item) => (
+            <NavLink
+              key={item.href}
+              href={item.href}
+              label={item.label}
+              icon={<item.icon aria-hidden="true" />}
+              active={item.isActive(pathname)}
+              onNavigate={onNavigate}
+            />
+          ))}
+        </NavSection>
+      ) : null}
 
-      {collapsed ? <SidebarSectionDivider /> : null}
+      {collapsed && navGalleries.length > 0 && navStudio.length > 0 ? (
+        <SidebarSectionDivider />
+      ) : null}
 
-      <NavSection title="Studio">
-        {NAV_STUDIO.map((item) => (
-          <NavLink
-            key={item.href}
-            href={item.href}
-            label={item.label}
-            icon={<item.icon aria-hidden="true" />}
-            active={item.isActive(pathname)}
-            onNavigate={onNavigate}
-          />
-        ))}
-      </NavSection>
+      {navStudio.length > 0 ? (
+        <NavSection title="Studio">
+          {navStudio.map((item) => (
+            <NavLink
+              key={item.href}
+              href={item.href}
+              label={item.label}
+              icon={<item.icon aria-hidden="true" />}
+              active={item.isActive(pathname)}
+              onNavigate={onNavigate}
+            />
+          ))}
+        </NavSection>
+      ) : null}
 
-      {collapsed ? <SidebarSectionDivider /> : null}
+      {collapsed && (navStudio.length > 0 || navGalleries.length > 0) && showSettingsNav ? (
+        <SidebarSectionDivider />
+      ) : null}
 
-      <NavSection title="Account">
-        <SettingsSidebarNav onNavigate={onNavigate} inDrawer={inDrawer} />
-      </NavSection>
+      {showSettingsNav ? (
+        <NavSection title="Account">
+          <SettingsSidebarNav onNavigate={onNavigate} inDrawer={inDrawer} />
+        </NavSection>
+      ) : null}
     </>
   );
 
   return (
     <SearchContext.Provider value={searchValue}>
       <div className={cn("dashboard-theme", darkUi && "dark")}>
-        <div className="relative flex min-h-screen bg-[#f4f4f5] text-zinc-900 dark:bg-[#0a0a0a] dark:text-zinc-50">
+        <div className="relative flex min-h-screen bg-[#f6f6f7] text-zinc-900 dark:bg-[#0a0a0a] dark:text-zinc-50">
           <SidebarCollapseContext.Provider value={collapsed}>
             <div className="hidden shrink-0 p-3 lg:sticky lg:top-0 lg:block lg:self-start lg:p-4">
               <aside
                 className={cn(
-                  "flex h-[calc(100dvh-2rem)] flex-col overflow-hidden rounded-2xl border border-zinc-200/80 bg-white/95 text-zinc-900 shadow-[0_8px_30px_rgba(15,23,42,0.08)] backdrop-blur-xl transition-[width] duration-300 ease-out dark:border-zinc-800 dark:bg-zinc-950/95 dark:text-zinc-50 dark:shadow-[0_8px_30px_rgba(0,0,0,0.35)]",
+                  "flex h-[calc(100dvh-2rem)] flex-col overflow-hidden rounded-2xl border border-zinc-200/90 bg-white text-zinc-900 transition-[width] duration-300 ease-out dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50",
                   collapsed ? "w-[72px]" : "w-[260px]",
                 )}
               >
@@ -558,9 +641,8 @@ export function PhotographerShell({ children }: { children: React.ReactNode }) {
           <aside
             id="dashboard-mobile-nav"
             className={cn(
-              "fixed bottom-3 left-3 top-3 z-50 flex w-[min(280px,calc(100vw-2.5rem))] -translate-x-[calc(100%+1.5rem)] flex-col overflow-hidden rounded-2xl border border-zinc-200/80 bg-white/98 text-zinc-900 shadow-none backdrop-blur-xl transition-transform duration-200 ease-out dark:border-zinc-800 dark:bg-zinc-950/98 dark:text-zinc-50 lg:hidden",
-              mobileNavOpen &&
-                "translate-x-0 shadow-2xl shadow-zinc-900/10 dark:shadow-black/40",
+              "fixed bottom-3 left-3 top-3 z-50 flex w-[min(280px,calc(100vw-2.5rem))] -translate-x-[calc(100%+1.5rem)] flex-col overflow-hidden rounded-2xl border border-zinc-200/90 bg-white text-zinc-900 shadow-none transition-transform duration-200 ease-out dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50 lg:hidden",
+              mobileNavOpen && "translate-x-0 shadow-lg shadow-zinc-900/10 dark:shadow-black/40",
             )}
           >
             <div className="flex shrink-0 items-center justify-between gap-3 border-b border-zinc-200/80 px-4 py-4 dark:border-zinc-800">
@@ -591,10 +673,10 @@ export function PhotographerShell({ children }: { children: React.ReactNode }) {
             </nav>
           </aside>
 
-          <header className="sticky top-0 z-30 flex items-center gap-3 px-4 py-3 lg:px-8 2xl:px-10">
+          <header className="sticky top-0 z-30 flex items-center gap-3 border-b border-zinc-200/50 bg-[#f6f6f7]/90 px-4 py-3 backdrop-blur-md lg:px-8 2xl:px-10 dark:border-zinc-800/60 dark:bg-[#0a0a0a]/90">
             <button
               type="button"
-              className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-zinc-200 bg-white text-zinc-700 shadow-sm transition hover:bg-zinc-50 lg:hidden dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+              className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-zinc-200/90 bg-white text-zinc-700 transition hover:bg-zinc-50 lg:hidden dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
               aria-label="Open menu"
               aria-expanded={mobileNavOpen}
               aria-controls="dashboard-mobile-nav"
@@ -613,14 +695,14 @@ export function PhotographerShell({ children }: { children: React.ReactNode }) {
                   dashboardHeaderSearchFieldClassName,
                 )}
               />
-              <div className="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-2">
+              <div className="ml-auto flex shrink-0 items-center gap-2">
                 <NotificationsBell />
 
                 <div ref={profileWrapRef} className="relative">
                   <button
                     type="button"
                     onClick={() => setProfileOpen((v) => !v)}
-                    className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-zinc-900 text-white transition hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-zinc-200"
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-zinc-200/90 bg-white text-zinc-700 transition hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
                     aria-label="Profile menu"
                     aria-expanded={profileOpen}
                   >
@@ -628,7 +710,7 @@ export function PhotographerShell({ children }: { children: React.ReactNode }) {
                   </button>
 
                   {profileOpen ? (
-                    <div className="absolute right-0 mt-2 w-64 overflow-hidden rounded-2xl border border-zinc-200/80 bg-white shadow-[0_12px_40px_rgba(15,23,42,0.12)] dark:border-zinc-700 dark:bg-zinc-950">
+                    <div className="absolute right-0 mt-2 w-64 overflow-hidden rounded-2xl border border-zinc-200/90 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-950">
                       <div className="border-b border-zinc-100 px-4 py-3 dark:border-zinc-800">
                         {planName ? (
                           <span className="inline-flex rounded-full bg-brand/10 px-2 py-0.5 text-[10px] font-semibold tracking-wide text-brand dark:bg-brand/20 dark:text-brand-on-dark">
@@ -689,7 +771,20 @@ export function PhotographerShell({ children }: { children: React.ReactNode }) {
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
             {trialActive ? <TrialActiveBanner /> : null}
             <main className="flex-1 overflow-auto bg-transparent p-4 lg:p-8 2xl:px-10 2xl:py-10">
-              {trialExpired && !allowThroughTrialWall ? <TrialExpiredWall /> : children}
+              {menuDenied ? (
+                <div className="mx-auto max-w-md py-20 text-center">
+                  <p className="text-base font-semibold text-zinc-900 dark:text-zinc-50">
+                    No access
+                  </p>
+                  <p className="mt-2 text-sm text-zinc-500">
+                    You do not have permission to open this area of the studio.
+                  </p>
+                </div>
+              ) : trialExpired && !allowThroughTrialWall ? (
+                <TrialExpiredWall />
+              ) : (
+                children
+              )}
             </main>
           </div>
         </div>

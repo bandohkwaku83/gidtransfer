@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { ImageIcon } from "lucide-react";
 import type { ApiFolder } from "@/lib/folders/types";
 import {
@@ -24,8 +25,9 @@ export function FolderCoverVisual({
   imgClassName,
 }: FolderCoverVisualProps) {
   const src = resolveFolderCoverSrc(folder, studioDefaultCoverUrl);
+  const [failed, setFailed] = useState(false);
 
-  if (src) {
+  if (src && !failed) {
     return (
       // eslint-disable-next-line @next/next/no-img-element
       <img
@@ -33,6 +35,7 @@ export function FolderCoverVisual({
         alt=""
         className={imgClassName}
         style={folderCoverObjectPositionStyle(folder)}
+        onError={() => setFailed(true)}
       />
     );
   }

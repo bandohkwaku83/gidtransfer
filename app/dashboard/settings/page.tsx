@@ -10,6 +10,7 @@ import {
   SettingsGallerySection,
   SettingsProfileSection,
   SettingsSupportSection,
+  SettingsTeamSection,
   SettingsWatermarkSection,
 } from "@/components/settings/settings-sections";
 import { useToast } from "@/components/toast-provider";
@@ -29,8 +30,10 @@ import {
   isSettingsTabId,
   settingsTabHref,
   settingsTabMeta,
+  visibleSettingsTabs,
   type SettingsTabId,
 } from "@/lib/settings-tabs";
+import { canManageTeam, isOwner } from "@/lib/studio-access";
 
 function formatAccountRole(role?: string): string {
   if (!role) return "Photographer";
@@ -52,7 +55,26 @@ function SettingsPageContent() {
   const focusParam = searchParams.get("focus");
   const returnTo =
     returnToParam && isSafeDashboardReturnTo(returnToParam) ? returnToParam : null;
-  const activeTab: SettingsTabId = isSettingsTabId(tabParam) ? tabParam : "profile";
+  const requestedTab: SettingsTabId = isSettingsTabId(tabParam) ? tabParam : "profile";
+  const allowedTabs = visibleSettingsTabs(auth?.user);
+  const activeTab: SettingsTabId = allowedTabs.some((t) => t.id === requestedTab)
+    ? requestedTab
+    : (allowedTabs[0]?.id ?? "profile");
+
+  useEffect(() => {
+    if (requestedTab === activeTab) return;
+    router.replace(settingsTabHref(activeTab), { scroll: false });
+  }, [activeTab, requestedTab, router]);
+
+  // Staff / non-Premium: never leave billing or team URLs hanging.
+  useEffect(() => {
+    if (requestedTab === "billing" && !isOwner(auth?.user)) {
+      router.replace(settingsTabHref("profile"), { scroll: false });
+    }
+    if (requestedTab === "team" && !canManageTeam(auth?.user)) {
+      router.replace(settingsTabHref("profile"), { scroll: false });
+    }
+  }, [auth?.user, requestedTab, router]);
 
   const [settings, setSettings] = useState<ApiSettings | null>(null);
   const [pageData, setPageData] = useState<SettingsPageData | null>(null);
@@ -103,7 +125,8 @@ function SettingsPageContent() {
     if (
       loading ||
       activeTab === "profile" ||
-      activeTab === "support"
+      activeTab === "support" ||
+      activeTab === "team"
     ) {
       return;
     }
@@ -329,6 +352,8 @@ function SettingsPageContent() {
         );
       case "support":
         return <SettingsSupportSection auth={auth} />;
+      case "team":
+        return <SettingsTeamSection />;
       default:
         return null;
     }

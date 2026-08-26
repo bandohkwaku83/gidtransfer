@@ -1,0 +1,25 @@
+import { PlanUpgradeModal } from "@/components/billing/plan-upgrade-modal";
+import { DashboardUiThemeProvider } from "@/components/dashboard-ui-theme";
+import { DashboardAntdProviders } from "@/components/dashboard-antd-providers";
+import { AuthGate } from "@/components/photographer/auth-gate";
+import { PhotographerShell } from "@/components/photographer/photographer-shell";
+import { PlanEntitlementsProvider } from "@/lib/use-plan-entitlements";
+
+export default function CollaborationsLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return (
+    <AuthGate>
+      <PlanEntitlementsProvider>
+        <DashboardUiThemeProvider>
+          <DashboardAntdProviders>
+            <PhotographerShell>{children}</PhotographerShell>
+            <PlanUpgradeModal />
+          </DashboardAntdProviders>
+        </DashboardUiThemeProvider>
+      </PlanEntitlementsProvider>
+    </AuthGate>
+  );
+}

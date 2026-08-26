@@ -71,12 +71,23 @@ export function extractMessage(body: unknown, fallback: string): string {
   return fallback;
 }
 
+/** Thrown when a protected API responds with 403 MENU_FORBIDDEN. */
+export class MenuForbiddenError extends HttpError {}
+
 /** True when a 403 body indicates the account email is not verified yet. */
 function isEmailNotVerified403(body: unknown): boolean {
   return (
     body !== null &&
     typeof body === "object" &&
     (body as { code?: string }).code === "EMAIL_NOT_VERIFIED"
+  );
+}
+
+function isMenuForbidden403(body: unknown): boolean {
+  return (
+    body !== null &&
+    typeof body === "object" &&
+    (body as { code?: string }).code === "MENU_FORBIDDEN"
   );
 }
 
@@ -96,6 +107,30 @@ function throwIfEmailNotVerified(status: number, body: unknown): void {
   }
   throw new EmailNotVerifiedError(
     extractMessage(body, "Email verification required"),
+    403,
+    body,
+  );
+}
+
+function throwIfMenuForbidden(status: number, body: unknown): void {
+  if (status !== 403 || !isMenuForbidden403(body)) return;
+  if (
+    typeof window !== "undefined" &&
+    !window.location.pathname.startsWith("/login") &&
+    !isPlatformAdminPath(window.location.pathname)
+  ) {
+    // Stay on the current host (tenant subdomain). photographerAuthUrl would
+    // drop the session because localStorage is not shared across hosts.
+    void import("@/lib/studio-access").then(({ firstAllowedHref }) => {
+      const home = firstAllowedHref(getAuth()?.user);
+      const here = `${window.location.pathname}${window.location.search}`;
+      if (here !== home) {
+        window.location.replace(home);
+      }
+    });
+  }
+  throw new MenuForbiddenError(
+    extractMessage(body, "You do not have access to this area"),
     403,
     body,
   );
@@ -240,6 +275,7 @@ export async function authedFetch(
     if (res.status === 403) {
       const errBody = await parseJson(res.clone());
       throwIfEmailNotVerified(403, errBody);
+      throwIfMenuForbidden(403, errBody);
     }
 
     return res;
@@ -247,12 +283,16 @@ export async function authedFetch(
 
   // Do not dedupe requests that can be aborted — Strict Mode cleanup would
   // cancel the shared promise and leave later callers with an empty result.
+  // Always clone the shared Response so concurrent readers (Strict Mode double
+  // effects) each get a fresh body — a Response stream can only be read once.
   if (method === "GET" && !init.signal) {
-    const pending = inFlightGet.get(dedupeKey);
-    if (pending) return pending;
-    const promise = execute().finally(() => inFlightGet.delete(dedupeKey));
-    inFlightGet.set(dedupeKey, promise);
-    return promise;
+    let pending = inFlightGet.get(dedupeKey);
+    if (!pending) {
+      pending = execute().finally(() => inFlightGet.delete(dedupeKey));
+      inFlightGet.set(dedupeKey, pending);
+    }
+    const res = await pending;
+    return res.clone();
   }
 
   return execute();
@@ -286,6 +326,7 @@ export async function authedJson<T>(
     if (!retry.ok) {
       const errBody = body;
       throwIfEmailNotVerified(retry.status, errBody);
+      throwIfMenuForbidden(retry.status, errBody);
       throw new ErrorCtor(
         extractMessage(errBody, `${fallbackError} (${retry.status})`),
         retry.status,
@@ -297,6 +338,7 @@ export async function authedJson<T>(
 
   if (!res.ok && res.status !== 304) {
     throwIfEmailNotVerified(res.status, body);
+    throwIfMenuForbidden(res.status, body);
     throw new ErrorCtor(
       extractMessage(body, `${fallbackError} (${res.status})`),
       res.status,

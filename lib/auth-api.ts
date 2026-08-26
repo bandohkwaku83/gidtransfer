@@ -1,5 +1,10 @@
-import { apiUrl } from "@/lib/api";
-import type { AuthProvider, AuthUser } from "@/lib/auth-demo";
+import { apiUrl, sameOriginUploadsUrl } from "@/lib/api";
+import type {
+  AuthAccountType,
+  AuthProvider,
+  AuthUser,
+  StudioMembership,
+} from "@/lib/auth-demo";
 import {
   authHandoffPayload,
   cacheOnboardingProfile,
@@ -24,10 +29,38 @@ import {
   redirectToTenantHostIfNeeded,
 } from "@/lib/studio-url";
 import { parseUserPlan, PLAN_RANK, type UserPlan } from "@/lib/plan-entitlements";
+import {
+  canAccessPath,
+  firstAllowedHref,
+  isStudioMember,
+  type StudioMenuKey,
+} from "@/lib/studio-access";
+
+export {
+  canManageTeam,
+  canOpen,
+  isOwner,
+  isStudioMember,
+  menusFor,
+} from "@/lib/studio-access";
 
 export class AuthApiError extends HttpError {}
 
 export { EmailNotVerifiedError } from "@/lib/http";
+
+export type ApiStudioMembership = {
+  id?: string;
+  _id?: string;
+  studioOwnerId?: string;
+  userId?: string;
+  email?: string;
+  displayName?: string;
+  role?: string;
+  menuKeys?: string[];
+  status?: string;
+  createdAt?: string;
+  updatedAt?: string;
+};
 
 export type ApiAuthUser = {
   _id: string;
@@ -39,6 +72,9 @@ export type ApiAuthUser = {
   createdAt?: string;
   updatedAt?: string;
   onboardingComplete?: boolean;
+  accountType?: AuthAccountType | string;
+  studioOwnerId?: string;
+  membership?: ApiStudioMembership | null;
   studio?: {
     companyName?: string;
     companySlug?: string;
@@ -249,6 +285,7 @@ export function safeAuthReturnPath(raw: string | null | undefined): string | nul
   if (
     value.startsWith("/billing/callback") ||
     value.startsWith("/dashboard") ||
+    value.startsWith("/collaborations") ||
     value.startsWith("/settings") ||
     value.startsWith("/onboarding")
   ) {
@@ -275,7 +312,8 @@ export function navigateAfterAuth(
     return false;
   }
 
-  if (!user.onboardingComplete) {
+  // Staff join an existing studio — never send them through owner onboarding.
+  if (!user.onboardingComplete && !isStudioMember(user)) {
     // Hard navigate so the login/verify screen fully unmounts and cannot
     // overwrite the fresh verified session with a stale /me response.
     if (typeof window !== "undefined") {
@@ -286,10 +324,20 @@ export function navigateAfterAuth(
     return false;
   }
 
-  const returnTo =
+  const returnToRaw =
     typeof window !== "undefined"
       ? safeAuthReturnPath(new URLSearchParams(window.location.search).get("returnTo")) ||
-        safeAuthReturnPath(readBillingReturnPath())
+        (isStudioMember(user) ? null : safeAuthReturnPath(readBillingReturnPath()))
+      : null;
+
+  const returnTo =
+    returnToRaw &&
+    canAccessPath(
+      user,
+      returnToRaw.split("?")[0] || returnToRaw,
+      returnToRaw.includes("?") ? `?${returnToRaw.split("?")[1]}` : "",
+    )
+      ? returnToRaw
       : null;
 
   // Finish Paystack verify (or other deep links) on the apex host before tenant redirect.
@@ -303,12 +351,14 @@ export function navigateAfterAuth(
     return true;
   }
 
+  const home = firstAllowedHref(user);
+
   const slug = user.studio?.companySlug?.trim();
   if (
     slug &&
     redirectToTenantHostIfNeeded(
       slug,
-      "/dashboard",
+      home,
       studioHostOptionsFromUser(user),
       authHandoffPayload(),
       clearAuth,
@@ -318,11 +368,33 @@ export function navigateAfterAuth(
   }
 
   if (typeof window !== "undefined") {
-    window.location.replace(photographerAuthUrl("/dashboard"));
+    window.location.replace(photographerAuthUrl(home));
     return true;
   }
-  router.replace("/dashboard");
+  router.replace(home);
   return true;
+}
+
+function mapApiMembership(raw: ApiStudioMembership | null | undefined): StudioMembership | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const id = (raw.id ?? raw._id ?? "").trim();
+  const email = (raw.email ?? "").trim();
+  if (!id && !email) return undefined;
+  const menuKeys = Array.isArray(raw.menuKeys)
+    ? raw.menuKeys.filter((k): k is string => typeof k === "string" && k.trim().length > 0)
+    : [];
+  return {
+    id: id || email,
+    studioOwnerId: (raw.studioOwnerId ?? "").trim(),
+    userId: (raw.userId ?? "").trim(),
+    email,
+    displayName: (raw.displayName ?? "").trim() || email,
+    role: (raw.role ?? "viewer").trim() || "viewer",
+    menuKeys: menuKeys as StudioMenuKey[],
+    status: (raw.status ?? "active").trim() || "active",
+    ...(raw.createdAt ? { createdAt: raw.createdAt } : {}),
+    ...(raw.updatedAt ? { updatedAt: raw.updatedAt } : {}),
+  };
 }
 
 export function mapApiUserToAuthUser(
@@ -348,20 +420,21 @@ export function mapApiUserToAuthUser(
                 user.studio.studioUrlSuffix?.trim() || extras?.studioUrlSuffix?.trim(),
             }
           : {}),
-        ...(user.studio.logoSrc ||
-        user.studio.logoUrl ||
-        user.studio.logoDataUrl ||
-        user.studio.brandLogo ||
-        user.studio.companyLogo
-          ? {
-              logoDataUrl:
-                user.studio.brandLogo ??
-                user.studio.companyLogo ??
-                user.studio.logoSrc ??
-                user.studio.logoUrl ??
-                user.studio.logoDataUrl,
-            }
-          : {}),
+        ...(() => {
+          const rawLogo =
+            user.studio.brandLogo ??
+            user.studio.companyLogo ??
+            user.studio.logoSrc ??
+            user.studio.logoUrl ??
+            user.studio.logoDataUrl;
+          const trimmed = typeof rawLogo === "string" ? rawLogo.trim() : "";
+          if (!trimmed) return {};
+          return {
+            logoDataUrl: trimmed.startsWith("data:")
+              ? trimmed
+              : sameOriginUploadsUrl(trimmed),
+          };
+        })(),
         ...(user.studio.country?.trim() ? { country: user.studio.country.trim() } : {}),
         ...(() => {
           const deliver =
@@ -374,14 +447,36 @@ export function mapApiUserToAuthUser(
         ...studioSmsFieldsFromApi(user.studio),
       }
     : undefined;
+  const accountType: AuthAccountType =
+    user.accountType === "member" ? "member" : "owner";
+  const membership = mapApiMembership(user.membership ?? undefined);
+  const displayName =
+    membership?.displayName?.trim() ||
+    studio?.companyName?.trim() ||
+    nameFromEmail(email);
+
+  // Staff inherit the owner's studio — they never run owner onboarding.
+  const onboardingComplete =
+    accountType === "member" ? true : Boolean(user.onboardingComplete);
+
   return hydrateAuthUser({
     _id: user._id,
     email,
-    name: studio?.companyName?.trim() || nameFromEmail(email),
-    role: "photographer",
+    name: displayName,
+    role:
+      accountType === "member"
+        ? membership?.role || "member"
+        : "photographer",
+    accountType,
+    ...(user.studioOwnerId?.trim()
+      ? { studioOwnerId: user.studioOwnerId.trim() }
+      : membership?.studioOwnerId
+        ? { studioOwnerId: membership.studioOwnerId }
+        : {}),
+    ...(membership ? { membership } : {}),
     createdAt: user.createdAt,
     updatedAt: user.updatedAt,
-    onboardingComplete: Boolean(user.onboardingComplete),
+    onboardingComplete,
     ...(user.emailVerified !== undefined ? { emailVerified: user.emailVerified } : {}),
     ...(user.emailVerifiedAt !== undefined ? { emailVerifiedAt: user.emailVerifiedAt } : {}),
     ...(user.authProvider ? { authProvider: user.authProvider } : {}),

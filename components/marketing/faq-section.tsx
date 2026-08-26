@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Mail, Minus, Plus } from "lucide-react";
 import { contactEmail, faqs } from "@/lib/marketing/faqs";
+import { SectionHeading } from "@/components/marketing/egg/SectionHeading";
 import { MarketingCornerCta } from "@/components/marketing/marketing-corner-cta";
 import { cn } from "@/lib/utils";
 
@@ -88,36 +89,13 @@ function FaqItem({
 }
 
 function FaqHeader({ centered }: { centered: boolean }) {
-  if (centered) {
-    return (
-      <div className="mx-auto max-w-2xl text-center">
-        <p className="text-[11px] font-medium uppercase tracking-[0.28em] text-slate-400">
-          FAQ
-        </p>
-        <h2 className="mt-4 font-display text-3xl font-normal leading-snug tracking-tight text-slate-900 sm:text-4xl">
-          Answers photographers ask us
-        </h2>
-        <p className="mt-3 text-sm leading-relaxed text-slate-600 sm:text-base">
-          Commissions, branding, proofing, and how print fulfillment works — the questions we hear
-          most from studios comparing gallery platforms.
-        </p>
-        <div className="mx-auto mt-5 h-px w-10 bg-slate-200" aria-hidden />
-      </div>
-    );
-  }
-
   return (
-    <div>
-      <p className="text-[11px] font-medium uppercase tracking-[0.28em] text-slate-400">FAQ</p>
-      <h2 className="mt-4 max-w-md font-display text-3xl font-normal leading-snug tracking-tight text-slate-900 sm:text-4xl">
-        Answers photographers ask us
-      </h2>
-      <p className="mt-3 max-w-sm text-sm leading-relaxed text-slate-600 sm:text-base">
-        Commissions, branding, proofing, and how print fulfillment works — the questions we hear
-        most from studios comparing gallery platforms.
-      </p>
-      <div className="mt-5 h-px w-10 bg-slate-200" aria-hidden />
-    </div>
+    <SectionHeading
+      align={centered ? "center" : "left"}
+      label="FAQ"
+      title="Answers photographers ask us"
+      body="Commissions, branding, proofing, and how print fulfillment works — the questions we hear most from studios comparing gallery platforms."
+    />
   );
 }
 

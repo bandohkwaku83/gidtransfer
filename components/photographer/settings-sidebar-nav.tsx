@@ -17,10 +17,11 @@ import { createPortal } from "react-dom";
 import { ChevronDown, Settings } from "lucide-react";
 import { SidebarCollapseContext } from "@/components/photographer/sidebar-collapse-context";
 import {
-  SETTINGS_TABS,
   activeSettingsTabFromSearch,
   settingsTabHref,
+  visibleSettingsTabs,
 } from "@/lib/settings-tabs";
+import { getAuth } from "@/lib/auth-demo";
 import { cn } from "@/lib/utils";
 
 const sidebarAccentClass = {
@@ -180,6 +181,7 @@ function SettingsSidebarNavInner({ onNavigate, inDrawer = false }: SettingsSideb
   }, [activeTab, collapsed, inDrawer, isSettingsPath, open]);
 
   const parentActive = isSettingsPath;
+  const tabs = visibleSettingsTabs(getAuth()?.user);
 
   function handleParentClick() {
     if (collapsed) {
@@ -189,7 +191,9 @@ function SettingsSidebarNavInner({ onNavigate, inDrawer = false }: SettingsSideb
     setOpen((v) => !v);
   }
 
-  const subItems = SETTINGS_TABS.map(({ id, label, icon: Icon }) => (
+  if (tabs.length === 0) return null;
+
+  const subItems = tabs.map(({ id, label, icon: Icon }) => (
     <SettingsSubNavLink
       key={id}
       href={settingsTabHref(id)}

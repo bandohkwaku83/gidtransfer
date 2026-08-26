@@ -7,8 +7,8 @@ import {
   ExternalLink,
   Flag,
   ImageIcon,
+  Images,
   MessageSquare,
-  Sparkles,
 } from "lucide-react";
 import { WeeklyActivityChart } from "@/components/dashboard/dashboard-charts";
 import {
@@ -145,14 +145,24 @@ export function GalleryDashboardPanel({
   const ringOffset = circ - (Math.min(100, Math.max(0, ringPct)) / 100) * circ;
 
   const mediaRows = [
-    { label: "Uploads", value: uploadsCount, tab: "uploads" as const, color: "bg-brand" },
+    {
+      label: "Uploads",
+      value: uploadsCount,
+      tab: "uploads" as const,
+      color: "bg-[#D9E8F7]",
+    },
     {
       label: "Selections",
       value: selectionsCount,
       tab: "selection" as const,
-      color: "bg-zinc-400 dark:bg-zinc-500",
+      color: "bg-[#FFFBEB]",
     },
-    { label: "Finals", value: finalsCount, tab: "finals" as const, color: "bg-emerald-500" },
+    {
+      label: "Finals",
+      value: finalsCount,
+      tab: "finals" as const,
+      color: "bg-[#F0FDF4]",
+    },
   ];
 
   return (
@@ -274,7 +284,7 @@ export function GalleryDashboardPanel({
               )}
             </div>
             {!advancedLocked && peakDay.value > 0 ? (
-              <span className="rounded-full bg-brand px-2.5 py-1 text-[11px] font-semibold text-white">
+              <span className="rounded-full bg-black px-2 py-0.5 text-[10px] font-semibold text-white dark:bg-zinc-100 dark:text-zinc-900">
                 {peakDay.label} · {peakDay.value}
               </span>
             ) : null}
@@ -417,7 +427,7 @@ export function GalleryDashboardPanel({
               active={uploadsCount > 0}
             />
             <WorkspaceRow
-              icon={Sparkles}
+              icon={Images}
               label="Finals"
               detail="Deliverables"
               onClick={() => onNavigateTab("finals")}

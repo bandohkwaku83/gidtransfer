@@ -24,7 +24,7 @@ type LegalDocumentSectionProps = {
 
 export function LegalDocumentSection({ document, alternate }: LegalDocumentSectionProps) {
   return (
-    <section className="pb-16 pt-10 sm:pb-20 sm:pt-14">
+    <section className="pb-16 pt-28 sm:pb-20 sm:pt-32">
       <div className="marketing-container">
         <div className="mx-auto max-w-3xl">
           <div className="mb-8 flex flex-wrap items-center justify-between gap-4 border-b border-slate-200/90 pb-6">

@@ -7,12 +7,8 @@ import {
   Loader2,
   Minus,
 } from "lucide-react";
-import {
-  ShowcaseCoverPreview,
-  ShowcasePhonePreview,
-} from "@/components/marketing/showcase-cover-preview";
 import { MarketingFaqSection } from "@/components/marketing/faq-section";
-import { APP_NAME } from "@/lib/branding";
+import { SectionHeading } from "@/components/marketing/egg/SectionHeading";
 import {
   MarketingCornerButton,
   MarketingCornerCta,
@@ -64,18 +60,6 @@ export function PricingHeroBackdrop() {
     </div>
   );
 }
-
-const ctaGalleryMain = {
-  src: "/images/gallery-covers/website_3-min.jpg",
-  alt: "Editorial portrait gallery cover",
-  title: "Sarah & James",
-} as const;
-
-const ctaGallerySecondary = {
-  src: "/images/gallery-covers/IMG_5566.JPG",
-  alt: "Studio portrait session",
-  title: "Studio Portraits",
-} as const;
 
 function PricingCard({
   plan,
@@ -220,15 +204,15 @@ function ComparisonCell({
         className={cn(
           "inline-flex h-8 w-8 items-center justify-center rounded-full",
           featured
-            ? "bg-[#55001F]/10 text-[#55001F] ring-1 ring-[#55001F]/15"
-            : "bg-teal-700/10 text-teal-700",
+            ? "bg-[#55001F] text-white"
+            : "bg-[#55001F]/12 text-[#55001F]",
         )}
       >
         <Check className="h-4 w-4" aria-hidden strokeWidth={2.5} />
       </span>
     ) : (
-      <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-slate-400">
-        <Minus className="h-4 w-4" aria-hidden />
+      <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-slate-200/80 text-slate-400">
+        <Minus className="h-4 w-4" aria-hidden strokeWidth={2.5} />
       </span>
     );
   }
@@ -236,72 +220,12 @@ function ComparisonCell({
   return (
     <span
       className={cn(
-        "text-sm font-medium",
-        featured ? "font-semibold text-[#55001F]" : "text-slate-800",
+        "text-sm font-semibold tabular-nums",
+        featured ? "text-[#55001F]" : "text-slate-800",
       )}
     >
       {value}
     </span>
-  );
-}
-
-function BrowserChrome({ url }: { url: string }) {
-  return (
-    <div className="flex items-center gap-2 border-b border-slate-100 bg-slate-50/90 px-3 py-2 sm:px-4">
-      <span className="h-2 w-2 shrink-0 rounded-full bg-[#ff5f57]" />
-      <span className="h-2 w-2 shrink-0 rounded-full bg-[#febc2e]" />
-      <span className="h-2 w-2 shrink-0 rounded-full bg-[#28c840]" />
-      <span className="mx-auto min-w-0 truncate px-2 text-[9px] font-medium tracking-wide text-slate-400 sm:text-[10px]">
-        {url}
-      </span>
-    </div>
-  );
-}
-
-/** Layered browser + phone gallery covers — one proportional canvas scales on every breakpoint. */
-function PricingCtaVisual() {
-  return (
-    <div className="relative mx-auto w-full max-w-xl md:max-w-none">
-      <div className="relative aspect-[5/4] w-full">
-        {/* Main browser */}
-        <div className="absolute inset-x-0 top-0 flex h-[78%] flex-col overflow-hidden rounded-lg border border-slate-200/80 bg-white shadow-[0_32px_64px_-32px_rgba(15,23,42,0.22)] sm:rounded-xl">
-          <BrowserChrome url="yourstudio.com/gallery/sarah-james" />
-          <div className="relative min-h-0 flex-1 bg-slate-100">
-            <ShowcaseCoverPreview
-              {...ctaGalleryMain}
-              coverFrame="editorial-card"
-              coverColor="#f4f1ea"
-            />
-          </div>
-        </div>
-
-        {/* Gallery phone — bottom left */}
-        <div
-          className="absolute bottom-0 left-0 z-20 w-[28%] overflow-hidden rounded-[1.35rem] border-[3px] border-white bg-white shadow-[0_20px_44px_-16px_rgba(15,23,42,0.38)]"
-          aria-hidden
-        >
-          <div className="relative aspect-[9/19] bg-slate-950">
-            <ShowcasePhonePreview
-              src={ctaGalleryMain.src}
-              alt={ctaGalleryMain.alt}
-              title={ctaGalleryMain.title}
-              coverColor="#1e3a5f"
-            />
-          </div>
-        </div>
-
-        {/* Secondary browser — bottom right */}
-        <div
-          className="absolute bottom-[4%] right-0 z-10 w-[38%] overflow-hidden rounded-lg border border-slate-200/80 bg-white shadow-[0_24px_48px_-20px_rgba(15,23,42,0.28)]"
-          aria-hidden
-        >
-          <BrowserChrome url="yourstudio.com/gallery/portraits" />
-          <div className="relative aspect-[4/3] bg-slate-100">
-            <ShowcaseCoverPreview {...ctaGallerySecondary} coverFrame="minimal" />
-          </div>
-        </div>
-      </div>
-    </div>
   );
 }
 
@@ -379,12 +303,13 @@ export function PricingSections({ className }: PricingSectionsProps) {
       {/* Hero copy — image backdrop is rendered at page level behind the header */}
       <section className="relative">
         <div className="relative flex min-h-[min(46vh,420px)] flex-col items-center justify-center px-5 py-12 text-center sm:min-h-[min(50vh,460px)] sm:px-8 sm:py-16">
-          <h1 className="font-display text-[clamp(2.25rem,5vw,3.5rem)] font-medium tracking-tight text-white">
-            Simple Pricing for Photographers
-          </h1>
-          <p className="mt-3 max-w-lg text-sm leading-relaxed text-white/65 sm:text-base">
-            Choose the perfect plan for your photography business. No hidden fees, ever.
-          </p>
+          <SectionHeading
+            as="h1"
+            tone="dark"
+            label="Pricing"
+            title="Simple pricing for photographers"
+            body="Choose the perfect plan for your photography business. No hidden fees, ever."
+          />
 
           <div
             className="mt-8 inline-flex items-center rounded-full border border-white/20 bg-black/25 p-1 backdrop-blur-sm"
@@ -468,29 +393,24 @@ export function PricingSections({ className }: PricingSectionsProps) {
       {/* Comparison table */}
       <section className="relative py-16 sm:py-20">
         <div className="marketing-container">
-          <div>
-            <p className="text-[11px] font-medium uppercase tracking-[0.28em] text-slate-400">
-              Compare plans
-            </p>
-            <h2 className="mt-4 max-w-lg font-display text-3xl font-normal leading-snug tracking-tight text-slate-900 sm:text-4xl">
-              See what&apos;s included at a glance
-            </h2>
-            <p className="mt-3 max-w-lg text-sm leading-relaxed text-slate-600 sm:text-base">
-              Free to start, Basic to grow, Premium for pros, Studio for teams.
-            </p>
-            <div className="mt-5 h-px w-10 bg-slate-200" aria-hidden />
-          </div>
+          <SectionHeading
+            align="left"
+            className="mb-6 sm:mb-8"
+            label="Compare plans"
+            title="See what's included at a glance"
+            body="Free to start, Basic to grow, Premium for pros, Studio for teams."
+          />
 
           {comparison.length > 0 && plans.length > 0 ? (
-          <div className="mt-6 sm:mt-8">
-            <div className="overflow-hidden rounded-[1.75rem] border border-slate-200/90 bg-white shadow-[0_28px_64px_-36px_rgba(15,23,42,0.22)]">
+          <div>
+            <div className="overflow-hidden rounded-[1.75rem] border border-slate-300 bg-white shadow-[0_20px_50px_-28px_rgba(36,16,24,0.2)]">
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[640px] border-collapse text-left">
                 <thead>
-                  <tr className="border-b border-slate-200 bg-[#fbf7ef]/80">
+                  <tr className="border-b border-slate-300 bg-[#f3f1f0]">
                     <th
                       scope="col"
-                      className="sticky left-0 z-20 bg-[#fbf7ef]/95 px-6 py-5 text-left text-xs font-semibold uppercase tracking-[0.14em] text-slate-500 backdrop-blur-sm"
+                      className="sticky left-0 z-20 border-r border-slate-200 bg-[#f3f1f0] px-6 py-5 text-left text-xs font-semibold uppercase tracking-[0.14em] text-slate-600"
                     >
                       Feature
                     </th>
@@ -503,25 +423,19 @@ export function PricingSections({ className }: PricingSectionsProps) {
                         className={cn(
                           "px-4 py-5 text-center",
                           featured
-                            ? "relative bg-[#55001F]/[0.06] text-[#55001F]"
-                            : "text-slate-900",
+                            ? "relative border-x border-[#55001F]/25 bg-[#55001F] text-white"
+                            : "bg-[#f3f1f0] text-slate-900",
                         )}
                       >
-                        {featured ? (
-                          <span
-                            aria-hidden
-                            className="pointer-events-none absolute inset-x-3 top-0 h-0.5 rounded-full bg-gradient-to-r from-transparent via-[#D5AE65] to-transparent"
-                          />
-                        ) : null}
-                        <span className="font-display text-base font-semibold tracking-tight sm:text-lg">
+                        <span className="block font-sans text-base font-semibold tracking-tight sm:text-lg">
                           {plan.name}
                         </span>
                         {featured ? (
-                          <span className="mt-1.5 inline-flex rounded-full bg-[#55001F] px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[#D5AE65]">
+                          <span className="mt-1.5 inline-flex rounded-full bg-white/15 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white">
                             Popular
                           </span>
                         ) : (
-                          <span className="mt-1.5 block text-[11px] font-medium text-slate-400">
+                          <span className="mt-1.5 block text-[11px] font-medium text-slate-500">
                             {plan.storageLabel ?? ""}
                           </span>
                         )}
@@ -535,11 +449,11 @@ export function PricingSections({ className }: PricingSectionsProps) {
                     <tr
                       key={row.key}
                       className={cn(
-                        "group border-b border-slate-100 transition-colors last:border-b-0 hover:bg-slate-50/80",
-                        rowIndex % 2 === 0 ? "bg-white" : "bg-slate-50/40",
+                        "group border-b border-slate-200 last:border-b-0",
+                        rowIndex % 2 === 0 ? "bg-white" : "bg-[#faf9f8]",
                       )}
                     >
-                      <td className="sticky left-0 z-10 bg-inherit px-6 py-4 text-sm font-medium text-slate-700 shadow-[4px_0_12px_-8px_rgba(15,23,42,0.12)] backdrop-blur-sm group-hover:bg-inherit">
+                      <td className="sticky left-0 z-10 border-r border-slate-200 bg-inherit px-6 py-4 text-sm font-semibold text-slate-800">
                         {row.label}
                       </td>
                       {plans.map((plan) => {
@@ -551,7 +465,7 @@ export function PricingSections({ className }: PricingSectionsProps) {
                             className={cn(
                               "px-4 py-4 text-center",
                               featured &&
-                                "bg-[#55001F]/[0.04] group-hover:bg-[#55001F]/[0.06]",
+                                "border-x border-[#55001F]/15 bg-[#55001F]/[0.07]",
                             )}
                           >
                             <ComparisonCell
@@ -573,29 +487,6 @@ export function PricingSections({ className }: PricingSectionsProps) {
       </section>
 
       <MarketingFaqSection />
-
-      {/* Final CTA */}
-      <section className="relative overflow-hidden bg-[#f5f6f7] py-16 sm:py-20 md:py-24">
-        <div className="marketing-container">
-          <div className="grid items-center gap-12 md:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)] md:gap-14 xl:gap-20">
-            <div className="order-2 md:order-1">
-              <h2 className="max-w-md font-display text-3xl font-semibold tracking-tight text-slate-900 sm:text-4xl md:max-w-none md:text-[2.75rem] md:leading-[1.15]">
-                Get started with {APP_NAME}
-              </h2>
-              <p className="mt-4 max-w-sm text-base leading-relaxed text-slate-500 sm:text-lg">
-                Free forever. Upgrade when you need to.
-              </p>
-              <MarketingCornerCta href={signUpHref} className="mt-8">
-                Get started
-              </MarketingCornerCta>
-            </div>
-
-            <div className="order-1 md:order-2">
-              <PricingCtaVisual />
-            </div>
-          </div>
-        </div>
-      </section>
     </div>
   );
 }

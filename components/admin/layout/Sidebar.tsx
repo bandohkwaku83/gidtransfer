@@ -7,7 +7,6 @@ import {
   Camera,
   LifeBuoy,
   MessageSquare,
-  Smartphone,
   Images,
   Flag,
   Trash2,
@@ -67,18 +66,12 @@ const NAV_ITEMS = [
     icon: MessageSquare,
     badgeKey: null,
   },
-  {
-    label: "SMS approvals",
-    href: "/admin/sms/sender-ids",
-    icon: Smartphone,
-    badgeKey: "sms" as const,
-  },
 ];
 
 export function Sidebar({
   badges,
 }: {
-  badges?: { support?: number; sms?: number; trash?: number };
+  badges?: { support?: number; trash?: number };
 }) {
   const pathname = usePathname();
   const { admin } = useAdminAuth();
@@ -104,11 +97,9 @@ export function Sidebar({
           const badge =
             item.badgeKey === "support"
               ? badges?.support
-              : item.badgeKey === "sms"
-                ? badges?.sms
-                : item.badgeKey === "trash"
-                  ? badges?.trash
-                  : undefined;
+              : item.badgeKey === "trash"
+                ? badges?.trash
+                : undefined;
 
           return (
             <Link

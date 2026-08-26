@@ -2,6 +2,7 @@
 
 import { FeaturesSection } from "@/components/marketing/features-section";
 import { MarketingFooter } from "@/components/marketing/marketing-footer";
+import { MarketingHeader } from "@/components/marketing/marketing-header";
 
 export default function FeaturesPage() {
   return (
@@ -11,6 +12,7 @@ export default function FeaturesPage() {
       </div>
 
       <div className="relative z-10">
+        <MarketingHeader />
         <main>
           <FeaturesSection />
         </main>

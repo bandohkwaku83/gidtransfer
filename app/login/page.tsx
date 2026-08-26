@@ -4,7 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef, useState } from "react";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Loader2 } from "lucide-react";
 import {
   AuthApiError,
   navigateAfterAuth,
@@ -45,7 +45,7 @@ const slides = [
   {
     image: "/images/gallery-covers/IMG_5261.JPG",
     alt: "Couple reviewing photos together",
-    eyebrow: "Selection & Proofing",
+    eyebrow: "Selections",
     title: "Approvals in one sitting",
     body: "Heart-rating, per-image comments, and a guided wizard so clients pick favourites before the next coffee.",
   },
@@ -889,8 +889,11 @@ function LoginPageForm() {
                       onClick={isForgot ? submitForgot : submit}
                       disabled={formBusy}
                       aria-busy={submitting}
-                      className="flex w-full items-center justify-center rounded-xl bg-brand px-4 py-3.5 text-sm font-semibold text-white shadow-sm shadow-brand/20 transition hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-70 sm:py-3"
+                      className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand px-4 py-3.5 text-sm font-semibold text-white shadow-sm shadow-brand/20 transition hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-70 sm:py-3"
                     >
+                      {submitting ? (
+                        <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
+                      ) : null}
                       {submitting
                         ? isForgot
                           ? "Sending…"
@@ -919,7 +922,11 @@ function LoginPageForm() {
                           aria-busy={googleLoading}
                           className="flex w-full items-center justify-center gap-2.5 rounded-xl border border-zinc-200 bg-white px-4 py-3.5 text-sm font-semibold text-zinc-800 transition hover:border-zinc-300 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-60 sm:py-3"
                         >
-                          <GoogleMark className="h-4 w-4" />
+                          {googleLoading ? (
+                            <Loader2 className="h-4 w-4 shrink-0 animate-spin text-zinc-500" aria-hidden />
+                          ) : (
+                            <GoogleMark className="h-4 w-4" />
+                          )}
                           {googleLoading
                             ? "Connecting…"
                             : isSignUp

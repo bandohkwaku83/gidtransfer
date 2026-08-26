@@ -10,6 +10,8 @@ export type DashboardStatItem = {
   icon: LucideIcon;
   iconWrap: string;
   iconColor: string;
+  /** Optional week-over-week delta shown on analytics tiles */
+  delta?: number;
 };
 
 /** @deprecated Stats are rendered inside DashboardWelcomePanel hero. Kept for type export. */

@@ -14,6 +14,7 @@ import type { BrandWatermarkSettings } from "@/lib/watermark-brand";
 export { SettingsProfileSection } from "@/components/settings/settings-profile-section";
 export { SettingsBillingSection } from "@/components/settings/settings-billing-section";
 export { SettingsSupportSection } from "@/components/settings/settings-support-section";
+export { SettingsTeamSection } from "@/components/settings/settings-team-section";
 
 export function SettingsWatermarkSection({
   initialWatermark,

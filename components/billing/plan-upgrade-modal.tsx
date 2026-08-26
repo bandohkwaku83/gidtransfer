@@ -26,6 +26,8 @@ const FEATURE_LABELS: Record<string, string> = {
   textWatermark: "Text watermarks",
   analyticsDashboard: "Analytics dashboard",
   clientGalleries: "More galleries",
+  collaboration: "Team collaboration",
+  studioTeam: "Studio team",
   storage: "More storage",
 };
 
@@ -54,7 +56,7 @@ const FEATURE_HIGHLIGHTS: Record<string, string[]> = {
   ],
   advancedAnalytics: [
     "See who viewed and engaged with galleries",
-    "Track proofing progress over time",
+    "Track selection progress over time",
   ],
   restoreTrashItems: [
     "Bring back deleted galleries and files",
@@ -62,7 +64,15 @@ const FEATURE_HIGHLIGHTS: Record<string, string[]> = {
   ],
   galleryAi: [
     "AI-assisted client photo picks",
-    "Faster proofing for large shoots",
+    "Faster selections for large shoots",
+  ],
+  collaboration: [
+    "Shared workspaces for second shooters",
+    "Invite editors and viewers on Premium",
+  ],
+  studioTeam: [
+    "Add assistants with role-based menu access",
+    "Up to 10 seats on Premium",
   ],
   galleryComments: [
     "Clients comment on photos and flag finals",

@@ -63,10 +63,8 @@ export function ConfirmDialog({
           <button
             onClick={onConfirm}
             disabled={loading}
-            className={`rounded-lg px-4 py-2 text-sm font-medium text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-60 ${
-              destructive
-                ? "bg-red-600 hover:bg-red-700"
-                : "bg-primary hover:bg-primary-hover"
+            className={`btn-primary disabled:cursor-not-allowed disabled:opacity-60 ${
+              destructive ? "!bg-red-600 hover:!bg-red-700" : ""
             }`}
           >
             {loading ? "Processing…" : confirmLabel}
