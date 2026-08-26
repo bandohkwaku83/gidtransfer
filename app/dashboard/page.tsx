@@ -1,18 +1,14 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { ArrowRight, Images } from "lucide-react";
 import { DashboardSoftEduQuickAccess } from "@/components/dashboard/dashboard-soft-edu-quick-access";
 import { DashboardSoftEduCalendar } from "@/components/dashboard/dashboard-soft-edu-calendar";
 import { DashboardSoftEduProfile } from "@/components/dashboard/dashboard-soft-edu-profile";
-import { DashboardSoftEduSuccess } from "@/components/dashboard/dashboard-soft-edu-success";
 import { DashboardActivityPanel } from "@/components/dashboard/dashboard-activity-panel";
 import { StorageUpgradePrompt } from "@/components/billing/plan-storage-meter";
 import { usePlanEntitlements } from "@/lib/use-plan-entitlements";
 import { galleryLimitLabel, isAtGalleryLimit } from "@/lib/plan-entitlements";
 import { isStorageCapped } from "@/lib/storage-api";
-import type { WeeklyBar } from "@/lib/dashboard-chart-data";
 import {
   activityItemToLabel,
   DASHBOARD_HOME_LIST_LIMIT,
@@ -24,12 +20,10 @@ import {
   type DashboardNewClient,
   type DashboardSchedule,
   type DashboardStats,
-  type DashboardWeeklyActivity,
 } from "@/lib/dashboard-api";
 import { getAuth, getAuthToken } from "@/lib/auth-demo";
 import { canOpen } from "@/lib/studio-access";
 import { CreateFolderModal } from "@/components/photographer/create-folder-modal";
-import { GalleryPreviewCard } from "@/components/photographer/gallery-preview-card";
 import {
   apiFolderStatusToUi,
   getFolderClientName,
@@ -40,7 +34,6 @@ import { resolveFolderCoverSrc } from "@/lib/folders/helpers";
 import { listClients } from "@/lib/clients-api";
 import { listBookings } from "@/lib/bookings-api";
 import { getSettings, getSettingsDefaultCoverUrl } from "@/lib/settings-api";
-import { GalleryCardSkeleton } from "@/components/ui/skeletons";
 import { STUDIO_NAME } from "@/lib/branding";
 
 function firstWordFromName(name: string): string {
@@ -100,7 +93,6 @@ export default function DashboardPage() {
     planBytes: number;
     percentOfPlan: number;
   } | null>(null);
-  const [weeklyFromApi, setWeeklyFromApi] = useState<DashboardWeeklyActivity | null>(null);
   const [studioDefaultCoverUrl, setStudioDefaultCoverUrl] = useState<string | null>(null);
 
   useEffect(() => {
@@ -193,7 +185,6 @@ export default function DashboardPage() {
             planBytes: d.storage.planBytes,
             percentOfPlan: d.storage.percentOfPlan,
           });
-          setWeeklyFromApi(d.weeklyActivity);
           return;
         } catch (e) {
           if (e instanceof DashboardApiError && e.status === 401) return;
@@ -207,7 +198,6 @@ export default function DashboardPage() {
       setNewClients([]);
       setCurrentSelections([]);
       setSchedules([]);
-      setWeeklyFromApi(null);
       const [foldersList, clientsRes] = await Promise.all([
         listFolders().catch(() => [] as ApiFolder[]),
         listClients().catch(() => ({ count: 0, clients: [] as { _id: string; name: string }[] })),
@@ -328,14 +318,6 @@ export default function DashboardPage() {
       kind: "new" as const,
     }));
   }, [newClients]);
-
-  const weeklyActivity = useMemo((): WeeklyBar[] => {
-    if (weeklyFromApi?.chart.length) return weeklyFromApi.chart;
-    return [];
-  }, [weeklyFromApi]);
-
-  const weekTotal = weeklyFromApi?.thisWeek ?? weeklyActivity.reduce((sum, bar) => sum + bar.value, 0);
-  const weekDelta = weeklyFromApi?.weekDelta ?? 0;
 
   const calendarShoots = useMemo(
     () =>
@@ -468,79 +450,15 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-12 lg:gap-5">
-        <div className="rounded-[1.35rem] bg-white p-5 dark:bg-zinc-950 sm:p-6 lg:col-span-5">
-          <DashboardActivityPanel
-            rows={recentActivity}
-            selectionRows={stats ? selectionRows : undefined}
-            clientRows={stats ? clientRows : undefined}
-            loading={loading}
-            formatRelativeTime={formatRelativeTime}
-          />
-        </div>
-        <div className="lg:col-span-7">
-          <DashboardSoftEduSuccess
-            bars={weeklyActivity}
-            weekTotal={weekTotal}
-            weekDelta={weekDelta}
-            completedGalleries={displayStats.completedGalleries}
-            storageUsed={storageBytes?.total ?? null}
-            storageLimit={storageBytes?.planBytes ?? plan?.storageLimitBytes ?? null}
-            statusLabel={weeklyFromApi?.statusLabel ?? null}
-            loading={loading}
-          />
-        </div>
+      <div className="rounded-[1.35rem] bg-white p-5 dark:bg-zinc-950 sm:p-6">
+        <DashboardActivityPanel
+          rows={recentActivity}
+          selectionRows={stats ? selectionRows : undefined}
+          clientRows={stats ? clientRows : undefined}
+          loading={loading}
+          formatRelativeTime={formatRelativeTime}
+        />
       </div>
-
-      <section>
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <h2 className="text-lg font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
-            New galleries
-          </h2>
-          <Link
-            href="/dashboard/galleries"
-            className="inline-flex items-center gap-1 text-sm font-semibold text-zinc-500 transition hover:text-zinc-900 dark:hover:text-zinc-100"
-          >
-            View all
-            <ArrowRight className="h-3.5 w-3.5" aria-hidden />
-          </Link>
-        </div>
-
-        {loading && recentGalleries.length === 0 ? (
-          <div className="gallery-card-grid-compact mt-4">
-            {Array.from({ length: DASHBOARD_HOME_LIST_LIMIT }).map((_, i) => (
-              <GalleryCardSkeleton key={i} compact />
-            ))}
-          </div>
-        ) : recentGalleries.length === 0 ? (
-          <div className="mt-4 flex flex-col items-center rounded-[1.35rem] bg-white py-14 text-center dark:bg-zinc-950">
-            <Images className="h-8 w-8 text-zinc-300 dark:text-zinc-600" aria-hidden />
-            <p className="mt-3 text-sm font-medium text-zinc-700 dark:text-zinc-200">No galleries yet</p>
-            <p className="mt-1 max-w-sm text-xs text-zinc-500">
-              Create a client gallery for delivery, selections, and sharing.
-            </p>
-            <button
-              type="button"
-              onClick={requestNewGallery}
-              className="mt-5 inline-flex items-center justify-center rounded-2xl bg-zinc-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-black dark:bg-zinc-100 dark:text-zinc-950"
-            >
-              New gallery
-            </button>
-          </div>
-        ) : (
-          <div className="gallery-card-grid-compact mt-4">
-            {recentGalleries.map((g) => (
-              <GalleryPreviewCard
-                key={g._id}
-                folder={g}
-                clientNameById={clientNameById}
-                studioDefaultCoverUrl={studioDefaultCoverUrl}
-                compact
-              />
-            ))}
-          </div>
-        )}
-      </section>
 
       <CreateFolderModal
         open={createOpen}
