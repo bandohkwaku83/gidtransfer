@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Popover } from "antd";
 import { ChevronLeft, ChevronRight, MapPin } from "lucide-react";
@@ -123,6 +123,15 @@ export function DashboardSoftEduCalendar({
 
   const [cursor, setCursor] = useState(() => startOfMonth(today));
   const [openKey, setOpenKey] = useState<string | null>(null);
+  const [popoverPlacement, setPopoverPlacement] = useState<"bottom" | "right">("bottom");
+
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 640px)");
+    const sync = () => setPopoverPlacement(mq.matches ? "right" : "bottom");
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
 
   const shootsByDate = useMemo(() => {
     const map = new Map<string, CalendarShoot[]>();
@@ -156,9 +165,9 @@ export function DashboardSoftEduCalendar({
   const todayKey = toKey(today.getFullYear(), today.getMonth(), today.getDate());
 
   return (
-    <section className="relative flex h-full flex-col rounded-[1.35rem] bg-white p-5 dark:bg-zinc-950 sm:p-6">
+    <section className="relative flex h-full flex-col rounded-[1.25rem] bg-white p-4 dark:bg-zinc-950 sm:rounded-[1.35rem] sm:p-5 lg:p-6">
       <div className="flex items-center justify-between gap-2">
-        <h2 className="text-sm font-semibold tracking-wide text-zinc-900 dark:text-zinc-50">
+        <h2 className="min-w-0 truncate text-xs font-semibold tracking-wide text-zinc-900 dark:text-zinc-50 sm:text-sm">
           {label}
         </h2>
         <div className="flex items-center gap-1">
@@ -187,9 +196,9 @@ export function DashboardSoftEduCalendar({
         </div>
       </div>
 
-      <p className="mt-1 text-xs text-zinc-400">Tap a wine-marked day for shoot details</p>
+      <p className="mt-1 text-[11px] text-zinc-400 sm:text-xs">Tap a wine-marked day for shoot details</p>
 
-      <div className="mt-4 grid grid-cols-7 gap-y-2 text-center">
+      <div className="mt-3 grid grid-cols-7 gap-y-1.5 text-center sm:mt-4 sm:gap-y-2">
         {WEEKDAYS.map((d, i) => (
           <span key={`${d}-${i}`} className="text-[10px] font-semibold text-zinc-400">
             {d}
@@ -239,7 +248,7 @@ export function DashboardSoftEduCalendar({
             <span key={cell.key} className="relative flex h-9 items-center justify-center">
               <Popover
                 trigger="click"
-                placement="right"
+                placement={popoverPlacement}
                 open={isOpen}
                 onOpenChange={(next) => setOpenKey(next ? cell.key : null)}
                 content={<ShootPopoverContent dateKey={cell.key} shoots={dayShoots} />}

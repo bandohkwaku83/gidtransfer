@@ -397,10 +397,10 @@ export default function DashboardPage() {
   }, [serverDateIso]);
 
   return (
-    <div className="dashboard-page space-y-5 pb-8 sm:space-y-6">
-      <div>
-        <p className="text-xs font-medium tabular-nums text-zinc-400">{todayLabel}</p>
-        <h1 className="mt-1 font-display text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
+    <div className="dashboard-page space-y-4 pb-6 sm:space-y-6 sm:pb-8">
+      <div className="flex flex-col gap-0.5 sm:gap-1">
+        <p className="text-[11px] font-medium tabular-nums text-zinc-400 sm:text-xs">{todayLabel}</p>
+        <h1 className="font-display text-[1.65rem] font-semibold leading-tight tracking-tight text-zinc-900 dark:text-zinc-50 sm:mt-1 sm:text-2xl">
           Hi, {greeting}
         </h1>
       </div>
@@ -423,8 +423,8 @@ export default function DashboardPage() {
         )}
       />
 
-      <div className="grid gap-4 lg:grid-cols-12 lg:gap-5">
-        <div className="lg:col-span-5">
+      <div className="flex flex-col gap-4 lg:grid lg:grid-cols-12 lg:gap-5">
+        <div className="order-1 lg:col-span-5">
           <DashboardSoftEduQuickAccess
             onNewGallery={requestNewGallery}
             totalGalleries={displayStats.totalGalleries}
@@ -432,13 +432,25 @@ export default function DashboardPage() {
             loading={loading}
           />
         </div>
-        <div className="lg:col-span-4">
+
+        <div className="order-2 rounded-[1.25rem] bg-white p-4 dark:bg-zinc-950 sm:rounded-[1.35rem] sm:p-6 lg:order-4 lg:col-span-12">
+          <DashboardActivityPanel
+            rows={recentActivity}
+            selectionRows={stats ? selectionRows : undefined}
+            clientRows={stats ? clientRows : undefined}
+            loading={loading}
+            formatRelativeTime={formatRelativeTime}
+          />
+        </div>
+
+        <div className="order-3 lg:col-span-4">
           <DashboardSoftEduCalendar
             shoots={calendarShoots}
             serverDateIso={serverDateIso}
           />
         </div>
-        <div className="lg:col-span-3">
+
+        <div className="order-4 lg:order-3 lg:col-span-3">
           <DashboardSoftEduProfile
             folder={featuredGallery}
             clientNameById={clientNameById}
@@ -448,16 +460,6 @@ export default function DashboardPage() {
             loading={loading}
           />
         </div>
-      </div>
-
-      <div className="rounded-[1.35rem] bg-white p-5 dark:bg-zinc-950 sm:p-6">
-        <DashboardActivityPanel
-          rows={recentActivity}
-          selectionRows={stats ? selectionRows : undefined}
-          clientRows={stats ? clientRows : undefined}
-          loading={loading}
-          formatRelativeTime={formatRelativeTime}
-        />
       </div>
 
       <CreateFolderModal

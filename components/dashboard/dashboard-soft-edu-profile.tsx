@@ -9,6 +9,7 @@ import {
   type ApiFolder,
 } from "@/lib/folders-api";
 import type { FolderStatus } from "@/lib/demo-data";
+import { cn } from "@/lib/utils";
 
 const STATUS_LABEL: Record<FolderStatus, string> = {
   DRAFT: "Draft gallery",
@@ -35,19 +36,23 @@ export function DashboardSoftEduProfile({
 }: DashboardSoftEduProfileProps) {
   if (loading && !folder) {
     return (
-      <section className="flex h-full flex-col justify-center rounded-[1.35rem] bg-white p-5 dark:bg-zinc-950 sm:p-6">
-        <div className="aspect-[4/3] w-full animate-pulse rounded-2xl bg-zinc-100 dark:bg-zinc-800" />
-        <div className="mx-auto mt-4 h-4 w-28 animate-pulse rounded bg-zinc-100 dark:bg-zinc-800" />
-        <div className="mx-auto mt-2 h-3 w-16 animate-pulse rounded bg-zinc-100 dark:bg-zinc-800" />
-        <div className="mt-5 h-11 w-full animate-pulse rounded-2xl bg-zinc-100 dark:bg-zinc-800" />
+      <section className="flex h-full flex-col justify-center rounded-[1.25rem] bg-white p-4 dark:bg-zinc-950 sm:rounded-[1.35rem] sm:p-5 lg:p-6">
+        <div className="flex items-center gap-3.5 sm:block">
+          <div className="aspect-square w-[5.25rem] shrink-0 animate-pulse rounded-2xl bg-zinc-100 dark:bg-zinc-800 sm:aspect-[4/3] sm:w-full" />
+          <div className="flex-1 space-y-2 sm:mt-4">
+            <div className="h-4 w-28 animate-pulse rounded bg-zinc-100 dark:bg-zinc-800 sm:mx-auto" />
+            <div className="h-3 w-16 animate-pulse rounded bg-zinc-100 dark:bg-zinc-800 sm:mx-auto" />
+          </div>
+        </div>
+        <div className="mt-4 h-10 w-full animate-pulse rounded-2xl bg-zinc-100 dark:bg-zinc-800 sm:mt-5" />
       </section>
     );
   }
 
   if (!folder) {
     return (
-      <section className="flex h-full flex-col justify-center rounded-[1.35rem] bg-white p-5 text-center dark:bg-zinc-950 sm:p-6">
-        <span className="inline-flex aspect-[4/3] w-full items-center justify-center rounded-2xl bg-[#efefef] text-zinc-500 dark:bg-zinc-900">
+      <section className="flex h-full flex-col justify-center rounded-[1.25rem] bg-white p-4 text-center dark:bg-zinc-950 sm:rounded-[1.35rem] sm:p-5 lg:p-6">
+        <span className="inline-flex aspect-[16/10] w-full items-center justify-center rounded-2xl bg-[#efefef] text-zinc-500 dark:bg-zinc-900 sm:aspect-[4/3]">
           <Images className="h-7 w-7" aria-hidden />
         </span>
         <h3 className="mt-4 text-base font-semibold text-zinc-900 dark:text-zinc-50">
@@ -72,30 +77,37 @@ export function DashboardSoftEduProfile({
   const status = apiFolderStatusToUi(folder.status);
 
   return (
-    <section className="flex h-full flex-col rounded-[1.35rem] bg-white p-5 dark:bg-zinc-950 sm:p-6">
-      <div className="relative aspect-[4/3] w-full overflow-hidden rounded-2xl bg-zinc-100 dark:bg-zinc-800">
-        <FolderCoverVisual
-          folder={folder}
-          studioDefaultCoverUrl={studioDefaultCoverUrl}
-          imgClassName="h-full w-full object-cover"
-        />
-      </div>
+    <section className="flex h-full flex-col rounded-[1.25rem] bg-white p-4 dark:bg-zinc-950 sm:rounded-[1.35rem] sm:p-5 lg:p-6">
+      <div className="flex min-w-0 items-center gap-3.5 sm:block sm:gap-0">
+        <div className="relative aspect-square w-[5.25rem] shrink-0 overflow-hidden rounded-2xl bg-zinc-100 dark:bg-zinc-800 sm:aspect-[4/3] sm:w-full">
+          <FolderCoverVisual
+            folder={folder}
+            studioDefaultCoverUrl={studioDefaultCoverUrl}
+            imgClassName="h-full w-full object-cover"
+          />
+        </div>
 
-      <div className="mt-4 min-w-0 text-center">
-        <h3 className="truncate text-base font-semibold text-zinc-900 dark:text-zinc-50">
-          {title}
-        </h3>
-        {showClient ? (
-          <p className="mt-0.5 truncate text-xs text-zinc-500">{clientName}</p>
-        ) : null}
-        <p className="mt-1 text-[11px] font-medium uppercase tracking-[0.12em] text-zinc-400">
-          {STATUS_LABEL[status]}
-        </p>
+        <div className="min-w-0 flex-1 text-left sm:mt-4 sm:text-center">
+          <h3 className="truncate text-sm font-semibold text-zinc-900 dark:text-zinc-50 sm:text-base">
+            {title}
+          </h3>
+          {showClient ? (
+            <p className="mt-0.5 truncate text-xs text-zinc-500">{clientName}</p>
+          ) : null}
+          <p className="mt-1 text-[10px] font-medium uppercase tracking-[0.12em] text-zinc-400 sm:text-[11px]">
+            {STATUS_LABEL[status]}
+          </p>
+        </div>
       </div>
 
       <Link
         href={`/dashboard/folder/${folder._id}`}
-        className="mt-auto pt-5 text-center text-[11px] font-semibold uppercase tracking-[0.1em] text-zinc-400 transition hover:text-zinc-800 dark:hover:text-zinc-200"
+        className={cn(
+          "mt-4 inline-flex w-full items-center justify-center rounded-2xl bg-zinc-950 py-2.5 text-xs font-semibold text-white transition hover:bg-black",
+          "dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-white",
+          "sm:mt-auto sm:block sm:rounded-none sm:bg-transparent sm:py-0 sm:pt-5 sm:text-center sm:text-[11px] sm:font-semibold sm:uppercase sm:tracking-[0.1em] sm:text-zinc-400 sm:hover:text-zinc-800",
+          "dark:sm:bg-transparent dark:sm:text-zinc-400 dark:sm:hover:text-zinc-200",
+        )}
       >
         Open gallery
       </Link>

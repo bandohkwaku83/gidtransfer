@@ -113,14 +113,14 @@ function ActivityItem({
   const metaParts = [
     row.meta,
     action && action !== name ? action : null,
-    row.when ? formatRelativeTime(row.when) : null,
   ].filter(Boolean) as string[];
+  const timeLabel = row.when ? formatRelativeTime(row.when) : null;
   const showCover = Boolean(row.coverUrl) && !coverFailed;
 
   const inner = (
-    <div className="flex items-center gap-3 py-3">
+    <div className="flex w-full items-start gap-3 py-3 sm:items-center sm:gap-4">
       {showCover ? (
-        <span className="relative h-10 w-10 shrink-0 overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800">
+        <span className="relative h-9 w-9 shrink-0 overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800 sm:h-10 sm:w-10">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={row.coverUrl!}
@@ -130,31 +130,43 @@ function ActivityItem({
           />
         </span>
       ) : (
-        <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#efefef] text-zinc-600 dark:bg-zinc-900 dark:text-zinc-300">
+        <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#efefef] text-zinc-600 dark:bg-zinc-900 dark:text-zinc-300 sm:h-10 sm:w-10">
           <Icon className="h-4 w-4" strokeWidth={1.75} aria-hidden />
         </span>
       )}
 
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-semibold text-zinc-900 dark:text-zinc-50">
-          {name || action}
-        </p>
-        {typeof row.progressPercent === "number" ? (
-          <div className="mt-1.5 h-1 w-full max-w-[9rem] overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800">
-            <div
-              className="h-full rounded-full bg-brand"
-              style={{ width: `${Math.max(0, Math.min(100, row.progressPercent))}%` }}
-            />
+      <div className="flex min-w-0 flex-1 flex-col gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-8">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-start justify-between gap-3 sm:block">
+            <p className="min-w-0 truncate text-sm font-semibold text-zinc-900 dark:text-zinc-50">
+              {name || action}
+            </p>
+            {timeLabel ? (
+              <span className="shrink-0 text-[11px] tabular-nums text-zinc-400 sm:hidden">{timeLabel}</span>
+            ) : null}
           </div>
+          {typeof row.progressPercent === "number" ? (
+            <div className="mt-1.5 h-1 w-full max-w-[12rem] overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800 sm:max-w-[16rem]">
+              <div
+                className="h-full rounded-full bg-brand"
+                style={{ width: `${Math.max(0, Math.min(100, row.progressPercent))}%` }}
+              />
+            </div>
+          ) : null}
+          {metaParts.length > 0 ? (
+            <p className="mt-0.5 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[11px] text-zinc-400">
+              {metaParts.map((part, i) => (
+                <span key={`${part}-${i}`} className="contents">
+                  {i > 0 ? <span className="shrink-0" aria-hidden>·</span> : null}
+                  <span className="min-w-0">{part}</span>
+                </span>
+              ))}
+            </p>
+          ) : null}
+        </div>
+        {timeLabel ? (
+          <span className="hidden shrink-0 text-[11px] tabular-nums text-zinc-400 sm:inline">{timeLabel}</span>
         ) : null}
-        <p className="mt-0.5 flex items-center gap-x-2.5 overflow-hidden text-[11px] text-zinc-400">
-          {metaParts.map((part, i) => (
-            <span key={`${part}-${i}`} className="contents">
-              {i > 0 ? <span className="shrink-0" aria-hidden>·</span> : null}
-              <span className="min-w-0 truncate">{part}</span>
-            </span>
-          ))}
-        </p>
       </div>
     </div>
   );
@@ -199,12 +211,12 @@ export function DashboardActivityPanel({
         : "Gallery updates and client selections will show up in this list.";
 
   return (
-    <section className="flex h-full min-h-[280px] flex-col">
-      <h2 className="text-lg font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
+    <section className="flex h-full min-h-0 flex-col sm:min-h-[280px]">
+      <h2 className="text-base font-semibold tracking-tight text-zinc-900 dark:text-zinc-50 sm:text-lg">
         Today&apos;s Tasks
       </h2>
 
-      <div className="mt-4 inline-flex w-fit items-center gap-1 rounded-full bg-[#efefef] p-1 dark:bg-zinc-900">
+      <div className="mt-3 grid w-full grid-cols-3 gap-1 rounded-full bg-[#efefef] p-1 dark:bg-zinc-900 sm:mt-4 sm:inline-flex sm:w-fit sm:grid-cols-none">
         {TABS.map((t) => {
           const active = tab === t.key;
           return (
@@ -213,7 +225,7 @@ export function DashboardActivityPanel({
               type="button"
               onClick={() => setTab(t.key)}
               className={cn(
-                "rounded-full px-3.5 py-1.5 text-xs font-semibold transition",
+                "rounded-full px-2 py-1.5 text-[11px] font-semibold transition sm:px-3.5 sm:py-1.5 sm:text-xs",
                 active
                   ? "bg-zinc-950 text-white dark:bg-zinc-100 dark:text-zinc-950"
                   : "text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200",
