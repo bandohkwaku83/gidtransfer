@@ -156,7 +156,7 @@ export function preferConfirmedSubscription(
   if (!incoming) return confirmed ?? null;
   if (!confirmed) return incoming;
   if (confirmed.status === "pending") return incoming;
-  if (incoming.status === "pending" && confirmed.status !== "pending") {
+  if (incoming.status === "pending") {
     return confirmed;
   }
   const incomingRank = PLAN_RANK[incoming.planId] ?? 0;

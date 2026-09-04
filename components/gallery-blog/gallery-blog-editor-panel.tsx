@@ -9,6 +9,7 @@ import {
   Plus,
   Sparkles,
   Trash2,
+  Wand,
 } from "lucide-react";
 import { FormInput, FormTextArea } from "@/components/ui/form-input";
 import { DashboardSpin } from "@/components/ui/skeletons";
