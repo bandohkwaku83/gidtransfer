@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { APP_NAME, FOOTER_DESCRIPTION } from "@/lib/branding";
 import { Logo } from "./Icons";
+import { MarketingFooterAccountLinks } from "./marketing-footer-account-links";
 
 const columns = [
   {
@@ -16,15 +17,6 @@ const columns = [
     links: [
       { label: "About", href: "/#about" },
       { label: "Contact", href: "/contact" },
-    ],
-  },
-  {
-    title: "Account",
-    links: [
-      { label: "Sign in", href: "/login" },
-      { label: "Start free", href: "/login?screen=signup" },
-      { label: "Terms", href: "/terms" },
-      { label: "Privacy", href: "/privacy" },
     ],
   },
 ];
@@ -61,6 +53,12 @@ export function Footer() {
               </ul>
             </div>
           ))}
+          <div>
+            <p className="mb-4 text-xs uppercase tracking-wider text-[#6b5f64]">
+              Account
+            </p>
+            <MarketingFooterAccountLinks />
+          </div>
         </div>
 
         <div className="flex flex-col justify-between gap-4 border-t border-foreground/8 pt-8 text-sm text-[#6b5f64] md:flex-row md:items-center">

@@ -25,7 +25,7 @@ import {
   SMS_CONFIG_LOAD_FAILED_MESSAGE,
   smsApiErrorMessage,
 } from "@/lib/sms-api";
-import { FeatureUpgradeButton } from "@/components/billing/plan-upgrade-modal";
+import { PlanUpgradeHint } from "@/components/billing/plan-upgrade-hint";
 import { usePlanEntitlements } from "@/lib/use-plan-entitlements";
 import { cn } from "@/lib/utils";
 
@@ -179,14 +179,13 @@ export function SettingsSmsSection({
       </div>
 
       {!canSms ? (
-        <div className="rounded-xl border border-dashed border-zinc-200 bg-zinc-50/80 px-4 py-3 dark:border-zinc-700 dark:bg-zinc-900/40">
-          <p className="text-sm text-zinc-600 dark:text-zinc-400">
-            Gallery share SMS is available on Basic, Pro, and Premium.
-          </p>
-          <div className="mt-3">
-            <FeatureUpgradeButton feature="smsNotifications" label="Upgrade to Basic+" />
-          </div>
-        </div>
+        <PlanUpgradeHint
+          feature="smsNotifications"
+          suggestedPlanId="basic"
+          title="SMS notifications unlock on Basic"
+          description="Text clients when a gallery is ready — included on Basic, Pro, and Premium."
+          label="Upgrade to Basic"
+        />
       ) : null}
 
       <SmsSenderStatusBanner fields={smsFields} platformSender={platformSender} />
@@ -200,14 +199,13 @@ export function SettingsSmsSection({
       />
 
       {senderFieldLocked ? (
-        <div className="rounded-xl border border-dashed border-zinc-200 bg-zinc-50/80 px-4 py-3 dark:border-zinc-700 dark:bg-zinc-900/40">
-          <p className="text-sm text-zinc-600 dark:text-zinc-400">
-            Custom SMS sender ID (your studio name) is available on Pro and Premium.
-          </p>
-          <div className="mt-3">
-            <FeatureUpgradeButton feature="customSmsSender" label="Upgrade to Pro+" />
-          </div>
-        </div>
+        <PlanUpgradeHint
+          feature="customSmsSender"
+          suggestedPlanId="pro"
+          title="Send SMS under your studio name"
+          description="A custom sender ID is included on Pro and Premium."
+          label="Upgrade to Pro"
+        />
       ) : null}
 
       {!savedSmsSenderId && suggestion && !smsSenderId && !senderFieldLocked ? (

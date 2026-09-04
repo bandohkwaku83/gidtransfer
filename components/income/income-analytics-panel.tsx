@@ -11,6 +11,8 @@ import {
 import { useMemo } from "react";
 import { DonutChart } from "@/components/dashboard/dashboard-charts";
 import { useDashboardUiTheme } from "@/components/dashboard-ui-theme";
+import { DashboardStatValueSkeleton } from "@/components/ui/skeletons";
+import { Skeleton } from "antd";
 import {
   buildIncomeKpiTrends,
   formatIncomeCompact,
@@ -44,7 +46,7 @@ function KpiCard({ kpi, loading }: { kpi: IncomeKpiTrend; loading?: boolean }) {
 
         <div className="mt-2.5 flex items-end justify-between gap-2">
           {loading ? (
-            <span className="dashboard-stat-card-value-skeleton" aria-hidden />
+            <DashboardStatValueSkeleton />
           ) : (
             <p
               className={cn(
@@ -253,10 +255,12 @@ export function IncomeAnalyticsPanel({
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {loading
           ? Array.from({ length: 4 }).map((_, i) => (
-              <div key={i} className="dashboard-stat-card animate-pulse" aria-hidden>
-                <div className="h-8 w-24 rounded bg-brand/10 dark:bg-zinc-800" />
-                <div className="mt-4 h-7 w-16 rounded bg-brand/10 dark:bg-zinc-800" />
-              </div>
+              <article key={i} className="dashboard-stat-card" aria-hidden>
+                <Skeleton active title={{ width: "40%" }} paragraph={{ rows: 1, width: "55%" }} />
+                <div className="mt-4">
+                  <DashboardStatValueSkeleton />
+                </div>
+              </article>
             ))
           : kpiTrends.map((kpi) => <KpiCard key={kpi.label} kpi={kpi} />)}
       </div>
@@ -286,7 +290,7 @@ export function IncomeAnalyticsPanel({
 
           <div className="mt-4 flex flex-1 flex-col justify-end">
             {loading ? (
-              <div className="h-[148px] animate-pulse rounded-xl bg-zinc-100 dark:bg-zinc-800/60" />
+              <Skeleton active title={{ width: "100%", style: { height: 148, margin: 0 } }} paragraph={false} />
             ) : (
               <MonthlyRevenueAreaChart bars={monthlyRevenue} currency={summary.currency} />
             )}
@@ -309,7 +313,7 @@ export function IncomeAnalyticsPanel({
 
           <div className="mt-2 flex flex-1 items-center justify-center">
             {loading ? (
-              <div className="h-36 w-36 animate-pulse rounded-full bg-zinc-100 dark:bg-zinc-800/60" />
+              <Skeleton.Avatar active size={144} shape="circle" />
             ) : (
               <DonutChart
                 slices={donutSlices}

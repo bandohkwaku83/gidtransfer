@@ -13,6 +13,7 @@ import {
   Wallet,
   type LucideIcon,
 } from "lucide-react";
+import { Skeleton } from "antd";
 import { PRODUCT_TAGLINE } from "@/lib/branding";
 import type { DashboardStatItem } from "@/components/dashboard/dashboard-stat-strip";
 import { cn } from "@/lib/utils";
@@ -104,7 +105,9 @@ export function DashboardWelcomePanel({
               {index > 0 ? <span className="dashboard-hero-stats-divider" aria-hidden /> : null}
               <Link href={item.href} className="dashboard-hero-stats-cell group">
                 {statsLoading ? (
-                  <span className="dashboard-hero-stats-value dashboard-hero-stats-value--loading" aria-hidden />
+                  <span className="inline-block [&_.ant-skeleton-title]:!rounded [&_.ant-skeleton-title]:!bg-white/10" aria-hidden>
+                    <Skeleton active title={{ width: 40, style: { height: 32, margin: 0 } }} paragraph={false} />
+                  </span>
                 ) : (
                   <span className="dashboard-hero-stats-value">{item.value}</span>
                 )}

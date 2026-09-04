@@ -8,6 +8,7 @@ import {
   Trash2,
   Users,
 } from "lucide-react";
+import { ClientListSkeleton, DashboardSpin } from "@/components/ui/skeletons";
 import Link from "next/link";
 import { FormSearchInput, dashboardSearchFieldClassName } from "@/components/ui/form-input";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -215,16 +216,7 @@ export default function ClientsPage() {
           </div>
 
           {loading ? (
-            <div className="dashboard-panel !overflow-hidden !p-0">
-              <div className="space-y-0 divide-y divide-zinc-100 dark:divide-zinc-800">
-                {Array.from({ length: 5 }).map((_, i) => (
-                  <div
-                    key={i}
-                    className="h-14 animate-pulse bg-zinc-100/80 dark:bg-zinc-900/50"
-                  />
-                ))}
-              </div>
-            </div>
+            <ClientListSkeleton />
           ) : clients.length === 0 ? (
             <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed border-zinc-300 bg-zinc-50/80 px-6 py-16 text-center dark:border-zinc-700 dark:bg-zinc-900/30">
               <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-zinc-200/80 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
@@ -313,7 +305,7 @@ export default function ClientsPage() {
                                 aria-label={`Delete ${record.name}`}
                               >
                                 {isDeleting ? (
-                                  <span className="h-4 w-4 animate-pulse rounded bg-red-200 dark:bg-red-900/50" />
+                                  <DashboardSpin size="small" />
                                 ) : (
                                   <Trash2 className="h-4 w-4" aria-hidden />
                                 )}

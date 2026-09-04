@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { DashboardPageSpin } from "@/components/ui/skeletons";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ChevronRight } from "lucide-react";
 import { SettingsShell } from "@/components/settings/settings-shell";
@@ -438,13 +439,7 @@ function SettingsPageContent() {
 
 export default function SettingsPage() {
   return (
-    <Suspense
-      fallback={
-        <div className="dashboard-page px-4 py-16 text-center text-sm text-zinc-500">
-          Loading settings…
-        </div>
-      }
-    >
+    <Suspense fallback={<DashboardPageSpin label="Loading settings…" className="dashboard-page px-4" />}>
       <SettingsPageContent />
     </Suspense>
   );

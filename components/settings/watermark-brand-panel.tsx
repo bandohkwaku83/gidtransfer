@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ImagePlus, Move, Save } from "lucide-react";
+import { Skeleton } from "antd";
 import { LogoCropEditor } from "@/components/settings/logo-crop-editor";
 import { SettingsToggle } from "@/components/settings/settings-shared";
 import { useToast } from "@/components/toast-provider";
@@ -15,7 +16,7 @@ import {
   type WatermarkLogoCrop,
   type WatermarkTemplateSettings,
 } from "@/lib/watermark-brand";
-import { FeatureUpgradeButton } from "@/components/billing/plan-upgrade-modal";
+import { PlanUpgradeHint } from "@/components/billing/plan-upgrade-hint";
 import { parsePlanFeatureRequired } from "@/lib/plan-entitlements";
 import { usePlanEntitlements } from "@/lib/use-plan-entitlements";
 import { updateWatermarkSettings } from "@/lib/watermark-api";
@@ -359,20 +360,14 @@ export function WatermarkBrandPanel({
         hint="When clients save final images from a gallery, your logo is added automatically."
       />
       ) : (
-        <div
-          id="settings-brand-watermark"
-          className="rounded-2xl border border-zinc-200 bg-zinc-50/80 p-5 dark:border-zinc-800 dark:bg-zinc-900/40"
-        >
-          <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
-            Logo on client downloads
-          </p>
-          <p className="mt-1 text-xs leading-relaxed text-zinc-500">
-            Custom branding — burn your logo onto photos clients download — is available on
-            Premium and Studio.
-          </p>
-          <div className="mt-4">
-            <FeatureUpgradeButton feature="customBranding" label="Upgrade for logo branding" />
-          </div>
+        <div id="settings-brand-watermark">
+          <PlanUpgradeHint
+            feature="customBranding"
+            suggestedPlanId="pro"
+            title="Logo on client downloads"
+            description="Burn your studio logo onto photos clients download. Included on Pro and Premium."
+            label="Upgrade to Pro"
+          />
         </div>
       )}
 
@@ -554,7 +549,10 @@ export function WatermarkBrandPanel({
                   style={{ aspectRatio: templateTab === "portrait" ? "3/4" : "4/3" }}
                 >
                   {previewBusy ? (
-                    <div className="h-full w-full animate-pulse bg-zinc-200 dark:bg-zinc-800" />
+                    <Skeleton.Image
+                      active
+                      className="!flex !h-full !w-full !items-center !justify-center !rounded-none"
+                    />
                   ) : previewUrl ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img

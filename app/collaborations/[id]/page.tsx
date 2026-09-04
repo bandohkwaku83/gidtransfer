@@ -17,7 +17,6 @@ import {
   ChevronRight,
   FolderPlus,
   ImagePlus,
-  Loader2,
   MoreHorizontal,
   Settings2,
   Trash2,
@@ -40,6 +39,7 @@ import {
   CollabSurface,
   formatCollabRelative,
 } from "@/components/collaborations/collab-ui";
+import { DashboardSpin } from "@/components/ui/skeletons";
 import { useToast } from "@/components/toast-provider";
 import { sameOriginUploadsUrl } from "@/lib/api";
 import {
@@ -465,7 +465,7 @@ export default function CollaborationDetailPage({
                       )}
                     >
                       {uploading ? (
-                        <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                        <DashboardSpin size="small" />
                       ) : (
                         <Upload className="h-4 w-4" aria-hidden />
                       )}

@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { Loader2, Pause, Play, RotateCcw, Sparkles, Square } from "lucide-react";
+import { Loader2, Pause, Play, RotateCcw, Square, Wand } from "lucide-react";
 import type { DemoAsset } from "@/lib/demo-data";
 import type {
   AiSuggestionControlAction,
@@ -149,7 +149,7 @@ export function GalleryAiToolbar({
             {runStatus === "running" ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin sm:h-4 sm:w-4" />
             ) : (
-              <Sparkles className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+              <Wand className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
             )}
           </span>
           <div className="min-w-0">
@@ -195,7 +195,7 @@ export function GalleryAiToolbar({
                 disabled={busy}
                 onClick={() => onControl("start")}
                 busy={controlBusy}
-                icon={<Sparkles className="h-3.5 w-3.5" aria-hidden />}
+                icon={<Wand className="h-3.5 w-3.5" aria-hidden />}
                 label="Start AI"
               />
             ) : null}
@@ -444,7 +444,7 @@ export function SuggestedPicksStrip({
               className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]"
             />
             <span className="pointer-events-none absolute bottom-1.5 left-1.5 inline-flex h-5 w-5 items-center justify-center rounded-full bg-black/55 text-white backdrop-blur-sm">
-              <Sparkles className="h-2.5 w-2.5" aria-hidden />
+              <Wand className="h-2.5 w-2.5" aria-hidden />
             </span>
           </button>
         ))}

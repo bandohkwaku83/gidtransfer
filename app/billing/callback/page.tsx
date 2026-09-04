@@ -6,7 +6,6 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import {
   billingCallbackReturnPath,
-  billingSettingsPath,
   clearBillingCheckoutReference,
   clearBillingReturnPath,
   isBillingPaymentConfirmed,
@@ -17,8 +16,9 @@ import {
   rememberBillingReturnPath,
   verifyBillingPayment,
 } from "@/lib/billing-api";
-import { fetchAuthMe, applyAuthUserPlan, refreshAuthSessionFromApi } from "@/lib/auth-api";
-import { clearAuth, getAuthToken } from "@/lib/auth-demo";
+import { applyAuthUserPlan, refreshMe } from "@/lib/auth-api";
+import { BILLING_HREF, billingAppPath } from "@/lib/plan";
+import { clearAuth, consumeAuthHandoffFromUrl, getAuthToken } from "@/lib/auth-demo";
 import { HttpError } from "@/lib/http";
 import { photographerLoginUrl } from "@/lib/studio-url";
 
@@ -54,6 +54,8 @@ function BillingCallbackContent() {
     if (started.current) return;
     started.current = true;
 
+    consumeAuthHandoffFromUrl();
+
     const reference =
       paystackReferenceFromSearchParams(searchParams) || readBillingCheckoutReference();
     if (!reference) {
@@ -87,25 +89,26 @@ function BillingCallbackContent() {
           applyAuthUserPlan(result.plan);
         }
 
-        try {
-          const { user } = await fetchAuthMe({ redirectOn401: false });
-          refreshAuthSessionFromApi(user);
-        } catch {
-          /* best-effort; billing page will reload */
+        await refreshMe();
+
+        // /me can briefly return the pre-pay plan from a stale auth cache — put the
+        // verified plan back so Settings does not show the old Free/Basic card.
+        if (result.plan && isBillingPaymentConfirmed(result)) {
+          applyAuthUserPlan(result.plan);
         }
 
         clearBillingReturnPath();
 
         const confirmed = isBillingPaymentConfirmed(result);
-        // Keep the Paystack reference on success so billing can apply the verify
-        // result immediately. Clearing here forced a "pending" wait with no re-verify.
+        // Keep the Paystack reference until billing settings finishes reconcile.
+        // Clearing it here let a stale /subscription response show the old plan.
         if (!confirmed) {
           clearBillingCheckoutReference();
         }
 
         const nextPath = confirmed
-          ? billingSettingsPath({ success: true })
-          : billingSettingsPath({ paymentFailed: true });
+          ? billingAppPath({ upgraded: true })
+          : billingAppPath({ paymentFailed: true, status: result.status });
 
         if (!getAuthToken()) {
           rememberBillingReturnPath(nextPath);
@@ -150,7 +153,7 @@ function BillingCallbackContent() {
           </h1>
           <p className="mt-2 text-sm text-red-800 dark:text-red-200">{state.message}</p>
           <Link
-            href={billingSettingsPath()}
+            href={BILLING_HREF}
             className="mt-5 inline-flex font-semibold text-brand underline underline-offset-2 dark:text-brand-on-dark"
           >
             Back to billing

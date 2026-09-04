@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Check, Loader2, Lock, X } from "lucide-react";
+import { Check, Lock, X } from "lucide-react";
+import { DashboardSpin } from "@/components/ui/skeletons";
 import { FormModal } from "@/components/ui/form-modal";
 import {
   fetchBillingConfig,
@@ -140,7 +141,7 @@ export function PlanUpgradeModal() {
 
   async function handleUpgrade() {
     if (!suggested || !isCheckoutPlanId(suggested)) {
-      window.location.href = "/dashboard/settings?tab=billing";
+      window.location.href = "/billing";
       return;
     }
     setBusy(true);
@@ -151,7 +152,7 @@ export function PlanUpgradeModal() {
         setError("Billing is unavailable right now. Try again later.");
         return;
       }
-      await startBillingCheckout(suggested);
+      await startBillingCheckout(suggested, "monthly");
     } catch (err) {
       setError(await readBillingErrorMessage(err, "Could not start checkout."));
       setBusy(false);
@@ -239,7 +240,9 @@ export function PlanUpgradeModal() {
         >
           {busy ? (
             <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />
+              <span className="mr-2 inline-flex">
+                <DashboardSpin size="small" />
+              </span>
               Opening checkout…
             </>
           ) : suggested && planLabel ? (

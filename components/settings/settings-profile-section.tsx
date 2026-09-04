@@ -12,6 +12,7 @@ import {
 import { useToast } from "@/components/toast-provider";
 import { formModalLabelClass } from "@/components/ui/form-modal";
 import { FormInput, ContactNumberInput } from "@/components/ui/form-input";
+import { SettingsWorkflowSkeleton } from "@/components/ui/skeletons";
 import {
   logout,
   type DemoAuthUser,
@@ -283,19 +284,7 @@ export function SettingsProfileSection({
   const hasCustomLogo = Boolean(logoDataUrl || (!clearBrandLogo && savedLogoSrc));
 
   if (loading && !pageData) {
-    return (
-      <div className="space-y-8">
-        <div className="flex items-center gap-5">
-          <div className="h-24 w-24 animate-pulse rounded-full bg-zinc-100 dark:bg-zinc-900" />
-          <div className="min-w-0 flex-1 space-y-2">
-            <div className="h-6 w-48 animate-pulse rounded-lg bg-zinc-100 dark:bg-zinc-900" />
-            <div className="h-4 w-64 animate-pulse rounded-lg bg-zinc-100 dark:bg-zinc-900" />
-            <div className="h-3 w-40 animate-pulse rounded-lg bg-zinc-100 dark:bg-zinc-900" />
-          </div>
-        </div>
-        <div className="h-48 animate-pulse rounded-2xl bg-zinc-100 dark:bg-zinc-900" />
-      </div>
-    );
+    return <SettingsWorkflowSkeleton />;
   }
 
   return (

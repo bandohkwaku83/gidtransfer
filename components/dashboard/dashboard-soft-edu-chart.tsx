@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { ArrowRight, CheckCircle2 } from "lucide-react";
 import type { WeeklyBar } from "@/lib/dashboard-chart-data";
+import { DashboardStatValueSkeleton } from "@/components/ui/skeletons";
 import { cn } from "@/lib/utils";
 
 type DashboardSoftEduChartCardProps = {
@@ -167,7 +168,7 @@ export function DashboardSoftEduChartCard({
         <div>
           <p className="text-xs font-medium text-zinc-500">This week</p>
           {loading ? (
-            <span className="mt-1 inline-block h-8 w-14 animate-pulse rounded bg-zinc-100 dark:bg-zinc-800" />
+            <DashboardStatValueSkeleton className="mt-1" />
           ) : (
             <div className="mt-1 flex items-center gap-2">
               <span className="font-display text-3xl font-medium tabular-nums text-zinc-900 dark:text-zinc-50">
@@ -180,7 +181,7 @@ export function DashboardSoftEduChartCard({
         <div>
           <p className="text-xs font-medium text-zinc-500">Today</p>
           {loading ? (
-            <span className="mt-1 inline-block h-7 w-10 animate-pulse rounded bg-zinc-100 dark:bg-zinc-800" />
+            <DashboardStatValueSkeleton className="mt-1" />
           ) : (
             <div className="mt-1 flex items-center gap-2">
               <span className="font-display text-2xl font-medium tabular-nums text-zinc-900 dark:text-zinc-50">

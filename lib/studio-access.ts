@@ -38,7 +38,7 @@ const MENU_HREFS: Record<StudioMenuKey, string> = {
   storage: "/dashboard/storage",
   trash: "/dashboard/galleries/trash",
   settings: "/dashboard/settings",
-  billing: "/dashboard/settings?tab=billing",
+  billing: "/billing",
   team: "/dashboard/settings?tab=team",
 };
 

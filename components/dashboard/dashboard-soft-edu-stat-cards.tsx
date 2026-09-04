@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import type { LucideIcon } from "lucide-react";
+import { DashboardStatValueSkeleton } from "@/components/ui/skeletons";
 import { cn } from "@/lib/utils";
 
 export type SoftEduStatItem = {
@@ -45,7 +46,7 @@ function SoftEduStatCard({ item, loading }: { item: SoftEduStatItem; loading?: b
       </div>
       <p className="mt-3 text-xs font-medium text-zinc-500">{item.label}</p>
       {loading ? (
-        <span className="dashboard-stat-card-value-skeleton mt-2 block" aria-hidden />
+        <DashboardStatValueSkeleton className="mt-2 block" />
       ) : (
         <p className="mt-1 font-display text-[1.85rem] font-medium leading-none tabular-nums text-zinc-900 dark:text-zinc-50">
           {item.value}

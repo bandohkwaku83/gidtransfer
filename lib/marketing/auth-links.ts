@@ -50,6 +50,8 @@ export function marketingSignInHref(): string {
 /**
  * Start-free / get-started CTAs — resume onboarding when a verified incomplete
  * session exists; otherwise signup (or dashboard when fully signed in).
+ * Pending email OTP is not treated as signed-in on marketing, so CTAs stay on
+ * signup; opening /login with that token still resumes verify.
  */
 export function marketingSignUpHref(): string {
   const user = sessionUser();

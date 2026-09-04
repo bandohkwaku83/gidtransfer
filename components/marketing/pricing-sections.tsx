@@ -14,22 +14,58 @@ import {
   MarketingCornerCta,
 } from "@/components/marketing/marketing-corner-cta";
 import {
+  fetchPublicPricingCatalog,
   isCheckoutPlanId,
   MARKETING_BILLING_PLANS_FALLBACK,
   readBillingErrorMessage,
   startBillingCheckout,
+  type BillingInterval,
   type BillingPlan,
 } from "@/lib/billing-api";
 import { getAuth } from "@/lib/auth-demo";
-import { type BillingPlanId } from "@/lib/plan-entitlements";
-import { usePhotographerSignedIn } from "@/lib/marketing/use-photographer-signed-in";
+import { BILLING_HREF, isViewOnly, planIntervalAvailable, planPrice } from "@/lib/plan";
+import { planCtaLabel, type BillingPlanId } from "@/lib/plan-entitlements";
+import { useMarketingAuthCta } from "@/lib/marketing/use-photographer-signed-in";
 import { cn } from "@/lib/utils";
 
-function marketingPlanCtaLabel(plan: BillingPlan, current: boolean): string {
-  if (current || plan.current) return "Current Plan";
-  if (!plan.available) return "Coming soon";
-  if (plan.id === "free") return "Get started";
-  return `Upgrade to ${plan.name}`;
+function marketingPlanCtaLabel(
+  plan: BillingPlan,
+  current: boolean,
+  options: {
+    signedIn: boolean;
+    incompleteOnboarding: boolean;
+    selectedInterval: BillingInterval;
+    currentInterval: BillingInterval | null;
+    trialActive: boolean;
+    viewOnly: boolean;
+    available: boolean;
+  },
+): string {
+  if (!options.signedIn) {
+    if (!options.available) return "Coming soon";
+    if (plan.id === "free") return "Get started";
+    return `Upgrade to ${plan.name}`;
+  }
+  if (plan.id === "free") {
+    if (options.incompleteOnboarding) return "Continue setup";
+    return planCtaLabel({
+      planId: plan.id,
+      current,
+      available: options.available,
+      trialActive: options.trialActive,
+      viewOnly: options.viewOnly,
+    });
+  }
+  return planCtaLabel({
+    planId: plan.id,
+    current,
+    available: options.available,
+    currentPlanId: plan.current ? plan.id : undefined,
+    currentInterval: options.currentInterval,
+    selectedInterval: options.selectedInterval,
+    trialActive: options.trialActive,
+    viewOnly: options.viewOnly,
+  });
 }
 
 export const pricingHeroImage = {
@@ -124,10 +160,12 @@ function PricingCard({
 
       <div className="mt-6">
         <div className="flex items-baseline">
-          <span className="font-display text-[3.25rem] font-semibold leading-none tracking-tight text-slate-900">
+          <span className="font-display text-[2.35rem] font-semibold leading-none tracking-tight text-slate-900 sm:text-[2.5rem]">
             GH₵ {priceGhs}
           </span>
-          <span className="ml-1.5 text-sm text-slate-500">/mo</span>
+          <span className="ml-1.5 text-sm text-slate-500">
+            {billingPeriod === "yearly" ? "/yr" : "/mo"}
+          </span>
         </div>
         <p className="mt-2 text-xs text-slate-400">
           {billingPeriod === "yearly" ? "Billed yearly" : "Billed monthly"}
@@ -234,50 +272,48 @@ type PricingSectionsProps = {
 };
 
 export function PricingSections({ className }: PricingSectionsProps) {
-  const signedIn = usePhotographerSignedIn();
-  const signUpHref = signedIn ? "/dashboard/settings?tab=billing" : "/login?screen=signup";
+  const { signedIn, signUpHref, incompleteOnboarding } = useMarketingAuthCta();
+  const pricingCtaHref = signedIn ? BILLING_HREF : signUpHref;
   const [plans, setPlans] = useState<BillingPlan[]>(MARKETING_BILLING_PLANS_FALLBACK.plans);
-  const comparison = MARKETING_BILLING_PLANS_FALLBACK.comparison;
+  const [comparison, setComparison] = useState(MARKETING_BILLING_PLANS_FALLBACK.comparison);
   const [billingConfigured, setBillingConfigured] = useState(true);
-  const [billingPeriod, setBillingPeriod] = useState<"monthly" | "yearly">("monthly");
   const [checkoutPlanId, setCheckoutPlanId] = useState<BillingPlanId | null>(null);
   const [planErrors, setPlanErrors] = useState<Partial<Record<string, string>>>({});
+  const [interval, setBillingInterval] = useState<BillingInterval>("monthly");
 
-  const currentPlanId = useMemo(() => {
-    return getAuth()?.user?.plan?.planId ?? plans.find((p) => p.current)?.id ?? null;
-  }, [plans]);
-
-  useEffect(() => {
-    // Mark current plan from the signed-in session; catalog content stays on the marketing source.
-    const sessionPlanId = getAuth()?.user?.plan?.planId ?? null;
-    if (!sessionPlanId) return;
-    setPlans((prev) =>
-      prev.map((plan) => ({
-        ...plan,
-        current: plan.id === sessionPlanId,
-      })),
-    );
-  }, [signedIn]);
+  const sessionPlan = useMemo(() => getAuth()?.user?.plan ?? null, [signedIn, plans]);
+  const currentPlanId = sessionPlan?.planId ?? plans.find((p) => p.current)?.id ?? null;
+  const currentInterval = sessionPlan?.interval ?? null;
+  const trialActive = sessionPlan?.trialActive === true;
+  const viewOnly = isViewOnly({ plan: sessionPlan });
 
   useEffect(() => {
-    // Best-effort: detect whether Paystack checkout is configured (no auth required once API is public).
     let cancelled = false;
     void (async () => {
       try {
-        const { fetchBillingConfig } = await import("@/lib/billing-api");
-        const config = await fetchBillingConfig();
-        if (!cancelled) setBillingConfigured(config?.configured !== false);
+        const { catalog, config } = await fetchPublicPricingCatalog();
+        if (cancelled) return;
+        setPlans(catalog.plans);
+        if (catalog.comparison.length > 0) setComparison(catalog.comparison);
+        setBillingConfigured(config?.configured !== false);
       } catch {
-        /* keep default */
+        /* keep fallback catalog */
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [signedIn]);
 
   async function handleCheckout(plan: BillingPlan) {
-    if (!isCheckoutPlanId(plan.id) || !plan.available || plan.current) return;
+    if (!isCheckoutPlanId(plan.id)) return;
+    const available = planIntervalAvailable(plan, interval);
+    if (!available) return;
+    const samePlanSameInterval =
+      plan.current && currentInterval === interval && !viewOnly;
+    if (samePlanSameInterval && sessionPlan?.subscription.cancelAtPeriodEnd !== true) {
+      return;
+    }
     setCheckoutPlanId(plan.id);
     setPlanErrors((prev) => {
       const next = { ...prev };
@@ -285,7 +321,7 @@ export function PricingSections({ className }: PricingSectionsProps) {
       return next;
     });
     try {
-      await startBillingCheckout(plan.id);
+      await startBillingCheckout(plan.id, interval);
     } catch (err) {
       const message = await readBillingErrorMessage(err, "Checkout failed.");
       setPlanErrors((prev) => ({
@@ -308,73 +344,87 @@ export function PricingSections({ className }: PricingSectionsProps) {
             tone="dark"
             label="Pricing"
             title="Simple pricing for photographers"
-            body="Choose the perfect plan for your photography business. No hidden fees, ever."
+            body="Four plans from a free trial to Premium — Gallery AI, studio team, and photographer collaboration."
           />
-
-          <div
-            className="mt-8 inline-flex items-center rounded-full border border-white/20 bg-black/25 p-1 backdrop-blur-sm"
-            role="group"
-            aria-label="Billing period"
-          >
-            {(["monthly", "yearly"] as const).map((period) => (
-              <button
-                key={period}
-                type="button"
-                onClick={() => setBillingPeriod(period)}
-                className={cn(
-                  "rounded-full px-4 py-1.5 text-xs font-semibold capitalize transition",
-                  billingPeriod === period
-                    ? "bg-white text-slate-900"
-                    : "text-white/70 hover:text-white",
-                )}
-              >
-                {period}
-              </button>
-            ))}
-          </div>
         </div>
       </section>
 
       {/* Plan cards */}
       <section className="relative -mt-6 pb-14 pt-2 sm:-mt-8 sm:pb-16">
-        <div className="marketing-container">
+        <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 xl:max-w-[96rem] 2xl:max-w-[104rem]">
           {!billingConfigured ? (
             <p className="mb-5 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
               Billing unavailable. You can still review plans — checkout will open when payments
               are configured.
             </p>
           ) : null}
-          <div className="grid items-stretch gap-5 sm:grid-cols-2 xl:grid-cols-4 xl:gap-6">
+          <div className="mb-8 flex justify-center">
+            <div
+              className="inline-flex rounded-full border border-slate-200 bg-white p-1 shadow-sm"
+              role="group"
+              aria-label="Billing interval"
+            >
+              {(["monthly", "yearly"] as const).map((value) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setBillingInterval(value)}
+                  className={cn(
+                    "rounded-full px-4 py-1.5 text-sm font-semibold capitalize transition",
+                    interval === value
+                      ? "bg-[#55001F] text-white"
+                      : "text-slate-600 hover:text-slate-900",
+                  )}
+                >
+                  {value}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="grid items-stretch gap-5 sm:grid-cols-2 xl:grid-cols-4 xl:gap-5">
             {plans.map((plan) => {
               const current =
                 plan.current || (currentPlanId != null && plan.id === currentPlanId);
-              const label = marketingPlanCtaLabel(plan, current);
+              const available = planIntervalAvailable(plan, interval);
+              const label = marketingPlanCtaLabel(plan, current, {
+                signedIn,
+                incompleteOnboarding,
+                selectedInterval: interval,
+                currentInterval,
+                trialActive,
+                viewOnly,
+                available,
+              });
+              const switchInterval =
+                current &&
+                currentInterval != null &&
+                currentInterval !== interval &&
+                available;
               const canCheckout =
                 signedIn &&
                 billingConfigured &&
                 isCheckoutPlanId(plan.id) &&
-                plan.available &&
-                !current;
-              const displayPrice =
-                billingPeriod === "yearly" && plan.priceGhs > 0
-                  ? plan.priceGhs
-                  : plan.priceGhs;
+                available &&
+                (viewOnly || !current || switchInterval);
 
               return (
                 <div key={plan.id} className="flex flex-col">
                   <PricingCard
                     plan={{ ...plan, current, highlighted: plan.highlighted }}
-                    priceGhs={displayPrice}
-                    billingPeriod={billingPeriod}
+                    priceGhs={planPrice(plan, interval)}
+                    billingPeriod={interval}
                     ctaLabel={label}
                     ctaHref={
                       canCheckout
                         ? undefined
-                        : current
+                        : current && !switchInterval
                           ? undefined
-                          : signUpHref
+                          : pricingCtaHref
                     }
-                    ctaDisabled={current || (!canCheckout && signedIn && plan.id !== "free")}
+                    ctaDisabled={
+                      (!available && signedIn) ||
+                      (current && !switchInterval && !viewOnly && signedIn && plan.id !== "free")
+                    }
                     ctaBusy={checkoutPlanId === plan.id}
                     onCtaClick={canCheckout ? () => void handleCheckout(plan) : undefined}
                   />
@@ -398,7 +448,7 @@ export function PricingSections({ className }: PricingSectionsProps) {
             className="mb-6 sm:mb-8"
             label="Compare plans"
             title="See what's included at a glance"
-            body="Free to start, Basic to grow, Premium for pros, Studio for teams."
+            body="Free to start, Basic to grow, Pro for branding, Premium for AI and teams."
           />
 
           {comparison.length > 0 && plans.length > 0 ? (

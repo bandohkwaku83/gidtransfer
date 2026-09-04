@@ -13,6 +13,11 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
+  DashboardSpin,
+  StorageSummarySkeleton,
+  StorageTableSkeleton,
+} from "@/components/ui/skeletons";
+import {
   DASHBOARD_TABLE_DEFAULT_PAGE_SIZE,
   DashboardTablePagination,
 } from "@/components/dashboard/dashboard-table-pagination";
@@ -239,16 +244,7 @@ export default function StoragePage() {
           </button>
         </div>
       ) : summaryLoading ? (
-        <div className="dashboard-panel space-y-4">
-          <div className="h-5 w-24 animate-pulse rounded bg-zinc-200/80 dark:bg-zinc-800" />
-          <div className="flex gap-6">
-            <div className="flex-1 space-y-3">
-              <div className="h-9 w-32 animate-pulse rounded-lg bg-zinc-200/80 dark:bg-zinc-800" />
-              <div className="h-3 animate-pulse rounded-full bg-zinc-200/80 dark:bg-zinc-800" />
-            </div>
-            <div className="h-28 w-28 shrink-0 animate-pulse rounded-full bg-zinc-200/80 dark:bg-zinc-800" />
-          </div>
-        </div>
+        <StorageSummarySkeleton />
       ) : (
         <section className="dashboard-panel">
           <div className="flex flex-col gap-6 sm:flex-row sm:items-start sm:justify-between">
@@ -427,10 +423,8 @@ export default function StoragePage() {
         ) : null}
 
         {listLoading && sortedRows.length === 0 ? (
-          <div className="space-y-3 px-5 py-8 sm:px-6">
-            {Array.from({ length: 5 }).map((_, i) => (
-              <div key={i} className="h-14 animate-pulse rounded-xl bg-zinc-100 dark:bg-zinc-800" />
-            ))}
+          <div className="px-5 py-8 sm:px-6">
+            <StorageTableSkeleton />
           </div>
         ) : showEmptyList ? (
           <div className="px-5 py-16 text-center text-sm text-zinc-500 dark:text-zinc-400 sm:px-6">
@@ -491,7 +485,8 @@ export default function StoragePage() {
             <div className="relative hidden overflow-x-auto md:block">
               {listLoading ? (
                 <div className="pointer-events-none absolute inset-0 z-10 flex items-start justify-end bg-white/60 px-4 py-3 dark:bg-zinc-950/60">
-                  <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
+                  <span className="inline-flex items-center gap-2 text-xs font-medium text-zinc-500 dark:text-zinc-400">
+                    <DashboardSpin size="small" />
                     Updating…
                   </span>
                 </div>

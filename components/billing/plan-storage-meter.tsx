@@ -283,7 +283,7 @@ export function StorageUpgradePrompt({
         <>You&apos;ve used {pct}% of included storage. </>
       )}
       <Link
-        href="/dashboard/settings?tab=billing"
+        href="/billing"
         className="font-semibold underline underline-offset-2"
       >
         Upgrade your plan

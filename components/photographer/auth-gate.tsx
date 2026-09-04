@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { DashboardPageSpin } from "@/components/ui/skeletons";
 import {
   authHandoffPayload,
   clearAuth,
@@ -99,11 +100,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   }, [router]);
 
   if (!ready) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-zinc-50 text-sm text-zinc-500 dark:bg-black">
-        Loading…
-      </div>
-    );
+    return <DashboardPageSpin label="Loading…" className="min-h-screen bg-zinc-50 dark:bg-black" />;
   }
 
   return <>{children}</>;

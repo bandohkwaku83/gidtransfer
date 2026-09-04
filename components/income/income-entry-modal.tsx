@@ -5,6 +5,7 @@ import { Tag } from "antd";
 import { Banknote, UserPlus } from "lucide-react";
 import { CreateClientModal } from "@/components/photographer/create-client-modal";
 import { useToast } from "@/components/toast-provider";
+import { useGuardViewOnlyWrite } from "@/lib/use-view-only-write";
 import { ClientSearchSelect } from "@/components/ui/client-search-select";
 import { FormDatePicker } from "@/components/ui/form-date-picker";
 import { FormInput } from "@/components/ui/form-input";
@@ -131,6 +132,7 @@ function statusTagColor(status: IncomeStatus): string {
 
 export function IncomeEntryModal({ open, onClose, entry, onSaved }: Props) {
   const { showToast } = useToast();
+  const guardViewOnlyWrite = useGuardViewOnlyWrite();
   const formId = useId();
   const isEdit = Boolean(entry?.id);
 
@@ -300,6 +302,7 @@ export function IncomeEntryModal({ open, onClose, entry, onSaved }: Props) {
   function submit(e?: React.FormEvent) {
     e?.preventDefault();
     if (busy || clientsLoading || bookingsLoading || shootTypesLoading) return;
+    if (guardViewOnlyWrite()) return;
 
     const trimmedTitle = title.trim();
     const client = clientsForSelect.find((row) => row._id === clientId);

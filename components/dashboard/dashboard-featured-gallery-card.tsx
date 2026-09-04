@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { ArrowRight, CalendarDays, Images, Plus } from "lucide-react";
 import { FolderCoverVisual } from "@/components/photographer/folder-cover-visual";
+import { GalleryCardSkeleton } from "@/components/ui/skeletons";
 import {
   apiFolderStatusToUi,
   getFolderClientName,
@@ -39,15 +40,7 @@ export function DashboardFeaturedGalleryCard({
   loading,
 }: DashboardFeaturedGalleryCardProps) {
   if (loading && !folder) {
-    return (
-      <div className="dashboard-panel flex h-full min-h-[320px] flex-col overflow-hidden p-0">
-        <div className="aspect-[16/10] animate-pulse bg-zinc-100 dark:bg-zinc-800/60" />
-        <div className="space-y-3 p-5">
-          <div className="h-5 w-40 animate-pulse rounded bg-zinc-100 dark:bg-zinc-800" />
-          <div className="h-4 w-56 animate-pulse rounded bg-zinc-100 dark:bg-zinc-800" />
-        </div>
-      </div>
-    );
+    return <GalleryCardSkeleton className="dashboard-panel flex h-full min-h-[320px] flex-col p-0" />;
   }
 
   if (!folder) {

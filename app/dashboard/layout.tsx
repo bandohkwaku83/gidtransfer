@@ -3,6 +3,7 @@ import { DashboardUiThemeProvider } from "@/components/dashboard-ui-theme";
 import { DashboardAntdProviders } from "@/components/dashboard-antd-providers";
 import { AuthGate } from "@/components/photographer/auth-gate";
 import { PhotographerShell } from "@/components/photographer/photographer-shell";
+import { DashboardTourProvider } from "@/components/tour/dashboard-tour";
 import { PlanEntitlementsProvider } from "@/lib/use-plan-entitlements";
 
 export default function DashboardLayout({
@@ -15,8 +16,10 @@ export default function DashboardLayout({
       <PlanEntitlementsProvider>
         <DashboardUiThemeProvider>
           <DashboardAntdProviders>
-            <PhotographerShell>{children}</PhotographerShell>
-            <PlanUpgradeModal />
+            <DashboardTourProvider>
+              <PhotographerShell>{children}</PhotographerShell>
+              <PlanUpgradeModal />
+            </DashboardTourProvider>
           </DashboardAntdProviders>
         </DashboardUiThemeProvider>
       </PlanEntitlementsProvider>

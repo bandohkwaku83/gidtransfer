@@ -65,9 +65,9 @@ export const featureWhySwitch = [
       "Bookings and reminders, a client list, income tracking, labels, and analytics live next to your galleries — not in five other apps.",
   },
   {
-    title: "Grow into SMS, video, and AI",
+    title: "Grow into SMS, video, AI, and teams",
     description:
-      "Start on the free trial with core tools. Upgrade for comments, sets, video, SMS, logo watermarks, trash restore, and Gallery AI for smarter client picks.",
+      "Start on the free trial. Upgrade for SMS, video, branding, and trash restore — then Premium for Gallery AI, a studio team of up to 10, and collaboration workspaces with other photographers.",
   },
 ] as const;
 
@@ -90,7 +90,7 @@ export const featureWorkflowSteps = [
   {
     label: "Proof",
     description:
-      "Clients heart favourites and submit. Comments and flags unlock on Basic; Gallery AI picks on Premium.",
+      "Clients heart favourites and submit. Comments and flags unlock on Basic; Gallery AI smart picks on Premium.",
   },
   {
     label: "Deliver",
@@ -104,13 +104,13 @@ export const featureSectionHeaders = {
     eyebrow: "What clients see",
     title: "A private gallery link worth opening",
     description:
-      "Share links, heart picks, password gates, and download control — the client experience from the free trial up.",
+      "Share links, heart picks, password gates, and download control — the client experience from the free trial up. Premium adds Gallery AI smart picks on the link.",
   },
   studio: {
     eyebrow: "What you run",
     title: "The studio behind every delivery",
     description:
-      "Galleries, bookings, clients, income, SMS, analytics, and (on Premium) Gallery AI — one place to run the job.",
+      "Galleries, bookings, clients, income, SMS, and analytics on every paid path — plus Gallery AI, studio team seats, and photographer collaboration on Premium.",
   },
 } as const;
 
@@ -129,7 +129,7 @@ export const featurePlatformModules = [
   "Bookings, CRM & income tracking",
   "SMS share notifications (Basic+)",
   "Video uploads & adaptive streaming (Basic+)",
-  "Gallery AI for studio + client picks (Premium)",
+  "Gallery AI, studio team & photographer collab (Premium)",
 ] as const;
 
 export const featureSpotlights: readonly FeatureSpotlight[] = [
@@ -140,7 +140,7 @@ export const featureSpotlights: readonly FeatureSpotlight[] = [
     headline: "A private gallery per client or shoot",
     outcome: "One link. No client account.",
     description:
-      "Create a client gallery, send a public share link, and let them open proofs on any device — included from the free trial.",
+      "Create a client gallery, send a public share link, and let them open proofs on any device — included from the free trial. Premium unlocks unlimited galleries.",
     bullets: [
       "Client galleries — one private space per shoot",
       "Share links — a public URL for proofs",
@@ -164,12 +164,13 @@ export const featureSpotlights: readonly FeatureSpotlight[] = [
     headline: "Hearts, comments, and download rules",
     outcome: "Approvals without the email chase",
     description:
-      "Clients pick favourites and submit. You control downloads and watermarks. Commenting and flagging unlock on Basic and above.",
+      "Clients pick favourites and submit. You control downloads and watermarks. Commenting and flagging unlock on Basic; on Premium, clients can also run Gallery AI smart picks on the share link.",
     bullets: [
       "Client selections with a clear submit flow",
       "Download control — allow, limit, or block",
       "Text watermarks on preview and selection images",
       "Comment & flag images from Basic upward",
+      "Gallery AI smart picks on the client link (Premium)",
     ],
     surface: "both",
     visual: {
@@ -187,7 +188,7 @@ export const featureSpotlights: readonly FeatureSpotlight[] = [
     headline: "Upload, organise, and go live",
     outcome: "From shoot to share link in one place",
     description:
-      "Build the gallery in your dashboard: upload media, organise with labels and tags, group into sets on paid plans, and publish when you're ready.",
+      "Build the gallery in your dashboard: upload media, organise with labels and tags, group into sets on paid plans, and publish when you're ready. Storage scales from 5 GB on trial to 250 GB on Premium.",
     bullets: [
       "Labels & tags to organise galleries and photos",
       "Sets within a gallery from Basic upward",
@@ -229,11 +230,12 @@ export const featureSpotlights: readonly FeatureSpotlight[] = [
     headline: "Watermarks, insights, and smarter picks",
     outcome: "Protect work. Understand engagement. Scale selection.",
     description:
-      "Text watermarks from day one. Pro adds a logo on downloads, advanced analytics, and trash restore. Premium adds Gallery AI for descriptions and client smart picks.",
+      "Text watermarks from day one. Pro adds a logo on downloads, advanced analytics, and trash restore. Premium adds Gallery AI — generate or improve gallery descriptions in the studio, and let clients run AI smart picks on the share link.",
     bullets: [
       "Text watermarks on previews; logo watermark on downloads (Pro+)",
       "Analytics dashboard — opens, picks, selection rate",
       "Advanced analytics — 7-day activity chart and download counts (Pro+)",
+      "Trash restore for soft-deleted galleries and photos (Pro+)",
       "Gallery AI — studio descriptions plus client AI suggestions (Premium)",
     ],
     surface: "both",
@@ -244,6 +246,28 @@ export const featureSpotlights: readonly FeatureSpotlight[] = [
       title: "Amoa & Mensa",
       coverFrame: "overlay",
       coverColor: "#1e3a5f",
+    },
+  },
+  {
+    id: "team-collab",
+    section: "studio",
+    eyebrow: "Premium · Team",
+    headline: "Invite photographers and share the shoot",
+    outcome: "Second shooters and editors on one workspace",
+    description:
+      "Team collaboration is for working with other photographers on Gidtransfer — not client delivery. Create a shoot workspace, invite them by email, and upload images among yourselves. Uploads stay separate from client galleries. Studio team is different: create assistant logins on your account with roles and menu access (up to 10).",
+    bullets: [
+      "Create a collaboration workspace named for the shoot",
+      "Invite other Gidtransfer photographers by email",
+      "Share uploads in one place — client galleries stay separate",
+      "Studio team — assistants with roles and menus (up to 10)",
+      "Premium support on the top studio plan (GH₵ 120/mo or GH₵ 1,300/yr)",
+    ],
+    surface: "dashboard",
+    visual: {
+      type: "photo",
+      src: "/images/gallery-form.png",
+      alt: "Photographers collaborating on a shared shoot workspace",
     },
   },
 ] as const;

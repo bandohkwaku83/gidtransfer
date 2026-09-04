@@ -3,8 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { ShowcaseCarousel } from "@/components/marketing/showcase-carousel";
-import { marketingSignUpHref } from "@/lib/marketing/auth-links";
-import { usePhotographerSignedIn } from "@/lib/marketing/use-photographer-signed-in";
+import { useMarketingAuthCta } from "@/lib/marketing/use-photographer-signed-in";
 import { SHOWCASE_TEXTURE_IMAGE, showcaseItems } from "@/lib/marketing/showcase-items";
 import { cn } from "@/lib/utils";
 
@@ -14,8 +13,7 @@ type ShowcaseSectionProps = {
 };
 
 export function ShowcaseSection({ embedded = false }: ShowcaseSectionProps) {
-  const signedIn = usePhotographerSignedIn();
-  const signUpHref = signedIn ? marketingSignUpHref() : "/login?screen=signup";
+  const { signUpHref, primaryCtaLabel } = useMarketingAuthCta();
   return (
     <section
       className={cn(
@@ -60,7 +58,7 @@ export function ShowcaseSection({ embedded = false }: ShowcaseSectionProps) {
               href={signUpHref}
               className="inline-flex h-11 w-full shrink-0 items-center justify-center rounded-full bg-[#55001F] px-5 text-sm font-medium text-white transition hover:bg-[#440019] sm:w-auto"
             >
-              {signedIn ? "Open studio" : "Start free"}
+              {primaryCtaLabel}
             </Link>
           </div>
           <div className="mt-5 h-px w-14 bg-[#55001F]/25" aria-hidden />

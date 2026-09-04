@@ -29,6 +29,7 @@ import {
 } from "@/components/collaborations/collab-ui";
 import { CreateCollaborationModal } from "@/components/collaborations/create-collaboration-modal";
 import { CollabWorkspaceCard } from "@/components/collaborations/collab-workspace-card";
+import { PlanUpgradeHint } from "@/components/billing/plan-upgrade-hint";
 import { FeatureUpgradeButton } from "@/components/billing/plan-upgrade-modal";
 import { useToast } from "@/components/toast-provider";
 import {
@@ -212,22 +213,16 @@ export default function CollaborationsListPage() {
       ) : null}
 
       {!canCollaborate ? (
-        <CollabSurface className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0">
-            <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
-              Creating workspaces requires Premium
-            </p>
-            <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-              You can still open workspaces you&apos;ve been invited to.
-              {maxSeats > 0 ? ` Your plan includes ${maxSeats} team seats.` : null}
-            </p>
-          </div>
-          <FeatureUpgradeButton
-            feature="collaboration"
-            label="Upgrade to Premium"
-            suggestedPlanId="premium"
-          />
-        </CollabSurface>
+        <PlanUpgradeHint
+          feature="collaboration"
+          suggestedPlanId="premium"
+          title="Creating workspaces requires Premium"
+          description={
+            maxSeats > 0
+              ? `You can still open workspaces you've been invited to. Your plan includes ${maxSeats} team seats.`
+              : "You can still open workspaces you've been invited to."
+          }
+        />
       ) : null}
 
       {pendingCount > 0 ? (

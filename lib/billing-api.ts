@@ -1,5 +1,5 @@
 import { apiUrl } from "@/lib/api";
-import { getAuth, getAuthToken } from "@/lib/auth-demo";
+import { authHandoffPayload, getAuth, getAuthToken } from "@/lib/auth-demo";
 import {
   authedJson,
   extractMessage,
@@ -8,9 +8,11 @@ import {
   type AuthedFetchOptions,
 } from "@/lib/http";
 import {
+  type BillingInterval,
   type BillingPlanId,
   type CheckoutPlanId,
   type PlanFeatures,
+  type PlanPrices,
   normalizePlanId,
   parsePlanFeatures,
   parseUserPlan,
@@ -18,6 +20,7 @@ import {
   type UserPlan,
 } from "@/lib/plan-entitlements";
 import {
+  AUTH_HANDOFF_PARAM,
   isValidStudioSlug,
   normalizeStudioSlugInput,
   parseTenantFromHostname,
@@ -26,7 +29,7 @@ import {
 
 export class BillingApiError extends HttpError {}
 
-export type { BillingPlanId, CheckoutPlanId };
+export type { BillingInterval, BillingPlanId, CheckoutPlanId };
 export { isCheckoutPlanId, normalizePlanId } from "@/lib/plan-entitlements";
 
 export type SubscriptionStatus =
@@ -46,7 +49,9 @@ export type BillingPlan = {
   storageLimitBytes?: number;
   storageLabel?: string;
   priceGhs: number;
-  interval: "monthly" | null;
+  yearlyPriceGhs: number;
+  interval: BillingInterval | null;
+  prices: PlanPrices;
   perks?: string[];
   features?: PlanFeatures;
   available: boolean;
@@ -82,7 +87,9 @@ export type BillingSubscription = {
   videoUploadLimitBytes?: number;
   videoUploadLimitLabel?: string;
   priceGhs: number;
-  interval: "monthly" | null;
+  yearlyPriceGhs: number;
+  interval: BillingInterval | null;
+  prices?: PlanPrices;
   status: SubscriptionStatus;
   /** @deprecated Prefer `renewalDate` — kept for older callers. */
   currentPeriodEnd: string | null;
@@ -96,6 +103,15 @@ export type BillingSubscription = {
   trialEndsAt?: string | null;
   trialActive?: boolean;
   trialExpired?: boolean;
+  graceDays?: number;
+  graceEndsAt?: string | null;
+  inGracePeriod?: boolean;
+  viewOnly?: boolean;
+  willRenew?: boolean;
+  accessUntil?: string | null;
+  canCancel?: boolean;
+  canResume?: boolean;
+  pendingInterval?: BillingInterval | null;
 };
 
 export type BillingCheckoutResult = {
@@ -107,11 +123,13 @@ export type BillingCheckoutResult = {
     accessCode: string;
     reference: string;
     subscriptionCode: string | null;
+    interval?: BillingInterval;
   };
 };
 
 export type BillingVerifyResult = {
   verified: boolean;
+  status?: string;
   message?: string;
   subscription?: BillingSubscription;
   /** Full entitlements payload from verify — apply this so the UI does not wait on a lagging /me. */
@@ -121,6 +139,38 @@ export type BillingVerifyResult = {
 /** True only when Paystack verify reports success. Do not infer from landing on the callback URL. */
 export function isBillingPaymentConfirmed(result: BillingVerifyResult): boolean {
   return result.verified === true;
+}
+
+const PLAN_RANK: Record<string, number> = {
+  free: 0,
+  basic: 1,
+  pro: 2,
+  premium: 3,
+};
+
+/** Keep the verify payload when /subscription or /me still return the pre-pay plan. */
+export function preferConfirmedSubscription(
+  incoming: BillingSubscription | null | undefined,
+  confirmed: BillingSubscription | null | undefined,
+): BillingSubscription | null {
+  if (!incoming) return confirmed ?? null;
+  if (!confirmed) return incoming;
+  if (confirmed.status === "pending") return incoming;
+  if (incoming.status === "pending" && confirmed.status !== "pending") {
+    return confirmed;
+  }
+  const incomingRank = PLAN_RANK[incoming.planId] ?? 0;
+  const confirmedRank = PLAN_RANK[confirmed.planId] ?? 0;
+  if (confirmedRank > incomingRank) return confirmed;
+  if (
+    confirmedRank === incomingRank &&
+    confirmed.interval &&
+    incoming.interval &&
+    confirmed.interval !== incoming.interval
+  ) {
+    return confirmed;
+  }
+  return incoming;
 }
 
 export function billingSettingsPath(query?: {
@@ -342,7 +392,16 @@ export function redirectToStudioBillingCallbackIfNeeded(reference: string): bool
   });
   if (!target.startsWith("http")) return false;
 
-  window.location.replace(target);
+  try {
+    const url = new URL(target);
+    const handoff = authHandoffPayload();
+    if (handoff) {
+      url.searchParams.set(AUTH_HANDOFF_PARAM, handoff);
+    }
+    window.location.replace(url.toString());
+  } catch {
+    window.location.replace(target);
+  }
   return true;
 }
 
@@ -390,9 +449,13 @@ export function isBillingNotConfigured(err: unknown): boolean {
   return billingErrorCode(err) === "NOT_CONFIGURED";
 }
 
-export function formatPlanPriceGhs(priceGhs: number, interval: BillingPlan["interval"]): string {
+export function formatPlanPriceGhs(
+  priceGhs: number,
+  interval: BillingPlan["interval"] | BillingInterval,
+): string {
   if (priceGhs <= 0) return "Free";
-  const cadence = interval === "monthly" ? " / mo" : "";
+  const cadence =
+    interval === "yearly" ? " / yr" : interval === "monthly" ? " / mo" : "";
   return `GHS ${priceGhs}${cadence}`;
 }
 
@@ -432,6 +495,28 @@ async function publicBillingJson<T>(
   return body as T;
 }
 
+function parsedPlanPrices(o: Record<string, unknown>): PlanPrices {
+  const fromUser = parseUserPlan({
+    planId: "basic",
+    planName: "Plan",
+    priceGhs: o.priceGhs,
+    yearlyPriceGhs: o.yearlyPriceGhs,
+    prices: o.prices,
+  });
+  return fromUser?.prices ?? {
+    monthly: {
+      interval: "monthly",
+      priceGhs: typeof o.priceGhs === "number" ? o.priceGhs : 0,
+      available: true,
+    },
+    yearly: {
+      interval: "yearly",
+      priceGhs: typeof o.yearlyPriceGhs === "number" ? o.yearlyPriceGhs : 0,
+      available: typeof o.yearlyPriceGhs === "number" && o.yearlyPriceGhs > 0,
+    },
+  };
+}
+
 function parseBillingPlan(raw: unknown): BillingPlan | null {
   if (!raw || typeof raw !== "object") return null;
   const o = raw as Record<string, unknown>;
@@ -453,7 +538,12 @@ function parseBillingPlan(raw: unknown): BillingPlan | null {
       typeof o.storageLimitBytes === "number" ? o.storageLimitBytes : undefined,
     storageLabel: typeof o.storageLabel === "string" ? o.storageLabel : undefined,
     priceGhs: typeof o.priceGhs === "number" && Number.isFinite(o.priceGhs) ? o.priceGhs : 0,
-    interval: o.interval === "monthly" ? "monthly" : null,
+    yearlyPriceGhs:
+      typeof o.yearlyPriceGhs === "number" && Number.isFinite(o.yearlyPriceGhs)
+        ? o.yearlyPriceGhs
+        : 0,
+    interval: o.interval === "yearly" || o.interval === "monthly" ? o.interval : null,
+    prices: parsedPlanPrices(o),
     perks,
     features: o.features ? parsePlanFeatures(o.features) : undefined,
     available: o.available !== false,
@@ -520,7 +610,12 @@ export const MARKETING_BILLING_PLANS_FALLBACK: BillingPlansCatalog = {
       name: "Free",
       description: "30-day trial with core gallery tools.",
       priceGhs: 0,
+      yearlyPriceGhs: 0,
       interval: null,
+      prices: {
+        monthly: { interval: "monthly", priceGhs: 0, available: true },
+        yearly: { interval: "yearly", priceGhs: 0, available: false },
+      },
       storageLabel: "5 GB",
       perks: [
         "5 GB Cloud Storage",
@@ -548,10 +643,14 @@ export const MARKETING_BILLING_PLANS_FALLBACK: BillingPlansCatalog = {
       id: "basic",
       name: "Basic",
       aliases: ["starter"],
-      highlighted: true,
       description: "SMS sharing and adaptive video for active studios.",
-      priceGhs: 40,
+      priceGhs: 32,
+      yearlyPriceGhs: 380,
       interval: "monthly",
+      prices: {
+        monthly: { interval: "monthly", priceGhs: 32, available: true },
+        yearly: { interval: "yearly", priceGhs: 380, available: true },
+      },
       storageLabel: "25 GB",
       perks: [
         "25 GB Cloud Storage",
@@ -580,8 +679,13 @@ export const MARKETING_BILLING_PLANS_FALLBACK: BillingPlansCatalog = {
       name: "Pro",
       aliases: ["business"],
       description: "Branded downloads, trash restore, and deeper analytics.",
-      priceGhs: 70,
+      priceGhs: 60,
+      yearlyPriceGhs: 650,
       interval: "monthly",
+      prices: {
+        monthly: { interval: "monthly", priceGhs: 60, available: true },
+        yearly: { interval: "yearly", priceGhs: 650, available: true },
+      },
       storageLabel: "100 GB",
       perks: [
         "100 GB Cloud Storage",
@@ -610,15 +714,25 @@ export const MARKETING_BILLING_PLANS_FALLBACK: BillingPlansCatalog = {
       id: "premium",
       name: "Premium",
       aliases: ["studio"],
-      description: "Unlimited galleries and Gallery AI for client smart picks.",
+      highlighted: true,
+      description:
+        "Top studio plan — everything in Pro, then Gallery AI, a studio team, and shared shoots with other photographers.",
       priceGhs: 120,
+      yearlyPriceGhs: 1300,
       interval: "monthly",
+      prices: {
+        monthly: { interval: "monthly", priceGhs: 120, available: true },
+        yearly: { interval: "yearly", priceGhs: 1300, available: true },
+      },
       storageLabel: "250 GB",
       perks: [
         "250 GB Cloud Storage",
-        "Unlimited galleries",
+        "Unlimited client galleries",
+        "Video uploads up to 20 GB",
         "Everything in Pro, plus:",
-        "Gallery AI (studio + client smart picks)",
+        "Gallery AI — descriptions & client smart picks",
+        "Studio team — up to 10 members with roles",
+        "Team collaboration — invite photographers on Gidtransfer & share shoots",
         "Premium support",
       ],
       features: {
@@ -651,13 +765,24 @@ export const MARKETING_BILLING_PLANS_FALLBACK: BillingPlansCatalog = {
     },
     {
       key: "maxGalleries",
-      label: "Galleries",
+      label: "Client galleries",
       category: "limits",
       values: {
         free: 3,
         basic: 10,
         pro: 50,
         premium: "Unlimited",
+      },
+    },
+    {
+      key: "videoUploadLimit",
+      label: "Video uploads",
+      category: "limits",
+      values: {
+        free: "—",
+        basic: "5 GB",
+        pro: "10 GB",
+        premium: "20 GB",
       },
     },
     {
@@ -715,6 +840,23 @@ export const MARKETING_BILLING_PLANS_FALLBACK: BillingPlansCatalog = {
       values: { free: false, basic: false, pro: false, premium: true },
     },
     {
+      key: "studioTeam",
+      label: "Studio team (roles & menus)",
+      category: "team",
+      values: {
+        free: false,
+        basic: false,
+        pro: false,
+        premium: "Up to 10",
+      },
+    },
+    {
+      key: "collaboration",
+      label: "Team collaboration workspaces",
+      category: "team",
+      values: { free: false, basic: false, pro: false, premium: true },
+    },
+    {
       key: "support",
       label: "Support",
       category: "support",
@@ -740,7 +882,41 @@ export async function fetchBillingPlansCatalog(): Promise<BillingPlansCatalog> {
 /**
  * Public pricing page: prefer the live catalog, but never surface auth errors.
  * Falls back to the marketing catalog when the API requires a session.
+ * Always overlays marketing card copy (description, perks, highlight) so pricing
+ * messaging stays accurate even when the API returns sparse plan text.
  */
+export function withMarketingPlanCopy(catalog: BillingPlansCatalog): BillingPlansCatalog {
+  const marketingById = new Map(
+    MARKETING_BILLING_PLANS_FALLBACK.plans.map((plan) => [plan.id, plan]),
+  );
+  const plans = catalog.plans.map((plan) => {
+    const marketing = marketingById.get(plan.id);
+    if (!marketing) return plan;
+    return {
+      ...plan,
+      description: marketing.description ?? plan.description,
+      perks: marketing.perks?.length ? marketing.perks : plan.perks,
+      highlighted: marketing.highlighted === true,
+      storageLabel: plan.storageLabel ?? marketing.storageLabel,
+    };
+  });
+
+  const marketingKeys = new Set(
+    MARKETING_BILLING_PLANS_FALLBACK.comparison.map((row) => row.key),
+  );
+  const apiExtra = catalog.comparison.filter((row) => !marketingKeys.has(row.key));
+  const comparison =
+    catalog.comparison.length > 0
+      ? [...MARKETING_BILLING_PLANS_FALLBACK.comparison, ...apiExtra]
+      : MARKETING_BILLING_PLANS_FALLBACK.comparison;
+
+  return {
+    ...catalog,
+    plans: sortBillingPlans(plans),
+    comparison,
+  };
+}
+
 export async function fetchPublicPricingCatalog(): Promise<{
   catalog: BillingPlansCatalog;
   config: BillingConfig | null;
@@ -759,7 +935,7 @@ export async function fetchPublicPricingCatalog(): Promise<{
   ]);
 
   return {
-    catalog: catalogResult.catalog,
+    catalog: withMarketingPlanCopy(catalogResult.catalog),
     config,
   };
 }
@@ -837,7 +1013,9 @@ function parseBillingSubscription(raw: unknown): BillingSubscription | null {
     videoUploadLimitBytes: plan.videoUploadLimitBytes,
     videoUploadLimitLabel: plan.videoUploadLimitLabel,
     priceGhs: plan.priceGhs,
+    yearlyPriceGhs: plan.yearlyPriceGhs,
     interval: plan.interval,
+    prices: plan.prices,
     status,
     currentPeriodEnd: renewalDate,
     renewalDate,
@@ -855,6 +1033,25 @@ function parseBillingSubscription(raw: unknown): BillingSubscription | null {
     trialEndsAt: plan.trialEndsAt,
     trialActive: plan.trialActive,
     trialExpired: plan.trialExpired,
+    graceDays: plan.graceDays,
+    graceEndsAt: plan.graceEndsAt,
+    inGracePeriod: plan.inGracePeriod,
+    viewOnly: plan.viewOnly,
+    willRenew: plan.subscription.willRenew,
+    accessUntil: plan.accessUntil ?? plan.subscription.accessUntil,
+    canCancel:
+      o.canCancel === true ||
+      nestedSub?.canCancel === true ||
+      (canManage &&
+        o.canCancel !== false &&
+        nestedSub?.canCancel !== false &&
+        !cancelAtPeriodEnd &&
+        status !== "non_renewing"),
+    canResume:
+      o.canResume === true ||
+      nestedSub?.canResume === true ||
+      (canManage && (cancelAtPeriodEnd || status === "non_renewing")),
+    pendingInterval: plan.subscription.pendingInterval,
   };
 }
 
@@ -886,12 +1083,20 @@ export async function fetchBillingPageData(): Promise<{
   return { plans, subscription, config };
 }
 
-export async function billingCheckout(planId: CheckoutPlanId): Promise<BillingCheckoutResult> {
+export async function billingCheckout(
+  planId: CheckoutPlanId,
+  interval: BillingInterval = "monthly",
+  callbackUrl?: string,
+): Promise<BillingCheckoutResult> {
   return authedJson<BillingCheckoutResult>(
     "/api/billing/checkout",
     {
       method: "POST",
-      body: JSON.stringify({ planId }),
+      body: JSON.stringify({
+        planId,
+        interval,
+        ...(callbackUrl ? { callbackUrl } : {}),
+      }),
     },
     "Checkout failed",
     BillingApiError,
@@ -905,8 +1110,10 @@ export async function verifyBillingPayment(
   const qs = new URLSearchParams({ reference: reference.trim() });
   const data = await authedJson<{
     verified?: unknown;
+    status?: unknown;
     message?: unknown;
     subscription?: unknown;
+    plan?: unknown;
   }>(
     `/api/billing/verify?${qs.toString()}`,
     { method: "GET" },
@@ -916,10 +1123,28 @@ export async function verifyBillingPayment(
   );
   return {
     verified: data.verified === true,
+    status: typeof data.status === "string" ? data.status : undefined,
     message: typeof data.message === "string" ? data.message : undefined,
     subscription: parseBillingSubscription(data.subscription) ?? undefined,
-    plan: parseUserPlan(data.subscription) ?? undefined,
+    plan:
+      parseUserPlan(data.plan) ??
+      parseUserPlan(data.subscription) ??
+      undefined,
   };
+}
+
+export async function resumeBillingSubscription(): Promise<BillingCancelResult> {
+  const data = await authedJson<{ message?: string; subscription?: unknown }>(
+    "/api/billing/resume",
+    { method: "POST" },
+    "Failed to resume subscription",
+    BillingApiError,
+  );
+  const subscription = parseBillingSubscription(data.subscription);
+  if (!subscription) {
+    throw new BillingApiError("Subscription missing from resume response.", 500, data);
+  }
+  return { message: data.message, subscription };
 }
 
 export async function cancelBillingSubscription(): Promise<BillingCancelResult> {
@@ -948,8 +1173,21 @@ export async function fetchBillingConfig(): Promise<BillingConfig | null> {
 }
 
 /** Redirect to Paystack hosted checkout (full page navigation). */
-export async function startBillingCheckout(planId: CheckoutPlanId): Promise<void> {
-  const data = await billingCheckout(planId);
+export async function startBillingCheckout(
+  planId: CheckoutPlanId,
+  interval: BillingInterval = "monthly",
+): Promise<void> {
+  const config = await fetchBillingConfig();
+  if (config && config.configured === false) {
+    throw new BillingApiError("Billing is not available yet", 503, {
+      code: "NOT_CONFIGURED",
+    });
+  }
+  const callbackUrl =
+    typeof window !== "undefined"
+      ? `${window.location.origin}${BILLING_CALLBACK_PATH}`
+      : undefined;
+  const data = await billingCheckout(planId, interval, callbackUrl);
   const url = data.checkout?.authorizationUrl?.trim();
   const reference = data.checkout?.reference?.trim();
   if (!url) {

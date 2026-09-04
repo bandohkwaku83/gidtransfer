@@ -178,7 +178,7 @@ export function Hero() {
             >
               <Image
                 src={expandImage.src}
-                alt=""
+                alt={expandImage.alt}
                 fill
                 sizes="100vw"
                 className="object-cover"

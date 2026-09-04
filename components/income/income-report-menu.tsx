@@ -1,8 +1,8 @@
 "use client";
 
 import { Dropdown, type MenuProps } from "antd";
-import { Loader2 } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
+import { DashboardSpin } from "@/components/ui/skeletons";
 import { useToast } from "@/components/toast-provider";
 import { dashboardPageHeaderCtaSecondaryClassName } from "@/components/dashboard/dashboard-page-header";
 import { getAuth } from "@/lib/auth-demo";
@@ -63,9 +63,7 @@ export function IncomeReportMenu({ entries, selectedYear, className }: Props) {
         key: period,
         label: (
           <span className="inline-flex items-center gap-2">
-            {generating === period ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
-            ) : null}
+            {generating === period ? <DashboardSpin size="small" /> : null}
             {incomeReportMenuLabel(period)}
           </span>
         ),
@@ -91,7 +89,7 @@ export function IncomeReportMenu({ entries, selectedYear, className }: Props) {
       >
         {generating ? (
           <>
-            <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+            <DashboardSpin size="small" />
             Generating…
           </>
         ) : (

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { ArrowRight, Images } from "lucide-react";
 import { FolderCoverVisual } from "@/components/photographer/folder-cover-visual";
+import { GalleryCardSkeleton } from "@/components/ui/skeletons";
 import {
   apiFolderStatusToUi,
   getFolderClientName,
@@ -37,14 +38,7 @@ export function DashboardSoftEduProfile({
   if (loading && !folder) {
     return (
       <section className="flex h-full flex-col justify-center rounded-[1.25rem] bg-white p-4 dark:bg-zinc-950 sm:rounded-[1.35rem] sm:p-5 lg:p-6">
-        <div className="flex items-center gap-3.5 sm:block">
-          <div className="aspect-square w-[5.25rem] shrink-0 animate-pulse rounded-2xl bg-zinc-100 dark:bg-zinc-800 sm:aspect-[4/3] sm:w-full" />
-          <div className="flex-1 space-y-2 sm:mt-4">
-            <div className="h-4 w-28 animate-pulse rounded bg-zinc-100 dark:bg-zinc-800 sm:mx-auto" />
-            <div className="h-3 w-16 animate-pulse rounded bg-zinc-100 dark:bg-zinc-800 sm:mx-auto" />
-          </div>
-        </div>
-        <div className="mt-4 h-10 w-full animate-pulse rounded-2xl bg-zinc-100 dark:bg-zinc-800 sm:mt-5" />
+        <GalleryCardSkeleton compact className="border-0 shadow-none" />
       </section>
     );
   }

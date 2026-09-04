@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
+import { CalendarMonthSkeleton } from "@/components/ui/skeletons";
 import { useToast } from "@/components/toast-provider";
 import { BookingCard, BookingDayPill } from "@/components/schedules/booking-card";
 import { BookingCategoryFilter } from "@/components/schedules/booking-category-filter";
@@ -507,19 +508,7 @@ export function SchedulesClient() {
             </div>
           </div>
 
-          {bookingsLoading ? (
-            <div
-              className="mt-4 grid grid-cols-7 gap-2"
-              aria-hidden
-            >
-              {Array.from({ length: 35 }).map((_, i) => (
-                <div
-                  key={i}
-                  className="min-h-[6.5rem] animate-pulse rounded-lg bg-zinc-100 dark:bg-zinc-900"
-                />
-              ))}
-            </div>
-          ) : null}
+          {bookingsLoading ? <CalendarMonthSkeleton /> : null}
 
           <div
             className={cn(

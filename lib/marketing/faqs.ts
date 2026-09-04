@@ -27,12 +27,17 @@ export const faqs = [
   {
     question: "Which features unlock on Basic, Pro, and Premium?",
     answer:
-      "Basic adds comments and flags, sets, video uploads (5 GB), SMS notifications from the default sender, and adaptive video. Pro adds a custom SMS sender, logo watermark on downloads, advanced analytics, trash restore, and higher limits (100 GB, 50 galleries, 10 GB video). Premium adds unlimited galleries, 20 GB video, Gallery AI, and premium support.",
+      "Basic adds comments and flags, sets, video uploads (5 GB), SMS notifications from the default sender, and adaptive video. Pro adds a custom SMS sender, logo watermark on downloads, advanced analytics, trash restore, and higher limits (100 GB, 50 galleries, 10 GB video). Premium (GH₵ 120/mo or GH₵ 1,300/yr) is the top studio plan: 250 GB storage, unlimited galleries, 20 GB video, Gallery AI, a studio team of up to 10, team collaboration workspaces, and premium support.",
   },
   {
     question: "What is Gallery AI?",
     answer:
       "Gallery AI is Premium-only and has two sides. Photographers can generate or improve gallery descriptions. On the public gallery, clients can start AI suggestions that analyse photos, build a diverse suggested set within the selection limit, and apply picks in one tap — or skip individually.",
+  },
+  {
+    question: "What is team collaboration on Premium?",
+    answer:
+      "Team collaboration lets you create a shared shoot workspace on Gidtransfer, invite other photographers by email, and upload images among yourselves — separate from client galleries. Use it for second shooters and editors working the same job. Studio team is different: it creates assistant logins on your own account with roles and menu access (up to 10 members).",
   },
   {
     question: "Can I restore deleted galleries or photos?",

@@ -10,6 +10,7 @@ import {
   VIDEO_UPLOAD_ACCEPT,
 } from "@/lib/upload-folder-files";
 import { cn } from "@/lib/utils";
+import { useGuardViewOnlyWrite } from "@/lib/use-view-only-write";
 
 type UploadKind = "photos" | "videos";
 
@@ -35,6 +36,7 @@ export function UploadMediaTypeSheet({
   onVideoLocked,
 }: Props) {
   const titleId = useId();
+  const guardViewOnlyWrite = useGuardViewOnlyWrite();
   const photoInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
 
@@ -54,6 +56,7 @@ export function UploadMediaTypeSheet({
 
   const emit = useCallback(
     (kind: UploadKind, files: File[]) => {
+      if (guardViewOnlyWrite()) return;
       const filter = kind === "photos" ? isPhotoUploadableFile : isVideoUploadableFile;
       const next = files.filter(filter);
       if (files.length > 0 && next.length === 0) {
@@ -65,7 +68,7 @@ export function UploadMediaTypeSheet({
       if (kind === "photos") onPhotos(next);
       else onVideos(next);
     },
-    [onClose, onFilteredEmpty, onPhotos, onVideos],
+    [guardViewOnlyWrite, onClose, onFilteredEmpty, onPhotos, onVideos],
   );
 
   if (!open) return null;

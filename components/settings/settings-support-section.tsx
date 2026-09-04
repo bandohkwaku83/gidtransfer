@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { LifeBuoy, Loader2, Paperclip, Send, X } from "lucide-react";
+import { LifeBuoy, Paperclip, Send, X } from "lucide-react";
+import { DashboardSpin } from "@/components/ui/skeletons";
 import { useToast } from "@/components/toast-provider";
 import { FormSelect } from "@/components/ui/form-select";
 import { formModalLabelClass } from "@/components/ui/form-modal";
@@ -273,7 +274,7 @@ export function SettingsSupportSection({ auth }: SettingsSupportSectionProps) {
             )}
           >
             {submitting ? (
-              <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+              <DashboardSpin size="small" />
             ) : (
               <Send className="h-4 w-4" aria-hidden />
             )}

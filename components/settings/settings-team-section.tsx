@@ -5,7 +5,6 @@ import {
   Check,
   Copy,
   KeyRound,
-  Loader2,
   MoreHorizontal,
   Pencil,
   Trash2,
@@ -13,11 +12,11 @@ import {
   Users,
 } from "lucide-react";
 import { Dropdown, Select, type MenuProps } from "antd";
-import { FeatureUpgradeButton } from "@/components/billing/plan-upgrade-modal";
+import { PlanUpgradeHint } from "@/components/billing/plan-upgrade-hint";
+import { DashboardSpin, SettingsWorkflowSkeleton } from "@/components/ui/skeletons";
 import { useToast } from "@/components/toast-provider";
 import { AuthFormInput } from "@/components/ui/form-input";
 import { FormModal, FormModalBody, FormModalFooter, FormModalForm, FormModalHeader } from "@/components/ui/form-modal";
-import { SettingsWorkflowSkeleton } from "@/components/ui/skeletons";
 import { getAuth } from "@/lib/auth-demo";
 import { HttpError } from "@/lib/http";
 import { canManageTeam } from "@/lib/studio-access";
@@ -503,7 +502,12 @@ export function SettingsTeamSection() {
           </p>
         </div>
         {!hasFeature ? (
-          <FeatureUpgradeButton feature="studioTeam" label="Upgrade to Premium" />
+          <PlanUpgradeHint
+            feature="studioTeam"
+            suggestedPlanId="premium"
+            title="Studio team is on Premium"
+            description="Create assistant accounts and choose which menus each person can open."
+          />
         ) : null}
       </div>
     );
@@ -530,10 +534,15 @@ export function SettingsTeamSection() {
             Studio team
           </p>
           <p className="mt-2 max-w-md text-sm leading-relaxed text-zinc-500">
-            Upgrade to Premium to create accounts for assistants.
+            Create accounts for assistants and control what they can open.
           </p>
         </div>
-        <FeatureUpgradeButton feature="studioTeam" label="Upgrade to Premium" />
+        <PlanUpgradeHint
+          feature="studioTeam"
+          suggestedPlanId="premium"
+          title="Studio team is on Premium"
+          description="Invite staff, assign roles, and keep owner-only tools off their menus."
+        />
       </div>
     );
   }
@@ -631,7 +640,7 @@ export function SettingsTeamSection() {
               {
                 key: "reset",
                 icon: busy ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                  <DashboardSpin size="small" />
                 ) : (
                   <KeyRound className="h-3.5 w-3.5" aria-hidden />
                 ),

@@ -17,7 +17,6 @@ import {
   KeyRound,
   LayoutGrid,
   Link2,
-  Loader2,
   Lock,
   Mail,
   MessageCircle,
@@ -67,6 +66,7 @@ import {
 import { galleryFontStack, useGalleryGoogleFonts } from "@/lib/gallery-typography";
 import type { GalleryCoverFrameOption } from "@/lib/gallery-cover-frame";
 import { FormInput, FormTextArea } from "@/components/ui/form-input";
+import { DashboardSpin } from "@/components/ui/skeletons";
 import { galleryAccessPinDigits } from "@/lib/gallery-access-pin";
 import { cn } from "@/lib/utils";
 import {
@@ -695,10 +695,10 @@ export function FolderEditorTabBar({
     icon: ComponentType<{ className?: string; "aria-hidden"?: boolean }>;
   }[] = [
     { key: "dashboard", label: "Dashboard", shortLabel: "Home", icon: LayoutGrid },
-    { key: "gallery", label: "Design", shortLabel: "Design", icon: Palette },
     { key: "uploads", label: "Uploads", shortLabel: "Uploads", icon: Upload },
     { key: "selection", label: "Selection", shortLabel: "Picks", icon: CheckCircle2 },
     { key: "finals", label: "Finals", shortLabel: "Finals", icon: ImageIcon },
+    { key: "gallery", label: "Design", shortLabel: "Design", icon: Palette },
     // { key: "blog", label: "Blog", shortLabel: "Blog", icon: FileText },
   ];
 
@@ -1771,7 +1771,7 @@ export function ShareWithClientCard({
           onClick={onRegenerate}
           className="inline-flex items-center gap-1.5 text-[11px] font-medium text-zinc-400 transition hover:text-zinc-600 disabled:cursor-not-allowed disabled:opacity-40 dark:text-zinc-500 dark:hover:text-zinc-300"
         >
-          <RefreshCw className={cn("h-3 w-3", busy && "animate-spin")} aria-hidden />
+          {busy ? <DashboardSpin size="small" /> : <RefreshCw className="h-3 w-3" aria-hidden />}
           Regenerate link
         </button>
       </div>
@@ -1890,7 +1890,7 @@ function FeedbackThreadCard({
             className="absolute bottom-3 right-3 inline-flex size-9 items-center justify-center rounded-full bg-brand text-white shadow-md shadow-brand/25 transition enabled:hover:bg-brand-hover disabled:pointer-events-none disabled:opacity-40"
           >
             {saving ? (
-              <Loader2 className="size-4 animate-spin" aria-hidden />
+              <DashboardSpin size="small" />
             ) : (
               <Send className="size-4" aria-hidden />
             )}

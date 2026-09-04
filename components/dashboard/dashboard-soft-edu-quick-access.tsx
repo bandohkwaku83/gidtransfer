@@ -7,6 +7,7 @@ import {
   Users,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { Skeleton } from "antd";
 
 type QuickAccessRow = {
   key: string;
@@ -58,7 +59,9 @@ function QuickAccessRowItem({
       <div className="min-w-0 flex-1">
         <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">{row.label}</p>
         {loading ? (
-          <span className="mt-1.5 block h-3 w-28 animate-pulse rounded bg-zinc-300/80 dark:bg-zinc-700" />
+          <span className="mt-1.5 block">
+            <Skeleton active title={{ width: 112, style: { height: 12, margin: 0 } }} paragraph={false} />
+          </span>
         ) : (
           <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">{row.hint}</p>
         )}

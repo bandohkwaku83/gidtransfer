@@ -4,6 +4,7 @@ import type { FormEvent } from "react";
 import { useEffect, useId, useMemo, useState } from "react";
 import { CalendarPlus, UserPlus } from "lucide-react";
 import { useToast } from "@/components/toast-provider";
+import { useGuardViewOnlyWrite } from "@/lib/use-view-only-write";
 import { CreateClientModal } from "@/components/photographer/create-client-modal";
 import { ClientSearchSelect } from "@/components/ui/client-search-select";
 import { FormDatePicker } from "@/components/ui/form-date-picker";
@@ -71,6 +72,7 @@ export function NewBookingModal({
 }: Props) {
   const isEdit = Boolean(booking?.id);
   const { showToast } = useToast();
+  const guardViewOnlyWrite = useGuardViewOnlyWrite();
   const formId = useId();
 
   const shootTypes = useMemo(
@@ -167,6 +169,7 @@ export function NewBookingModal({
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
+    if (guardViewOnlyWrite()) return;
     const t = title.trim();
     if (!t || !clientId || submitting) return;
     const client = clientsForSelect.find((c) => c._id === clientId);

@@ -14,7 +14,7 @@ import {
   loginWithGoogle,
   mapApiUserToAuthUser,
   mergeApiAuthUser,
-  persistAuthResponse,
+  persistAuthResponseAndRefreshMe,
   registerWithEmail,
   resendVerification,
   userNeedsEmailVerification,
@@ -144,8 +144,7 @@ function AuthTab({
   return (
     <button
       type="button"
-      role="tab"
-      aria-selected={active}
+      aria-pressed={active}
       onClick={onClick}
       disabled={disabled}
       className={cn(
@@ -169,7 +168,7 @@ function LoginPageForm() {
   );
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [agreed, setAgreed] = useState(true);
+  const [agreed, setAgreed] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -302,8 +301,8 @@ function LoginPageForm() {
     return () => window.clearInterval(id);
   }, []);
 
-  function finishAuth(res: { token: string; user: { _id: string; email: string } }) {
-    const user = persistAuthResponse(res);
+  async function finishAuth(res: { token: string; user: { _id: string; email: string } }) {
+    const user = await persistAuthResponseAndRefreshMe(res);
     navigateAfterAuth(user, router);
   }
 
@@ -352,7 +351,7 @@ function LoginPageForm() {
     try {
       if (screen === "signup") {
         const res = await registerWithEmail(trimmedEmail, password, agreed);
-        const user = persistAuthResponse(res);
+        const user = await persistAuthResponseAndRefreshMe(res);
         if (userNeedsEmailVerification(user) || res.requiresEmailVerification) {
           goToVerify(user.email);
           return;
@@ -362,7 +361,7 @@ function LoginPageForm() {
       }
 
       const res = await loginWithEmail(trimmedEmail, password);
-      const user = persistAuthResponse(res);
+      const user = await persistAuthResponseAndRefreshMe(res);
       if (userNeedsEmailVerification(user) || res.requiresEmailVerification) {
         goToVerify(user.email);
         return;
@@ -411,7 +410,7 @@ function LoginPageForm() {
     setError(null);
     try {
       const res = await verifyEmail(digits);
-      const user = persistAuthResponse(res, { emailJustVerified: true });
+      const user = await persistAuthResponseAndRefreshMe(res, { emailJustVerified: true });
       navigateAfterAuth(user, router);
     } catch (err) {
       setError(authErrorMessage(err, "That code is incorrect or expired. Try again."));
@@ -563,7 +562,7 @@ function LoginPageForm() {
               >
                 <Image
                   src={slide.image}
-                  alt=""
+                  alt={slide.alt}
                   fill
                   priority={i === 0}
                   unoptimized
@@ -686,7 +685,6 @@ function LoginPageForm() {
               ) : (
                 <>
                   <div
-                    role="tablist"
                     aria-label="Account type"
                     className="mt-6 flex rounded-full bg-zinc-100 p-1 sm:mt-8"
                   >
@@ -782,6 +780,16 @@ function LoginPageForm() {
                           Back to sign up
                         </button>
                       </p>
+
+                      <p className="text-center text-xs text-zinc-500">
+                        <Link
+                          href="/"
+                          className="font-semibold text-zinc-600 underline-offset-2 hover:text-zinc-900 hover:underline"
+                        >
+                          Continue later
+                        </Link>
+                        <span className="text-zinc-400"> — browse the site; your code stays valid.</span>
+                      </p>
                     </>
                   )
                 ) : (
@@ -839,19 +847,19 @@ function LoginPageForm() {
                         />
                         <span className="min-w-0">
                           I agree to the{" "}
-                          <a
+                          <Link
                             href="/terms"
                             className="font-medium text-brand underline-offset-2 hover:underline"
                           >
                             Terms
-                          </a>{" "}
+                          </Link>{" "}
                           and{" "}
-                          <a
+                          <Link
                             href="/privacy"
                             className="font-medium text-brand underline-offset-2 hover:underline"
                           >
                             Privacy Policy
-                          </a>
+                          </Link>
                           .
                         </span>
                       </label>

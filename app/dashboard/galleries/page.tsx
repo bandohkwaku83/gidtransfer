@@ -339,7 +339,12 @@ export default function GalleriesPage() {
             <li className="font-semibold text-zinc-900 dark:text-zinc-50">Galleries</li>
           </ol>
         </nav>
-        <button type="button" onClick={openCreate} className={dashboardPageHeaderCtaClassName()}>
+        <button
+          type="button"
+          onClick={openCreate}
+          data-tour="new-gallery-cta"
+          className={dashboardPageHeaderCtaClassName()}
+        >
           New gallery
         </button>
       </header>

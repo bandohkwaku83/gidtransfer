@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { use, useState } from "react";
-import { Check, Loader2, Users, X } from "lucide-react";
+import { Check, Users, X } from "lucide-react";
+import { DashboardSpin } from "@/components/ui/skeletons";
 import {
   dashboardPageHeaderCtaClassName,
   dashboardPageHeaderCtaSecondaryClassName,
@@ -106,7 +107,7 @@ export default function CollaborationInviteTokenPage({
                 className={dashboardPageHeaderCtaClassName("inline-flex items-center gap-2")}
               >
                 {busy === "accept" ? (
-                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                  <DashboardSpin size="small" />
                 ) : (
                   <Check className="h-4 w-4" aria-hidden />
                 )}
@@ -121,7 +122,7 @@ export default function CollaborationInviteTokenPage({
                 )}
               >
                 {busy === "decline" ? (
-                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                  <DashboardSpin size="small" />
                 ) : (
                   <X className="h-4 w-4" aria-hidden />
                 )}

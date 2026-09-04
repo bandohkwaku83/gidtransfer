@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { ArrowRight, CheckCircle2 } from "lucide-react";
+import { Skeleton } from "antd";
 import { cn } from "@/lib/utils";
 import {
   formatBytesShort,
@@ -513,31 +514,22 @@ export function ChartCardSkeleton({ variant = "storage" }: { variant?: "storage"
   if (variant === "activity") {
     return (
       <div className={cn(cardClass, "min-h-[320px]")}>
-        <div className="flex items-center justify-between gap-3">
-          <div className="h-5 w-36 animate-pulse rounded-md bg-zinc-200 dark:bg-zinc-800" />
-          <div className="h-7 w-20 animate-pulse rounded-lg bg-zinc-100 dark:bg-zinc-800/60" />
-        </div>
+        <Skeleton active title={{ width: "36%" }} paragraph={false} />
         <div className="mt-5 grid grid-cols-2 gap-3">
           {Array.from({ length: 2 }).map((_, i) => (
-            <div
-              key={i}
-              className="h-[72px] animate-pulse rounded-xl bg-zinc-100 dark:bg-zinc-800/60"
-            />
+            <Skeleton key={i} active title={{ width: "100%", style: { height: 72, margin: 0 } }} paragraph={false} />
           ))}
         </div>
-        <div className="mt-6 h-[168px] animate-pulse rounded-xl bg-zinc-100 dark:bg-zinc-800/60" />
+        <Skeleton active title={{ width: "100%", style: { height: 168, marginTop: 24 } }} paragraph={false} />
       </div>
     );
   }
 
   return (
     <div className={cn(cardClass, "min-h-[320px]")}>
-      <div className="h-5 w-36 animate-pulse rounded-md bg-zinc-200 dark:bg-zinc-800" />
-      <div className="mt-2 h-4 w-24 animate-pulse rounded-md bg-zinc-100 dark:bg-zinc-800/60" />
-      <div className="mt-5 h-9 w-32 animate-pulse rounded-md bg-zinc-200 dark:bg-zinc-800" />
-      <div className="mt-2 h-4 w-48 animate-pulse rounded-md bg-zinc-100 dark:bg-zinc-800/60" />
+      <Skeleton active title={{ width: "36%" }} paragraph={{ rows: 2, width: ["24%", "48%"] }} />
       <div className="mt-auto flex justify-center pt-8">
-        <div className="h-24 w-48 animate-pulse rounded-t-full bg-zinc-100 dark:bg-zinc-800/60" />
+        <Skeleton.Avatar active size={192} shape="square" className="!rounded-t-full !rounded-b-none" />
       </div>
     </div>
   );

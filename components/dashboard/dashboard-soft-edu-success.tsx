@@ -3,6 +3,7 @@
 import { Moon, Timer } from "lucide-react";
 import type { WeeklyBar } from "@/lib/dashboard-chart-data";
 import { formatBytesShort } from "@/lib/dashboard-chart-data";
+import { DashboardStatValueSkeleton } from "@/components/ui/skeletons";
 import { cn } from "@/lib/utils";
 
 type DashboardSoftEduSuccessProps = {
@@ -146,7 +147,7 @@ export function DashboardSoftEduSuccess({
         <div className="flex items-start justify-between gap-3">
           <div>
             {loading ? (
-              <span className="inline-block h-8 w-16 animate-pulse rounded bg-zinc-100 dark:bg-zinc-800" />
+              <DashboardStatValueSkeleton />
             ) : (
               <p className="font-display text-3xl font-semibold tabular-nums leading-none">
                 {completedGalleries || weekTotal}

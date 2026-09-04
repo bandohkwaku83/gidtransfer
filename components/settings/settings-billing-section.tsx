@@ -7,12 +7,11 @@ import {
   Check,
   CircleCheck,
   Info,
-  Loader2,
 } from "lucide-react";
 import {
   FormModal,
 } from "@/components/ui/form-modal";
-import { SettingsWorkflowSkeleton } from "@/components/ui/skeletons";
+import { DashboardSpin, SettingsWorkflowSkeleton } from "@/components/ui/skeletons";
 import {
   cancelBillingSubscription,
   clearBillingCheckoutReference,
@@ -26,12 +25,16 @@ import {
   readBillingErrorMessage,
   reconcilePendingBillingPayment,
   rememberBillingCheckoutReference,
+  resumeBillingSubscription,
   paystackReferenceFromSearchParams,
+  preferConfirmedSubscription,
   startBillingCheckout,
+  type BillingInterval,
   type BillingPlan,
   type BillingSubscription,
   type CheckoutPlanId,
 } from "@/lib/billing-api";
+import { planIntervalAvailable, planPrice } from "@/lib/plan";
 import { planCtaLabel } from "@/lib/plan-entitlements";
 import { galleriesOverviewDisplay, type ApiSettingsOverview } from "@/lib/settings-api";
 import { formatStorageBytes } from "@/lib/storage-api";
@@ -59,14 +62,21 @@ function isPendingCheckoutPlan(
   );
 }
 
-function planActionLabel(plan: BillingPlan, subscription: BillingSubscription | null): string {
+function planActionLabel(
+  plan: BillingPlan,
+  subscription: BillingSubscription | null,
+  interval: BillingInterval,
+): string {
   if (isPendingCheckoutPlan(plan, subscription)) return "Continue on Paystack";
   return planCtaLabel({
     planId: plan.id,
     current: plan.current,
-    available: plan.available,
+    available: planIntervalAvailable(plan, interval),
     currentPlanId: subscription?.planId,
+    currentInterval: subscription?.interval,
+    selectedInterval: interval,
     trialActive: subscription?.trialActive === true,
+    viewOnly: subscription?.viewOnly === true,
   });
 }
 
@@ -77,6 +87,17 @@ function planPerkList(plan: BillingPlan, limit = 6): string[] {
       ? [`${plan.storageLabel} storage`]
       : [];
   return raw.filter((perk) => !perk.endsWith(":")).slice(0, limit);
+}
+
+function withCurrentPlan(
+  plans: BillingPlan[],
+  subscription: BillingSubscription | null,
+): BillingPlan[] {
+  if (!subscription) return plans;
+  return plans.map((item) => ({
+    ...item,
+    current: item.id === subscription.planId,
+  }));
 }
 
 function formatPriceAmount(priceGhs: number): string {
@@ -108,12 +129,16 @@ export function SettingsBillingSection({
   const [billingUnavailable, setBillingUnavailable] = useState(false);
   const [checkoutPlanId, setCheckoutPlanId] = useState<CheckoutPlanId | null>(null);
   const [planErrors, setPlanErrors] = useState<Partial<Record<CheckoutPlanId, string>>>({});
+  const [billingInterval, setBillingInterval] = useState<BillingInterval>("monthly");
   const [cancelOpen, setCancelOpen] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
+  const [resuming, setResuming] = useState(false);
+  const [resumeError, setResumeError] = useState<string | null>(null);
   const [reconcilingPayment, setReconcilingPayment] = useState(false);
   const [storedCheckoutRef, setStoredCheckoutRef] = useState(false);
   const { refreshPlan, applyPlan, plan } = usePlanEntitlements();
+  const verifiedSubscriptionRef = useRef<BillingSubscription | null>(null);
 
   const refreshStoredCheckoutRef = useCallback(() => {
     setStoredCheckoutRef(Boolean(readBillingCheckoutReference()));
@@ -146,8 +171,8 @@ export function SettingsBillingSection({
     setBillingUnavailable(false);
     try {
       const data = await fetchBillingPageData();
-      setPlans(data.plans);
       setSubscription(data.subscription);
+      setPlans(withCurrentPlan(data.plans, data.subscription));
       if (data.config && data.config.configured === false) {
         setBillingUnavailable(true);
       }
@@ -175,6 +200,7 @@ export function SettingsBillingSection({
 
       // Prefer verify payload — GET /subscription can still say "pending" briefly.
       if (result.subscription) {
+        verifiedSubscriptionRef.current = result.subscription;
         setSubscription(result.subscription);
       }
       if (result.plan && isBillingPaymentConfirmed(result)) {
@@ -187,10 +213,12 @@ export function SettingsBillingSection({
           refreshStoredCheckoutRef();
           try {
             const data = await fetchBillingPageData();
-            setPlans(data.plans);
-            if (data.subscription && data.subscription.status !== "pending") {
-              setSubscription(data.subscription);
-            }
+            const next = preferConfirmedSubscription(
+              data.subscription,
+              result.subscription,
+            );
+            if (next) setSubscription(next);
+            setPlans(withCurrentPlan(data.plans, next ?? result.subscription ?? data.subscription));
             if (data.config && data.config.configured === false) {
               setBillingUnavailable(true);
             }
@@ -198,6 +226,7 @@ export function SettingsBillingSection({
             /* keep verify subscription */
           }
           await refreshPlan();
+          if (result.plan) applyPlan(result.plan);
           await onBillingUpdatedRef.current?.();
           setBillingLoading(false);
           return true;
@@ -226,6 +255,12 @@ export function SettingsBillingSection({
   }, [loadBilling]);
 
   useEffect(() => {
+    if (subscription?.interval === "yearly" || subscription?.interval === "monthly") {
+      setBillingInterval(subscription.interval);
+    }
+  }, [subscription?.interval]);
+
+  useEffect(() => {
     if (billingLoading || paymentSuccess) return;
     // Reconcile whenever Paystack left us a reference — not only when status is
     // already "pending" (covers re-login after session expiry on the callback).
@@ -239,15 +274,6 @@ export function SettingsBillingSection({
     storedCheckoutRef,
     tryReconcilePendingPayment,
   ]);
-
-  useEffect(() => {
-    // Do not clear on first paint (subscription is null) — that wiped the
-    // Paystack reference before reconcile could run after re-login.
-    if (billingLoading || !subscription) return;
-    if (subscription.status === "pending") return;
-    clearBillingCheckoutReference();
-    refreshStoredCheckoutRef();
-  }, [billingLoading, subscription, refreshStoredCheckoutRef]);
 
   useEffect(() => {
     if (!paymentSuccess) return;
@@ -274,18 +300,18 @@ export function SettingsBillingSection({
         }
         return false;
       }
-      setPlans(data.plans);
-      setSubscription((prev) => {
-        // Don't clobber an activated verify result with a lagging "pending" fetch.
-        if (prev && prev.status !== "pending" && data.subscription?.status === "pending") {
-          return prev;
-        }
-        return data.subscription;
-      });
+      const nextSub = preferConfirmedSubscription(
+        data.subscription,
+        verifiedSubscriptionRef.current,
+      );
+      setSubscription(nextSub);
+      setPlans(withCurrentPlan(data.plans, nextSub));
       setBillingLoading(false);
       const activated =
         confirmed ||
-        (data.subscription != null && data.subscription.status !== "pending");
+        (data.subscription != null &&
+          data.subscription.planId !== "free" &&
+          data.subscription.status !== "pending");
       if (activated) {
         await onBillingUpdatedRef.current?.();
         finishSuccess();
@@ -328,13 +354,22 @@ export function SettingsBillingSection({
     subscription?.planName?.replace(/\s+plan$/i, "") ??
     activePlan?.name ??
     "Free";
+  const displayIntervalLabel =
+    subscription?.interval === "yearly"
+      ? "Yearly"
+      : subscription?.interval === "monthly"
+        ? "Monthly"
+        : null;
   const displayPrice = subscription
     ? formatPlanPriceGhs(subscription.priceGhs, subscription.interval)
     : activePlan
-      ? formatPlanPriceGhs(activePlan.priceGhs, activePlan.interval)
+      ? formatPlanPriceGhs(planPrice(activePlan, billingInterval), billingInterval)
       : "Free";
   const renewLabel = formatBillingDate(
     subscription?.renewalDate ?? subscription?.currentPeriodEnd,
+  );
+  const accessUntilLabel = formatBillingDate(
+    subscription?.accessUntil ?? plan?.accessUntil,
   );
   const upgradedLabel = formatBillingDate(subscription?.upgradedAt);
   const trialEndsLabel = formatBillingDate(
@@ -393,9 +428,17 @@ export function SettingsBillingSection({
       : null;
 
   async function handleCheckout(plan: BillingPlan) {
-    if (!isCheckoutPlanId(plan.id) || !plan.available) return;
+    if (!isCheckoutPlanId(plan.id)) return;
+    const available = planIntervalAvailable(plan, billingInterval);
+    if (!available) return;
     const pendingCheckout = isPendingCheckoutPlan(plan, subscription);
-    if (plan.current && !pendingCheckout) return;
+    const switchInterval =
+      plan.current &&
+      subscription?.interval != null &&
+      subscription.interval !== billingInterval;
+    if (plan.current && !pendingCheckout && !switchInterval && !subscription?.viewOnly) {
+      return;
+    }
 
     setCheckoutPlanId(plan.id);
     setPlanErrors((prev) => {
@@ -406,7 +449,7 @@ export function SettingsBillingSection({
     });
 
     try {
-      await startBillingCheckout(plan.id);
+      await startBillingCheckout(plan.id, billingInterval);
     } catch (err) {
       const message = await readBillingErrorMessage(err, "Checkout failed.");
       if (isCheckoutPlanId(plan.id)) {
@@ -435,6 +478,22 @@ export function SettingsBillingSection({
     }
   }
 
+  async function handleResume() {
+    setResuming(true);
+    setResumeError(null);
+    try {
+      const result = await resumeBillingSubscription();
+      setSubscription(result.subscription);
+      await loadBilling();
+      await refreshPlan();
+      await onBillingUpdated?.();
+    } catch (err) {
+      setResumeError(await readBillingErrorMessage(err, "Could not resume subscription."));
+    } finally {
+      setResuming(false);
+    }
+  }
+
   if ((pageLoading || billingLoading) && !overview && plans.length === 0) {
     return <SettingsWorkflowSkeleton />;
   }
@@ -446,14 +505,19 @@ export function SettingsBillingSection({
       overview.planStorage.limitBytes > 0 &&
       overview.planStorage.usedBytes >= overview.planStorage.limitBytes,
   );
+  const viewOnly = subscription?.viewOnly === true || plan?.viewOnly === true;
   const canCancelSubscription =
-    subscription?.canManage === true &&
-    subscription.planId !== "free" &&
-    subscription.status !== "cancelled" &&
-    subscription.status !== "free";
+    !viewOnly &&
+    (subscription?.canCancel === true ||
+      (subscription?.canManage === true &&
+        subscription.planId !== "free" &&
+        subscription.status !== "cancelled" &&
+        subscription.status !== "free"));
   const cancelScheduled =
     subscription?.cancelAtPeriodEnd === true || subscription?.status === "non_renewing";
   const showCancelAction = canCancelSubscription && !cancelScheduled;
+  const showResumeAction =
+    !viewOnly && (subscription?.canResume === true || cancelScheduled);
 
   return (
     <div className="space-y-5">
@@ -532,7 +596,7 @@ export function SettingsBillingSection({
         <div className="flex flex-col gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3.5 text-sm text-amber-950 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-100 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex min-w-0 items-start gap-3">
             {reconcilingPayment ? (
-              <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin" aria-hidden />
+              <DashboardSpin size="small" className="mt-0.5 shrink-0" />
             ) : (
               <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
             )}
@@ -577,7 +641,7 @@ export function SettingsBillingSection({
             >
               {checkoutPlanId === subscription.pendingPlanId ? (
                 <>
-                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                  <DashboardSpin size="small" />
                   Opening…
                 </>
               ) : (
@@ -607,7 +671,7 @@ export function SettingsBillingSection({
             Plan Summary
           </h2>
           <span className="rounded-md border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-xs font-semibold text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">
-            {displayPlanName}
+            {displayIntervalLabel ? `${displayPlanName} · ${displayIntervalLabel}` : displayPlanName}
           </span>
           {trialActive ? (
             <span className="rounded-md bg-brand/10 px-2 py-0.5 text-xs font-semibold text-brand dark:text-brand-on-dark">
@@ -695,9 +759,9 @@ export function SettingsBillingSection({
 
         <div className="mt-6 grid grid-cols-2 gap-4 border-t border-zinc-100 pt-5 sm:grid-cols-4 dark:border-zinc-800">
           <div>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400">Price / month</p>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400">Current charge</p>
             <p className="mt-1 text-base font-semibold tabular-nums text-zinc-900 dark:text-zinc-50">
-              {displayPrice.replace(/\s*\/\s*mo$/i, "") || "Free"}
+              {displayPrice || "Free"}
             </p>
           </div>
           <div>
@@ -708,7 +772,11 @@ export function SettingsBillingSection({
           </div>
           <div>
             <p className="text-xs text-zinc-500 dark:text-zinc-400">
-              {trialActive ? "Trial ends" : "Renewal date"}
+              {trialActive
+                ? "Trial ends"
+                : subscription?.willRenew
+                  ? "Renews on"
+                  : "Period ends"}
             </p>
             <p className="mt-1 text-base font-semibold text-zinc-900 dark:text-zinc-50">
               {(trialActive ? trialEndsLabel : renewLabel) ?? "—"}
@@ -734,9 +802,24 @@ export function SettingsBillingSection({
           </div>
         ) : null}
 
-        {trialExpired ? (
+        {subscription?.inGracePeriod || plan?.inGracePeriod ? (
           <p className="mt-3 text-sm text-amber-700 dark:text-amber-300">
-            Your free trial has ended. Upgrade to keep creating galleries.
+            Your plan ended. Renew
+            {accessUntilLabel ? ` before ${accessUntilLabel}` : ""} to keep editing.
+          </p>
+        ) : null}
+
+        {subscription?.viewOnly || plan?.viewOnly ? (
+          <p className="mt-3 text-sm text-red-700 dark:text-red-300">
+            You can view existing work only. Subscribe to continue creating and editing.
+          </p>
+        ) : trialExpired ? (
+          <p className="mt-3 text-sm text-amber-700 dark:text-amber-300">
+            Your free trial has ended. Subscribe to keep creating galleries.
+          </p>
+        ) : accessUntilLabel && !subscription?.willRenew ? (
+          <p className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
+            Full access until {accessUntilLabel}.
           </p>
         ) : null}
 
@@ -747,7 +830,21 @@ export function SettingsBillingSection({
               Your plan stays active
               {renewLabel ? ` until ${renewLabel}` : " until the end of the billing period"}. It
               won’t renew after that.
+              {accessUntilLabel ? ` You can still edit until ${accessUntilLabel}.` : ""}
             </p>
+            {showResumeAction ? (
+              <button
+                type="button"
+                disabled={resuming}
+                onClick={() => void handleResume()}
+                className="mt-3 inline-flex items-center rounded-xl bg-brand px-3.5 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-hover disabled:opacity-60"
+              >
+                {resuming ? "Keeping plan…" : "Keep plan"}
+              </button>
+            ) : null}
+            {resumeError ? (
+              <p className="mt-2 text-xs font-medium text-red-700">{resumeError}</p>
+            ) : null}
           </div>
         ) : showCancelAction ? (
           <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-zinc-100 pt-5 dark:border-zinc-800">
@@ -775,22 +872,50 @@ export function SettingsBillingSection({
 
       {plans.length > 0 ? (
         <section id="billing-plans" className="scroll-mt-6">
+          <div className="mb-4 flex justify-center sm:justify-start">
+            <div
+              className="inline-flex rounded-full border border-zinc-200 bg-zinc-50 p-1 dark:border-zinc-700 dark:bg-zinc-900"
+              role="group"
+              aria-label="Billing interval"
+            >
+              {(["monthly", "yearly"] as const).map((value) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setBillingInterval(value)}
+                  className={cn(
+                    "rounded-full px-3.5 py-1.5 text-sm font-semibold capitalize transition",
+                    billingInterval === value
+                      ? "bg-brand text-white"
+                      : "text-zinc-600 hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-zinc-50",
+                  )}
+                >
+                  {value}
+                </button>
+              ))}
+            </div>
+          </div>
           <ul className="-mx-1 flex snap-x snap-mandatory gap-4 overflow-x-auto px-1 pb-2">
             {plans.map((planItem) => {
               const featured = planItem.highlighted === true;
               const pendingCheckout = isPendingCheckoutPlan(planItem, subscription);
               const checkoutBusy = checkoutPlanId === planItem.id;
               const planError = isCheckoutPlanId(planItem.id) ? planErrors[planItem.id] : undefined;
+              const intervalAvailable = planIntervalAvailable(planItem, billingInterval);
+              const switchInterval =
+                planItem.current &&
+                subscription?.interval != null &&
+                subscription.interval !== billingInterval;
               const showCheckout =
                 !billingUnavailable &&
                 planItem.id !== "free" &&
-                planItem.available &&
-                (!planItem.current || pendingCheckout);
+                intervalAvailable &&
+                (viewOnly || !planItem.current || pendingCheckout || switchInterval);
               const disabled =
                 billingUnavailable ||
-                (planItem.current && !pendingCheckout) ||
-                !planItem.available ||
-                checkoutBusy;
+                !intervalAvailable ||
+                checkoutBusy ||
+                (planItem.current && !pendingCheckout && !switchInterval && !viewOnly);
               const perks = planPerkList(planItem);
 
               return (
@@ -827,10 +952,12 @@ export function SettingsBillingSection({
 
                     <div className="mt-5 flex items-baseline gap-1.5">
                       <span className="font-display text-[2.5rem] font-semibold leading-none tracking-tight text-brand dark:text-brand-on-dark">
-                        {formatPriceAmount(planItem.priceGhs)}
+                        {formatPriceAmount(planPrice(planItem, billingInterval))}
                       </span>
-                      {planItem.priceGhs > 0 ? (
-                        <span className="text-sm text-zinc-500 dark:text-zinc-400">/ per month</span>
+                      {planPrice(planItem, billingInterval) > 0 ? (
+                        <span className="text-sm text-zinc-500 dark:text-zinc-400">
+                          {billingInterval === "yearly" ? "/ year" : "/ month"}
+                        </span>
                       ) : null}
                     </div>
 
@@ -849,11 +976,11 @@ export function SettingsBillingSection({
                       >
                         {checkoutBusy ? (
                           <>
-                            <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                            <DashboardSpin size="small" />
                             Redirecting…
                           </>
                         ) : (
-                          planActionLabel(planItem, subscription)
+                          planActionLabel(planItem, subscription, billingInterval)
                         )}
                       </button>
                     ) : (
@@ -865,7 +992,7 @@ export function SettingsBillingSection({
                             : "border border-zinc-200 text-zinc-400 dark:border-zinc-700",
                         )}
                       >
-                        {planActionLabel(planItem, subscription)}
+                        {planActionLabel(planItem, subscription, billingInterval)}
                       </span>
                     )}
 
@@ -1010,7 +1137,7 @@ export function SettingsBillingSection({
           >
             {cancelling ? (
               <>
-                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                            <DashboardSpin size="small" />
                 Cancelling…
               </>
             ) : (

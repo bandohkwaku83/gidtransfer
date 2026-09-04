@@ -20,13 +20,11 @@ import {
   FormModalSplitMain,
   formModalSecondaryButtonClass,
 } from "@/components/ui/form-modal";
-import { FormInput, FormTextArea } from "@/components/ui/form-input";
+import { FormInput } from "@/components/ui/form-input";
 import {
   onboardingAntInputClassName,
-  onboardingTextareaClassName,
 } from "@/lib/onboarding-field-styles";
 import { FolderPlus, UserPlus } from "lucide-react";
-import { cn } from "@/lib/utils";
 import { useToast } from "@/components/toast-provider";
 import { getBookingsMeta, type BookingShootTypeMeta } from "@/lib/bookings-api";
 import {
@@ -37,6 +35,7 @@ import {
 import { getAuth } from "@/lib/auth-demo";
 import { usePlanEntitlements } from "@/lib/use-plan-entitlements";
 import { isAtGalleryLimit } from "@/lib/plan-entitlements";
+import { useGuardViewOnlyWrite } from "@/lib/use-view-only-write";
 import { listClients, type ApiClient } from "@/lib/clients-api";
 import {
   defaultStudioUrlSuffix,
@@ -46,7 +45,6 @@ import {
 } from "@/lib/studio-url";
 import {
   createFolder,
-  generateGalleryDescription,
   getFolderClientId,
   updateFolder,
   type ApiFolder,
@@ -75,8 +73,8 @@ export function CreateFolderModal({
   onSaved,
 }: Props) {
   const { showToast } = useToast();
-  const { can, openUpgrade, handlePlanError, plan, trialExpired } = usePlanEntitlements();
-  const canGalleryAi = can("galleryAi");
+  const { openUpgrade, handlePlanError, plan, trialExpired } = usePlanEntitlements();
+  const guardViewOnlyWrite = useGuardViewOnlyWrite();
   const formId = useId();
   const isEdit = Boolean(folder?._id);
 
@@ -88,12 +86,10 @@ export function CreateFolderModal({
   const [eventDate, setEventDate] = useState("");
   const [galleryType, setGalleryType] = useState("portraits");
   const [shootTypes, setShootTypes] = useState<BookingShootTypeMeta[]>(FALLBACK_SHOOT_TYPES);
-  const [description, setDescription] = useState("");
   /** URL slug segment — independent of event name after Edit on gallery address. */
   const [gallerySlug, setGallerySlug] = useState("");
   const [urlSlugTouched, setUrlSlugTouched] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [generatingDescription, setGeneratingDescription] = useState(false);
   const [addClientOpen, setAddClientOpen] = useState(false);
 
   const resolvedShootTypes = useMemo(
@@ -129,7 +125,6 @@ export function CreateFolderModal({
     setUrlSlugTouched(false);
     setEventDate(folder?.eventDate ? folder.eventDate.slice(0, 10) : "");
     setGalleryType(folder?.galleryType?.trim() ?? "");
-    setDescription(folder?.description ?? "");
     setBusy(false);
   }, [open, folder]);
 
@@ -210,32 +205,12 @@ export function CreateFolderModal({
     onClose();
   }
 
-  async function handleGenerateDescription() {
-    if (!canGalleryAi) {
-      openUpgrade({ feature: "galleryAi" });
-      return;
-    }
-    const name = eventName.trim();
-    if (!name || generatingDescription || busy) return;
-    setGeneratingDescription(true);
-    try {
-      const text = await generateGalleryDescription(name);
-      if (text) setDescription(text);
-      else showToast("No description was returned.", "error");
-    } catch (err) {
-      if (handlePlanError(err)) return;
-      showToast(err instanceof Error ? err.message : "Could not generate description.", "error");
-    } finally {
-      setGeneratingDescription(false);
-    }
-  }
-
   async function handleSubmit(e?: FormEvent) {
     e?.preventDefault();
     if (busy) return;
+    if (guardViewOnlyWrite()) return;
 
     const trimmedEventName = eventName.trim();
-    const trimmedDescription = description.trim();
 
     if (!isEdit && !clientId) {
       showToast("Please select a client.", "error");
@@ -297,7 +272,6 @@ export function CreateFolderModal({
         ? await updateFolder(folder!._id, {
             eventName: trimmedEventName,
             eventDate,
-            description: trimmedDescription,
             galleryType: typeMeta.id,
             slug,
           })
@@ -305,7 +279,7 @@ export function CreateFolderModal({
             clientId,
             eventName: trimmedEventName,
             eventDate,
-            description: trimmedDescription,
+            description: "",
             galleryType: typeMeta.id,
             slug,
             linkExpiry: DEFAULT_LINK_EXPIRY,
@@ -424,41 +398,6 @@ export function CreateFolderModal({
                       />
                     </FormField>
                   </div>
-
-                  <FormField
-                    label="Description"
-                    optional
-                    appearance="onboarding"
-                    action={
-                      !isEdit ? (
-                        <button
-                          type="button"
-                          onClick={() => void handleGenerateDescription()}
-                          disabled={
-                            busy ||
-                            generatingDescription ||
-                            (canGalleryAi && !eventName.trim())
-                          }
-                          className={formModalSecondaryButtonClass}
-                        >
-                          {generatingDescription
-                            ? "Generating…"
-                            : canGalleryAi
-                              ? "Generate with AI"
-                              : "Upgrade for AI"}
-                        </button>
-                      ) : undefined
-                    }
-                  >
-                    <FormTextArea
-                      value={description}
-                      onChange={(e) => setDescription(e.target.value)}
-                      placeholder="Optional notes…"
-                      rows={4}
-                      disabled={busy}
-                      className={onboardingTextareaClassName}
-                    />
-                  </FormField>
 
                   <FormField label="Gallery address (URL)" appearance="onboarding">
                     <GalleryAddressField

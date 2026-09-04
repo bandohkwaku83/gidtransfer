@@ -1,7 +1,8 @@
 "use client";
 
-import { CloudUpload, FileWarning, Images, Loader2, Save } from "lucide-react";
+import { CloudUpload, FileWarning, Images, Save } from "lucide-react";
 import { useMemo, useState } from "react";
+import { DashboardSpin } from "@/components/ui/skeletons";
 import type { FolderStatus } from "@/lib/demo-data";
 import { cn } from "@/lib/utils";
 
@@ -41,11 +42,12 @@ function uploadPhaseIcon(phase: "preparing" | "presigning" | "uploading" | "fina
     case "preparing":
       return Images;
     case "presigning":
+    case "uploading":
       return CloudUpload;
     case "finalizing":
       return Save;
     default:
-      return Loader2;
+      return CloudUpload;
   }
 }
 
@@ -133,13 +135,14 @@ export function UploadProgressBanner({
             "bg-zinc-100 dark:bg-zinc-800/80",
           )}
         >
-          <PhaseIcon
-            className={cn(
-              "h-[18px] w-[18px] text-brand dark:text-brand-on-dark",
-              iconSpins && "motion-safe:animate-spin",
-            )}
-            aria-hidden
-          />
+          {iconSpins ? (
+            <DashboardSpin size="small" />
+          ) : (
+            <PhaseIcon
+              className="h-[18px] w-[18px] text-brand dark:text-brand-on-dark"
+              aria-hidden
+            />
+          )}
         </div>
 
         <div className="min-w-0 flex-1">

@@ -3,6 +3,18 @@ import { HttpError } from "@/lib/http";
 /** Canonical plan ids — never gate product features on these; use `features`. */
 export type BillingPlanId = "free" | "basic" | "pro" | "premium";
 export type CheckoutPlanId = Exclude<BillingPlanId, "free">;
+export type BillingInterval = "monthly" | "yearly";
+
+export type PlanPriceSlot = {
+  interval: BillingInterval;
+  priceGhs: number;
+  available: boolean;
+};
+
+export type PlanPrices = {
+  monthly?: PlanPriceSlot;
+  yearly?: PlanPriceSlot;
+};
 
 export type PlanFeatureKey =
   | "clientGalleries"
@@ -36,16 +48,24 @@ export type PlanSupportTier = "contact" | "priority" | "premium";
 
 export type UserPlanSubscription = {
   status: string;
-  /** Next monthly renewal (same as API `renewalDate`). */
+  interval: BillingInterval | null;
+  /** Next renewal (same as API `renewalDate`). */
   currentPeriodEnd: string | null;
   renewalDate: string | null;
   /** When the user last upgraded / switched paid plans. */
   upgradedAt: string | null;
   cancelAtPeriodEnd: boolean;
   pendingPlanId: BillingPlanId | null;
+  pendingInterval: BillingInterval | null;
+  willRenew: boolean;
+  accessUntil: string | null;
   trialEndsAt: string | null;
   trialActive: boolean;
   trialExpired: boolean;
+  graceDays: number;
+  graceEndsAt: string | null;
+  inGracePeriod: boolean;
+  viewOnly: boolean;
 };
 
 export type UserPlan = {
@@ -62,12 +82,20 @@ export type UserPlan = {
   features: PlanFeatures;
   featureKeys: string[];
   supportTier: PlanSupportTier;
+  /** On `user.plan` this is the current charge (32/month or 650/year). On the catalog it is monthly. */
   priceGhs: number;
-  interval: "monthly" | null;
+  yearlyPriceGhs: number;
+  interval: BillingInterval | null;
+  prices: PlanPrices;
   trialDays: number | null;
   trialEndsAt: string | null;
   trialActive: boolean;
   trialExpired: boolean;
+  graceDays: number;
+  graceEndsAt: string | null;
+  inGracePeriod: boolean;
+  viewOnly: boolean;
+  accessUntil: string | null;
   subscription: UserPlanSubscription;
 };
 
@@ -219,10 +247,10 @@ export function galleryLimitLabel(plan: Pick<UserPlan, "maxGalleries"> | null | 
 }
 
 export function isAtGalleryLimit(
-  plan: Pick<UserPlan, "maxGalleries" | "trialExpired"> | null | undefined,
+  plan: Pick<UserPlan, "maxGalleries" | "viewOnly"> | null | undefined,
   used: number,
 ): boolean {
-  if (plan?.trialExpired === true) return true;
+  if (plan?.viewOnly === true) return true;
   const limit = plan?.maxGalleries;
   if (limit == null) return false;
   return used >= limit;
@@ -256,10 +284,16 @@ export function planCtaLabel(input: {
   current: boolean;
   available: boolean;
   currentPlanId?: BillingPlanId | null;
+  currentInterval?: BillingInterval | null;
+  selectedInterval?: BillingInterval;
   trialActive?: boolean;
+  viewOnly?: boolean;
 }): string {
-  if (input.current && input.planId === "free" && input.trialActive) {
-    return "Trial active";
+  if (input.viewOnly && input.planId !== "free") return "Subscribe";
+  if (input.planId === "free" && input.trialActive) return "Trial active";
+  if (input.current && input.selectedInterval && input.currentInterval) {
+    if (input.selectedInterval === input.currentInterval) return "Current plan";
+    return input.selectedInterval === "yearly" ? "Switch to yearly" : "Switch to monthly";
   }
   if (input.current) return "Current plan";
   if (!input.available) return "Coming soon";
@@ -294,6 +328,51 @@ function readNullableLimit(value: unknown): number | null {
 function readStringList(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+}
+
+function readInterval(value: unknown): BillingInterval | null {
+  return value === "yearly" || value === "monthly" ? value : null;
+}
+
+function readPriceSlot(
+  raw: unknown,
+  fallbackInterval: BillingInterval,
+  fallbackPrice: number,
+): PlanPriceSlot | undefined {
+  const obj = asRecord(raw);
+  const priceGhs = readNumber(obj?.priceGhs) ?? readNumber(obj?.price) ?? fallbackPrice;
+  const interval = readInterval(obj?.interval) ?? fallbackInterval;
+  if (!obj && fallbackPrice <= 0 && fallbackInterval === "yearly") {
+    return { interval, priceGhs: 0, available: false };
+  }
+  if (!obj && fallbackPrice <= 0 && fallbackInterval === "monthly") {
+    return { interval, priceGhs: 0, available: true };
+  }
+  return {
+    interval,
+    priceGhs,
+    available: obj?.available !== false,
+  };
+}
+
+function readPlanPrices(
+  raw: unknown,
+  monthlyPrice: number,
+  yearlyPrice: number,
+): PlanPrices {
+  const obj = asRecord(raw);
+  return {
+    monthly: readPriceSlot(obj?.monthly, "monthly", monthlyPrice) ?? {
+      interval: "monthly",
+      priceGhs: monthlyPrice,
+      available: true,
+    },
+    yearly: readPriceSlot(obj?.yearly, "yearly", yearlyPrice) ?? {
+      interval: "yearly",
+      priceGhs: yearlyPrice,
+      available: yearlyPrice > 0,
+    },
+  };
 }
 
 function readSupportTier(value: unknown): PlanSupportTier {
@@ -364,6 +443,34 @@ export function parseUserPlan(raw: unknown): UserPlan | null {
     readString(sub?.upgraded_at) ??
     readString(obj.upgraded_at);
 
+  const accessUntil =
+    readString(obj.accessUntil) ??
+    readString(sub?.accessUntil) ??
+    readString(obj.graceEndsAt) ??
+    readString(sub?.graceEndsAt);
+  const graceEndsAt = accessUntil;
+  const viewOnly = obj.viewOnly === true || sub?.viewOnly === true;
+  const inGracePeriod = obj.inGracePeriod === true || sub?.inGracePeriod === true;
+  const graceDays = readNumber(obj.graceDays) ?? readNumber(sub?.graceDays) ?? 3;
+  const monthlyPrice =
+    readNumber(asRecord(obj.prices)?.monthly && asRecord(asRecord(obj.prices)?.monthly)?.priceGhs) ??
+    readNumber(obj.priceGhs) ??
+    readNumber(obj.price) ??
+    0;
+  const yearlyPrice =
+    readNumber(asRecord(obj.prices)?.yearly && asRecord(asRecord(obj.prices)?.yearly)?.priceGhs) ??
+    readNumber(obj.yearlyPriceGhs) ??
+    0;
+  const interval =
+    readInterval(obj.interval) ?? readInterval(sub?.interval);
+  const willRenew =
+    sub?.willRenew === true ||
+    obj.willRenew === true ||
+    (planId !== "free" &&
+      !cancelAtPeriodEnd &&
+      !viewOnly &&
+      (readString(sub?.status) ?? readString(obj.status)) === "active");
+
   return {
     planId,
     planName,
@@ -378,17 +485,25 @@ export function parseUserPlan(raw: unknown): UserPlan | null {
     features,
     featureKeys,
     supportTier,
-    priceGhs: readNumber(obj.priceGhs) ?? readNumber(obj.price) ?? 0,
-    interval: obj.interval === "monthly" ? "monthly" : null,
+    priceGhs: readNumber(obj.priceGhs) ?? readNumber(obj.price) ?? monthlyPrice,
+    yearlyPriceGhs: yearlyPrice,
+    interval,
+    prices: readPlanPrices(obj.prices, monthlyPrice, yearlyPrice),
     trialDays: readNumber(obj.trialDays),
     trialEndsAt,
     trialActive,
     trialExpired,
+    graceDays,
+    graceEndsAt,
+    inGracePeriod,
+    viewOnly,
+    accessUntil,
     subscription: {
       status:
         readString(sub?.status) ??
         readString(obj.status) ??
         (planId === "free" ? "free" : "active"),
+      interval: readInterval(sub?.interval) ?? interval,
       currentPeriodEnd: renewalDate,
       renewalDate,
       upgradedAt,
@@ -396,9 +511,16 @@ export function parseUserPlan(raw: unknown): UserPlan | null {
       pendingPlanId: normalizePlanId(
         readString(sub?.pendingPlanId) ?? readString(obj.pendingPlanId),
       ),
+      pendingInterval: readInterval(sub?.pendingInterval) ?? readInterval(obj.pendingInterval),
+      willRenew,
+      accessUntil,
       trialEndsAt: readString(sub?.trialEndsAt) ?? trialEndsAt,
       trialActive: sub?.trialActive === true || trialActive,
       trialExpired: sub?.trialExpired === true || trialExpired,
+      graceDays,
+      graceEndsAt,
+      inGracePeriod,
+      viewOnly,
     },
   };
 }
@@ -464,6 +586,27 @@ export function parseVideoLimitReached(err: unknown): VideoLimitReachedError | n
   };
 }
 
+export type SubscriptionViewOnlyError = {
+  message: string;
+  viewOnly: true;
+  trialExpired: boolean;
+};
+
+export function parseSubscriptionViewOnly(err: unknown): SubscriptionViewOnlyError | null {
+  const body =
+    err instanceof HttpError && err.body && typeof err.body === "object"
+      ? (err.body as Record<string, unknown>)
+      : asRecord(err);
+  if (!body || body.code !== "SUBSCRIPTION_VIEW_ONLY") return null;
+  return {
+    message:
+      readString(body.message) ??
+      "Your subscription has ended. You can view existing work, but renew to create or change anything.",
+    viewOnly: true,
+    trialExpired: body.trialExpired === true,
+  };
+}
+
 export function parseStorageLimitReached(err: unknown): StorageLimitReachedError | null {
   const body =
     err instanceof HttpError && err.body && typeof err.body === "object"
@@ -483,11 +626,6 @@ export function parseStorageLimitReached(err: unknown): StorageLimitReachedError
 }
 
 export function featuresFromUserPlan(plan: UserPlan | null | undefined): PlanFeatures {
-  if (plan?.trialExpired) {
-    return Object.fromEntries(
-      Object.keys(FALLBACK_FREE_FEATURES).map((key) => [key, false]),
-    ) as PlanFeatures;
-  }
   return plan?.features ?? FALLBACK_FREE_FEATURES;
 }
 

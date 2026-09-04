@@ -6,16 +6,19 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
 import {
   applyAuthUserPlan,
   fetchAuthMe,
+  preferFresherUserPlan,
   refreshAuthSessionFromApi,
 } from "@/lib/auth-api";
 import { getAuth } from "@/lib/auth-demo";
 import type { CheckoutPlanId } from "@/lib/billing-api";
+import { subscribePlanApiError } from "@/lib/plan-api-errors";
 import {
   canUseFeature,
   featuresFromUserPlan,
@@ -23,9 +26,11 @@ import {
   parseGalleryLimitReached,
   parsePlanFeatureRequired,
   parseStorageLimitReached,
+  parseSubscriptionViewOnly,
   parseUserPlan,
   parseVideoLimitReached,
   suggestedCheckoutPlanId,
+  isCheckoutPlanId,
   type PlanFeatureRequiredError,
   type PlanFeatures,
   type UserPlan,
@@ -46,6 +51,8 @@ type PlanEntitlementsContextValue = {
   can: (key: string) => boolean;
   trialExpired: boolean;
   trialActive: boolean;
+  viewOnly: boolean;
+  inGracePeriod: boolean;
   refreshPlan: () => Promise<UserPlan | null>;
   applyPlan: (plan: UserPlan) => void;
   upgrade: PlanUpgradeRequest | null;
@@ -59,6 +66,8 @@ const PlanEntitlementsContext = createContext<PlanEntitlementsContextValue | nul
 export function PlanEntitlementsProvider({ children }: { children: ReactNode }) {
   const [plan, setPlan] = useState<UserPlan | null>(() => getAuth()?.user?.plan ?? null);
   const [upgrade, setUpgrade] = useState<PlanUpgradeRequest | null>(null);
+  const planRef = useRef(plan);
+  planRef.current = plan;
 
   const applyPlan = useCallback((next: UserPlan) => {
     applyAuthUserPlan(next);
@@ -66,14 +75,19 @@ export function PlanEntitlementsProvider({ children }: { children: ReactNode }) 
   }, []);
 
   const refreshPlan = useCallback(async () => {
+    const prior = getAuth()?.user?.plan ?? planRef.current;
     try {
       const { user } = await fetchAuthMe({ redirectOn401: false });
       const next = refreshAuthSessionFromApi(user);
-      const parsed = next?.plan ?? parseUserPlan(user.plan);
+      const parsed =
+        preferFresherUserPlan(next?.plan ?? parseUserPlan(user.plan), prior) ??
+        next?.plan ??
+        parseUserPlan(user.plan);
+      if (parsed) applyAuthUserPlan(parsed);
       setPlan(parsed ?? null);
       return parsed ?? null;
     } catch {
-      const stored = getAuth()?.user?.plan ?? null;
+      const stored = getAuth()?.user?.plan ?? prior ?? null;
       setPlan(stored);
       return stored;
     }
@@ -143,13 +157,50 @@ export function PlanEntitlementsProvider({ children }: { children: ReactNode }) 
         });
         return true;
       }
+      if (parseSubscriptionViewOnly(err)) return true;
       return false;
     },
     [openUpgrade, plan],
   );
 
+  useEffect(() => {
+    return subscribePlanApiError((event) => {
+      if (event.code === "SUBSCRIPTION_VIEW_ONLY") return;
+      if (event.code === "PLAN_FEATURE_REQUIRED") {
+        const suggested = event.suggestedPlanId;
+        openUpgrade({
+          feature: event.feature,
+          message: event.message,
+          requiredPlans: event.requiredPlans,
+          suggestedPlanId: isCheckoutPlanId(suggested ?? "")
+            ? (suggested as CheckoutPlanId)
+            : suggestedCheckoutPlanId(event.requiredPlans, event.feature),
+          trialExpired: event.trialExpired,
+        });
+        return;
+      }
+      if (event.code === "GALLERY_LIMIT_REACHED") {
+        openUpgrade({
+          feature: "clientGalleries",
+          message: event.message,
+          suggestedPlanId: nextCheckoutPlanId(plan?.planId),
+        });
+        return;
+      }
+      if (event.code === "VIDEO_LIMIT_REACHED") {
+        openUpgrade({
+          feature: event.feature || "videoUploads",
+          message: event.message,
+          suggestedPlanId: nextCheckoutPlanId(plan?.planId),
+        });
+      }
+    });
+  }, [openUpgrade, plan?.planId]);
+
   const trialExpired = plan?.trialExpired === true;
   const trialActive = plan?.trialActive === true;
+  const viewOnly = plan?.viewOnly === true;
+  const inGracePeriod = plan?.inGracePeriod === true;
 
   const value = useMemo<PlanEntitlementsContextValue>(
     () => ({
@@ -158,6 +209,8 @@ export function PlanEntitlementsProvider({ children }: { children: ReactNode }) 
       can,
       trialExpired,
       trialActive,
+      viewOnly,
+      inGracePeriod,
       refreshPlan,
       applyPlan,
       upgrade,
@@ -171,6 +224,8 @@ export function PlanEntitlementsProvider({ children }: { children: ReactNode }) 
       can,
       trialExpired,
       trialActive,
+      viewOnly,
+      inGracePeriod,
       refreshPlan,
       applyPlan,
       upgrade,
@@ -205,6 +260,8 @@ export function usePlanEntitlements(): PlanEntitlementsContextValue {
       can: (key: string) => canUseFeature(features, key),
       trialExpired: plan?.trialExpired === true,
       trialActive: plan?.trialActive === true,
+      viewOnly: plan?.viewOnly === true,
+      inGracePeriod: plan?.inGracePeriod === true,
     };
   }
 
@@ -214,6 +271,8 @@ export function usePlanEntitlements(): PlanEntitlementsContextValue {
     can: (key: string) => canUseFeature(features, key),
     trialExpired: plan?.trialExpired === true,
     trialActive: plan?.trialActive === true,
+    viewOnly: plan?.viewOnly === true,
+    inGracePeriod: plan?.inGracePeriod === true,
     refreshPlan: async () => readPlanFromSession(),
     applyPlan: (next) => {
       applyAuthUserPlan(next);
@@ -225,7 +284,8 @@ export function usePlanEntitlements(): PlanEntitlementsContextValue {
       parsePlanFeatureRequired(err) != null ||
       parseGalleryLimitReached(err) != null ||
       parseVideoLimitReached(err) != null ||
-      parseStorageLimitReached(err) != null,
+      parseStorageLimitReached(err) != null ||
+      parseSubscriptionViewOnly(err) != null,
   };
 }
 

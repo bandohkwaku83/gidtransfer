@@ -1,6 +1,7 @@
 "use client";
 
 import { Banknote, Clock, FileText, MapPin, Pencil, Trash2 } from "lucide-react";
+import { DashboardSpin } from "@/components/ui/skeletons";
 import { formatBookedTimeLabel, type BookedShoot } from "@/components/schedules/booking-types";
 import { formatBookingAmount } from "@/lib/bookings-api";
 import { bookingDotClass } from "@/lib/booking-shoot-types";
@@ -87,7 +88,7 @@ export function BookingCard({
                     aria-label={`Delete ${shoot.title}`}
                   >
                     {deleting ? (
-                      <span className="h-3.5 w-3.5 animate-pulse rounded bg-red-200 dark:bg-red-900/50" />
+                      <DashboardSpin size="small" />
                     ) : (
                       <Trash2 className="h-3.5 w-3.5" aria-hidden />
                     )}

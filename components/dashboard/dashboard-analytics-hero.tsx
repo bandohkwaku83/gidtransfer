@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { ArrowUpRight } from "lucide-react";
 import type { WeeklyBar } from "@/lib/dashboard-chart-data";
+import { DashboardStatValueSkeleton } from "@/components/ui/skeletons";
 import { cn } from "@/lib/utils";
 
 type SideStat = {
@@ -139,7 +140,7 @@ export function DashboardAnalyticsHero({
         <div className="min-w-0">
           <p className="text-xs font-medium text-zinc-500">{primaryLabel}</p>
           {loading ? (
-            <span className="mt-2 inline-block h-10 w-24 animate-pulse rounded bg-zinc-100 dark:bg-zinc-800" />
+            <DashboardStatValueSkeleton className="mt-2" />
           ) : (
             <div className="mt-1 flex items-end gap-3">
               <Link
@@ -168,7 +169,7 @@ export function DashboardAnalyticsHero({
               <div className="min-w-0">
                 <p className="text-xs font-medium text-zinc-500">{stat.label}</p>
                 {loading ? (
-                  <span className="mt-1 inline-block h-6 w-10 animate-pulse rounded bg-zinc-100 dark:bg-zinc-800" />
+                  <DashboardStatValueSkeleton className="mt-1" />
                 ) : (
                   <p className="mt-0.5 font-display text-xl font-medium tabular-nums text-zinc-900 group-hover:text-brand dark:text-zinc-50 dark:group-hover:text-brand-on-dark">
                     {stat.value}

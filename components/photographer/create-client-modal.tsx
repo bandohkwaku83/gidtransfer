@@ -22,6 +22,7 @@ import {
   updateClient,
   type ApiClient,
 } from "@/lib/clients-api";
+import { useGuardViewOnlyWrite } from "@/lib/use-view-only-write";
 
 type Props = {
   open: boolean;
@@ -38,6 +39,7 @@ const CLIENT_MODAL_IMAGE = "/images/client.jpg";
 
 export function CreateClientModal({ open, onClose, client, onSaved, elevated }: Props) {
   const { showToast } = useToast();
+  const guardViewOnlyWrite = useGuardViewOnlyWrite();
   const formId = useId();
 
   const isEdit = Boolean(client?._id);
@@ -65,6 +67,7 @@ export function CreateClientModal({ open, onClose, client, onSaved, elevated }: 
   async function submit(e?: React.FormEvent) {
     e?.preventDefault();
     if (busy) return;
+    if (guardViewOnlyWrite()) return;
 
     const trimmedName = name.trim();
     const trimmedEmail = email.trim();

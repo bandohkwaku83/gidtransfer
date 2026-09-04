@@ -85,6 +85,7 @@ import {
 } from "@/components/photographer/folder-detail-bits";
 import { isGalleryUploadPartialError } from "@/lib/gallery-upload-s3";
 import {
+  DashboardSpin,
   FolderDetailPageSkeleton,
   InlineActionSkeleton,
 } from "@/components/ui/skeletons";
@@ -3780,7 +3781,8 @@ export function FolderDetailView({ folderId }: { folderId: string }) {
                   <GalleryViewMoreButton onClick={onViewMoreUploads} />
                 ) : null}
                 {loadingMoreUploads ? (
-                  <p className="mt-2 text-center text-xs text-zinc-500 dark:text-zinc-400">
+                  <p className="mt-2 flex items-center justify-center gap-2 text-center text-xs text-zinc-500 dark:text-zinc-400">
+                    <DashboardSpin size="small" />
                     Loading more…
                   </p>
                 ) : null}

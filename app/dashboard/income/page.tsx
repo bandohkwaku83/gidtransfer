@@ -12,6 +12,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { IncomeAnalyticsPanel } from "@/components/income/income-analytics-panel";
 import { IncomeEntryModal } from "@/components/income/income-entry-modal";
 import { IncomeReportMenu } from "@/components/income/income-report-menu";
+import { DashboardSpin } from "@/components/ui/skeletons";
 import { useToast } from "@/components/toast-provider";
 import { FormSelect } from "@/components/ui/form-select";
 import { dashboardPageHeaderCtaClassName } from "@/components/dashboard/dashboard-page-header";
@@ -299,7 +300,7 @@ export default function IncomePage() {
                 aria-label={`Delete ${row.clientName}`}
               >
                 {isDeleting ? (
-                  <span className="h-3.5 w-3.5 animate-pulse rounded bg-red-200 dark:bg-red-900/50" />
+                  <DashboardSpin size="small" />
                 ) : (
                   <Trash2 className="h-3.5 w-3.5" aria-hidden />
                 )}

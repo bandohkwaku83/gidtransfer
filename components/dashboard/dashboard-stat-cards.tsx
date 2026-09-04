@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { DashboardStatValueSkeleton } from "@/components/ui/skeletons";
 import type { DashboardStatItem } from "@/components/dashboard/dashboard-stat-strip";
 import { cn } from "@/lib/utils";
 
@@ -36,7 +37,7 @@ function StatMiniCard({ item, loading }: { item: DashboardStatItem; loading?: bo
 
       <div className="dashboard-stat-card-foot">
         {loading ? (
-          <span className="dashboard-stat-card-value-skeleton" aria-hidden />
+          <DashboardStatValueSkeleton />
         ) : (
           <div className="flex items-end justify-between gap-2">
             <p

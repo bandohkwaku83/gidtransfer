@@ -26,6 +26,7 @@ import {
   type CollaborationWorkspace,
 } from "@/lib/collaborations-api";
 import { usePlanEntitlements } from "@/lib/use-plan-entitlements";
+import { useGuardViewOnlyWrite } from "@/lib/use-view-only-write";
 
 type Props = {
   open: boolean;
@@ -47,6 +48,7 @@ export function CreateCollaborationModal({
   const router = useRouter();
   const { showToast } = useToast();
   const { can, handlePlanError, openUpgrade } = usePlanEntitlements();
+  const guardViewOnlyWrite = useGuardViewOnlyWrite();
   const formId = useId();
   const canCollaborate = can("collaboration");
 
@@ -69,6 +71,7 @@ export function CreateCollaborationModal({
   async function submit(e?: React.FormEvent) {
     e?.preventDefault();
     if (busy) return;
+    if (guardViewOnlyWrite()) return;
 
     if (!canCollaborate) {
       openUpgrade({

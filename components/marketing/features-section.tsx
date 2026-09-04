@@ -22,9 +22,8 @@ import {
   type FeatureSpotlight,
 } from "@/lib/marketing/features-content";
 import { APP_NAME } from "@/lib/branding";
-import { marketingSignUpHref } from "@/lib/marketing/auth-links";
 import { MarketingCornerCta } from "@/components/marketing/marketing-corner-cta";
-import { usePhotographerSignedIn } from "@/lib/marketing/use-photographer-signed-in";
+import { useMarketingAuthCta } from "@/lib/marketing/use-photographer-signed-in";
 import { cn } from "@/lib/utils";
 
 const heroFloats = [
@@ -61,7 +60,13 @@ function HeroCornerCta({
   return <MarketingCornerCta href={href}>{children}</MarketingCornerCta>;
 }
 
-function FeaturesHero({ signUpHref, signedIn }: { signUpHref: string; signedIn: boolean }) {
+function FeaturesHero({
+  signUpHref,
+  primaryCtaLabel,
+}: {
+  signUpHref: string;
+  primaryCtaLabel: string;
+}) {
   return (
     <section className="relative isolate min-h-[100svh] overflow-hidden bg-[#0c0b0a]">
       {/* Split: full-bleed photo top / cream bottom — cream starts below the headline */}
@@ -116,12 +121,13 @@ function FeaturesHero({ signUpHref, signedIn }: { signUpHref: string; signedIn: 
             <p className="text-sm leading-relaxed text-[#55001F]/90 sm:text-[0.95rem]">
               {APP_NAME} replaces zip-file delivery and spreadsheet chase with client galleries,
               share links, selections, bookings, CRM, and income tracking — starting with a 30-day
-              free trial.
+              free trial. Premium unlocks Gallery AI, a studio team, and shared shoots with other
+              photographers.
             </p>
 
             <div className="mt-7">
               <HeroCornerCta href={signUpHref}>
-                {signedIn ? "Open studio" : "Start free"}
+                {primaryCtaLabel}
               </HeroCornerCta>
             </div>
           </div>
@@ -714,7 +720,13 @@ function HowItWorksSection() {
   );
 }
 
-function FlagshipBand({ signUpHref, signedIn }: { signUpHref: string; signedIn: boolean }) {
+function FlagshipBand({
+  signUpHref,
+  primaryCtaLabel,
+}: {
+  signUpHref: string;
+  primaryCtaLabel: string;
+}) {
   const flagship = featureSpotlights[0]!;
   const visual = flagship.visual;
 
@@ -746,7 +758,7 @@ function FlagshipBand({ signUpHref, signedIn }: { signUpHref: string; signedIn: 
           </ul>
           <div className="mt-10">
             <MarketingCornerCta href={signUpHref} tone="inverse">
-              {signedIn ? "Open studio" : "Try it free"}
+              {primaryCtaLabel}
             </MarketingCornerCta>
           </div>
         </Reveal>
@@ -871,7 +883,13 @@ function FeatureSpread({ spotlight, index }: { spotlight: FeatureSpotlight; inde
   );
 }
 
-function ClosingCta({ signUpHref, signedIn }: { signUpHref: string; signedIn: boolean }) {
+function ClosingCta({
+  signUpHref,
+  primaryCtaLabel,
+}: {
+  signUpHref: string;
+  primaryCtaLabel: string;
+}) {
   return (
     <section className="bg-[#FFFCF2] py-16 sm:py-20 lg:py-24">
       <div className="marketing-container">
@@ -890,11 +908,12 @@ function ClosingCta({ signUpHref, signedIn }: { signUpHref: string; signedIn: bo
               </h2>
               <p className="mx-auto mt-4 max-w-lg text-base leading-relaxed text-white/75">
                 Try {APP_NAME} free for 30 days — 3 galleries, 5 GB storage, share links, selections,
-                bookings, and the core studio tools. Upgrade when you need SMS, video, or Gallery AI.
+                bookings, and the core studio tools. Upgrade for SMS and video; Premium adds Gallery AI,
+                a studio team, and photographer collaboration.
               </p>
               <div className="mt-8 flex flex-wrap justify-center gap-3">
                 <MarketingCornerCta href={signUpHref} tone="inverse">
-                  {signedIn ? "Open studio" : "Get started free"}
+                  {primaryCtaLabel}
                 </MarketingCornerCta>
                 <MarketingCornerCta
                   href="/pricing"
@@ -914,8 +933,7 @@ function ClosingCta({ signUpHref, signedIn }: { signUpHref: string; signedIn: bo
 }
 
 export function FeaturesSection() {
-  const signedIn = usePhotographerSignedIn();
-  const signUpHref = signedIn ? marketingSignUpHref() : "/login?screen=signup";
+  const { signUpHref, primaryCtaLabel } = useMarketingAuthCta();
 
   const remaining = featureSpotlights.slice(1);
   const clientRest = remaining.filter((s) => s.section === "client");
@@ -923,10 +941,10 @@ export function FeaturesSection() {
 
   return (
     <div>
-      <FeaturesHero signUpHref={signUpHref} signedIn={signedIn} />
+      <FeaturesHero signUpHref={signUpHref} primaryCtaLabel={primaryCtaLabel} />
       <WhySwitchSection />
       <HowItWorksSection />
-      <FlagshipBand signUpHref={signUpHref} signedIn={signedIn} />
+      <FlagshipBand signUpHref={signUpHref} primaryCtaLabel={primaryCtaLabel} />
 
       <div id="features">
         <div className="relative overflow-hidden border-y border-slate-200/70 bg-white py-14 sm:py-16">
@@ -964,7 +982,7 @@ export function FeaturesSection() {
         ))}
       </div>
 
-      <ClosingCta signUpHref={signUpHref} signedIn={signedIn} />
+      <ClosingCta signUpHref={signUpHref} primaryCtaLabel={primaryCtaLabel} />
     </div>
   );
 }

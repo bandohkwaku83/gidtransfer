@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { ChevronDown, ChevronRight, Clock, FileImage, FolderOpen, Loader2, RotateCcw, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronRight, Clock, FileImage, FolderOpen, RotateCcw, Trash2 } from "lucide-react";
+import { DashboardSpin, TrashPageSkeleton } from "@/components/ui/skeletons";
 import { FolderCoverVisual } from "@/components/photographer/folder-cover-visual";
 import {
   FoldersApiError,
@@ -23,7 +24,7 @@ import {
 import { listClients } from "@/lib/clients-api";
 import { getSettings, getSettingsDefaultCoverUrl } from "@/lib/settings-api";
 import { useToast } from "@/components/toast-provider";
-import { FeatureUpgradeButton } from "@/components/billing/plan-upgrade-modal";
+import { PlanUpgradeHint } from "@/components/billing/plan-upgrade-hint";
 import { usePlanEntitlements } from "@/lib/use-plan-entitlements";
 import { cn } from "@/lib/utils";
 
@@ -126,7 +127,7 @@ function TrashRestoreButton({
       )}
     >
       {busy ? (
-        <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+        <DashboardSpin size="small" />
       ) : (
         <RotateCcw className="h-3.5 w-3.5" aria-hidden />
       )}
@@ -583,6 +584,19 @@ export default function GalleriesTrashPage() {
         ) : null}
       </header>
 
+      {!restoreAvailable ? (
+        <PlanUpgradeHint
+          feature="restoreTrashItems"
+          suggestedPlanId="pro"
+          title="Restore from trash is on Pro"
+          description={
+            retentionDays > 0
+              ? `Bring back deleted galleries and files within ${retentionDays} days. Included on Pro and Premium.`
+              : "Bring back deleted galleries and files while they are still in the restore window. Included on Pro and Premium."
+          }
+          label="Upgrade to Pro"
+        />
+      ) : (
       <div
         role="status"
         className="flex flex-col gap-3 rounded-2xl border border-zinc-200/90 bg-white px-4 py-3.5 shadow-sm dark:border-zinc-800 dark:bg-zinc-950 sm:flex-row sm:items-center sm:justify-between sm:gap-6"
@@ -605,20 +619,11 @@ export default function GalleriesTrashPage() {
             <p className="mt-0.5 text-sm leading-relaxed text-zinc-500 dark:text-zinc-400">
               Galleries and files can be restored until each row&apos;s deadline. After that
               they&apos;re removed automatically.
-              {!restoreAvailable
-                ? " Restore is included on Pro and Premium."
-                : null}
             </p>
           </div>
         </div>
-        {!restoreAvailable ? (
-          <FeatureUpgradeButton
-            feature="restoreTrashItems"
-            label="Upgrade to Pro+"
-            className="inline-flex shrink-0 items-center justify-center self-start rounded-xl bg-brand px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-hover sm:self-center"
-          />
-        ) : null}
       </div>
+      )}
 
       {data && !fullyEmpty && selectedCount > 0 ? (
         <div className="flex items-center justify-between gap-3 rounded-lg border border-zinc-200/90 bg-zinc-50/90 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-900/50 sm:px-4">
@@ -634,7 +639,7 @@ export default function GalleriesTrashPage() {
               className="inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs font-semibold text-zinc-800 transition hover:bg-white disabled:opacity-45 dark:text-zinc-100 dark:hover:bg-zinc-800"
             >
               {restoringSelected ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                <DashboardSpin size="small" />
               ) : (
                 <RotateCcw className="h-3.5 w-3.5 opacity-70" aria-hidden />
               )}
@@ -650,7 +655,7 @@ export default function GalleriesTrashPage() {
               className="inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs font-semibold text-red-600 transition hover:bg-red-50 disabled:opacity-45 dark:text-red-400 dark:hover:bg-red-950/40"
             >
               {purging ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                <DashboardSpin size="small" />
               ) : (
                 <Trash2 className="h-3.5 w-3.5 opacity-80" aria-hidden />
               )}
@@ -682,9 +687,7 @@ export default function GalleriesTrashPage() {
         </div>
       ) : null}
 
-      {loading && !data ? (
-        <p className="text-sm text-zinc-500 dark:text-zinc-400">Loading trash…</p>
-      ) : null}
+      {loading && !data ? <TrashPageSkeleton /> : null}
 
       {!loading && fullyEmpty ? (
         <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50/80 px-6 py-14 text-center dark:border-zinc-800 dark:bg-zinc-900/40">
@@ -861,7 +864,10 @@ export default function GalleriesTrashPage() {
             )}
           >
             {mediaLoadingMore ? (
-              "Loading…"
+              <>
+                <DashboardSpin size="small" />
+                Loading…
+              </>
             ) : (
               <>
                 <span>Load more files</span>

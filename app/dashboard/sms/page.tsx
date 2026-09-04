@@ -3,7 +3,8 @@
 import { ReloadOutlined } from "@ant-design/icons";
 import { Alert, Button, Select, Spin } from "antd";
 import type { TextAreaRef } from "antd/es/input/TextArea";
-import { ChevronRight, Loader2, RefreshCw } from "lucide-react";
+import { ChevronRight, RefreshCw } from "lucide-react";
+import { DashboardSpin } from "@/components/ui/skeletons";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { dashboardPageHeaderCtaClassName } from "@/components/dashboard/dashboard-page-header";
@@ -389,7 +390,7 @@ export default function SmsPage() {
                 className="inline-flex h-8 w-8 items-center justify-center rounded-full text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-700 disabled:opacity-50 dark:hover:bg-zinc-900 dark:hover:text-zinc-200"
               >
                 {configLoading ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                  <DashboardSpin size="small" />
                 ) : (
                   <RefreshCw className="h-3.5 w-3.5" aria-hidden />
                 )}
@@ -570,7 +571,7 @@ export default function SmsPage() {
                 >
                   {sending ? (
                     <>
-                      <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                      <DashboardSpin size="small" />
                       Sending…
                     </>
                   ) : (

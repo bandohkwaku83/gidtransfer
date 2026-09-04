@@ -1,7 +1,7 @@
 "use client";
 
 import { memo, useState } from "react";
-import { Heart, Loader2, MessageCircle, PlayCircle, Sparkles, AlertTriangle, EyeOff } from "lucide-react";
+import { Heart, Loader2, MessageCircle, PlayCircle, Wand, AlertTriangle, EyeOff } from "lucide-react";
 import type { DemoAsset } from "@/lib/demo-data";
 import {
   galleryListClass,
@@ -220,7 +220,7 @@ const ClientGalleryAssetTile = memo(function ClientGalleryAssetTile({
               className="inline-flex max-w-[min(100%,9rem)] items-center gap-1 rounded-full border border-white/30 bg-black/55 px-1.5 py-1 text-white shadow-sm backdrop-blur-md"
               title="AI suggested"
             >
-              <Sparkles className="h-3.5 w-3.5 shrink-0" aria-hidden />
+              <Wand className="h-3.5 w-3.5 shrink-0" aria-hidden />
               <span className="truncate text-[10px] font-semibold leading-none">
                 Suggested
               </span>

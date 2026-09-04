@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
-import { ArrowLeft, Loader2 } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
+import { DashboardSpin, NotificationsListSkeleton } from "@/components/ui/skeletons";
 import { useToast } from "@/components/toast-provider";
 import { ApiError } from "@/lib/clients-api";
 import {
@@ -122,9 +123,7 @@ export default function NotificationsPage() {
       </div>
 
       {loading ? (
-        <div className="flex justify-center py-16 text-zinc-500">
-          <Loader2 className="h-8 w-8 animate-spin" aria-hidden />
-        </div>
+        <NotificationsListSkeleton />
       ) : rows.length === 0 ? (
         <p className="rounded-2xl border border-zinc-200 bg-white p-10 text-center text-sm text-zinc-500 shadow-sm dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-400">
           No notifications yet.
@@ -168,7 +167,14 @@ export default function NotificationsPage() {
                 onClick={() => void loadPage(nextSkip, true)}
                 className="rounded-xl border border-zinc-200 px-4 py-2 text-sm font-semibold text-zinc-800 transition hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-600 dark:text-zinc-100 dark:hover:bg-zinc-900"
               >
-                {loadingMore ? "Loading…" : "Load more"}
+                {loadingMore ? (
+                  <span className="inline-flex items-center gap-2">
+                    <DashboardSpin size="small" />
+                    Loading…
+                  </span>
+                ) : (
+                  "Load more"
+                )}
               </button>
             </div>
           ) : null}

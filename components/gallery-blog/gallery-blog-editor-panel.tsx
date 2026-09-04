@@ -6,12 +6,12 @@ import {
   Check,
   Eye,
   FileText,
-  Loader2,
   Plus,
   Sparkles,
   Trash2,
 } from "lucide-react";
 import { FormInput, FormTextArea } from "@/components/ui/form-input";
+import { DashboardSpin } from "@/components/ui/skeletons";
 import { FormSelect } from "@/components/ui/form-select";
 import type { ApiFolderMedia } from "@/lib/folders/types";
 import {
@@ -27,6 +27,7 @@ import {
 } from "@/lib/gallery-blog";
 import { GalleryBlogViewer } from "@/components/gallery-blog/gallery-blog-viewer";
 import { cn } from "@/lib/utils";
+import { useGuardViewOnlyWrite } from "@/lib/use-view-only-write";
 
 type Props = {
   folderId: string;
@@ -47,6 +48,7 @@ function mediaName(m: ApiFolderMedia): string {
 }
 
 export function GalleryBlogEditorPanel({ folderId, uploads, busy = false }: Props) {
+  const guardViewOnlyWrite = useGuardViewOnlyWrite();
   const [posts, setPosts] = useState<GalleryBlogPost[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -96,6 +98,7 @@ export function GalleryBlogEditorPanel({ folderId, uploads, busy = false }: Prop
   }
 
   async function handleCreate() {
+    if (guardViewOnlyWrite()) return;
     if (selectedAssetIds.length === 0) return;
     setSaving(true);
     try {
@@ -148,6 +151,7 @@ export function GalleryBlogEditorPanel({ folderId, uploads, busy = false }: Prop
   }
 
   function handleDelete(postId: string) {
+    if (guardViewOnlyWrite()) return;
     if (!window.confirm("Delete this blog post? This cannot be undone.")) return;
     deleteGalleryBlogPost(folderId, postId);
     if (activeId === postId) setActiveId(null);
@@ -236,7 +240,7 @@ export function GalleryBlogEditorPanel({ folderId, uploads, busy = false }: Prop
           onClick={() => void handleCreate()}
           className="inline-flex items-center gap-2 rounded-xl bg-brand px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-hover disabled:opacity-40"
         >
-          {saving ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Sparkles className="h-4 w-4" aria-hidden />}
+          {saving ? <DashboardSpin size="small" /> : <Wand className="h-4 w-4" aria-hidden />}
           Generate layout
         </button>
       </div>

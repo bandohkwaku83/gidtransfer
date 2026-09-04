@@ -2,6 +2,7 @@
 
 import type { LucideIcon } from "lucide-react";
 import { CalendarCheck, CalendarDays, CalendarRange } from "lucide-react";
+import { DashboardStatValueSkeleton } from "@/components/ui/skeletons";
 import { cn } from "@/lib/utils";
 
 type OverviewStat = {
@@ -38,7 +39,7 @@ function OverviewCard({
 
         <div className="dashboard-stat-card-foot">
           {loading ? (
-            <span className="dashboard-stat-card-value-skeleton" aria-hidden />
+            <DashboardStatValueSkeleton />
           ) : (
             <p
               className={cn(

@@ -77,15 +77,19 @@ export const PLANS: Record<PlanId, PlanDefinition> = {
   premium: {
     id: "premium",
     label: "Premium",
-    description: "Unlimited galleries and Gallery AI for clients.",
+    description:
+      "Top studio plan — Gallery AI, studio team, and shared shoots with other photographers.",
     storageBytes: 250 * 1024 * 1024 * 1024,
     maxGalleries: null,
-    priceLabel: "GH₵ 120 / mo",
+    priceLabel: "GH₵ 120 / mo · GH₵ 1,300 / yr",
     perks: [
       "250 GB Cloud Storage",
-      "Unlimited galleries",
+      "Unlimited client galleries",
+      "Video uploads up to 20 GB",
       "Everything in Pro, plus:",
-      "Gallery AI (studio + client smart picks)",
+      "Gallery AI — descriptions & client smart picks",
+      "Studio team — up to 10 members with roles",
+      "Team collaboration — invite photographers on Gidtransfer & share shoots",
       "Premium support",
     ],
   },
@@ -151,7 +155,7 @@ export function getActivePlanDefinition(): PlanDefinition {
             ? plan.trialActive
               ? "Free (trial)"
               : "Free"
-            : `GH₵ ${plan.priceGhs}${plan.interval === "monthly" ? " / mo" : ""}`,
+            : `GH₵ ${plan.priceGhs}${plan.interval === "yearly" ? " / yr" : plan.interval === "monthly" ? " / mo" : ""}`,
         perks: plan.perks,
       };
     }

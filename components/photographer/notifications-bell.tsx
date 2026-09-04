@@ -3,8 +3,9 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
-import { Bell, Loader2 } from "lucide-react";
+import { Bell } from "lucide-react";
 import { Dropdown } from "antd";
+import { DashboardSpin } from "@/components/ui/skeletons";
 import { useToast } from "@/components/toast-provider";
 import { startAdaptivePoll } from "@/lib/adaptive-poll";
 import { cn } from "@/lib/utils";
@@ -153,7 +154,7 @@ export function NotificationsBell() {
       <div className="max-h-[min(60vh,420px)] overflow-y-auto">
         {loadingPanel ? (
           <div className="flex items-center justify-center py-12 text-zinc-500">
-            <Loader2 className="h-6 w-6 animate-spin" aria-hidden />
+            <DashboardSpin />
           </div>
         ) : items.length === 0 ? (
           <p className="px-4 py-10 text-center text-sm text-zinc-500 dark:text-zinc-400">

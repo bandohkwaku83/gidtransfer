@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { FormEvent, use, useCallback, useEffect, useState } from "react";
-import { ArrowLeft, ChevronRight, Loader2, UserPlus, X } from "lucide-react";
+import { ArrowLeft, ChevronRight, UserPlus, X } from "lucide-react";
+import { DashboardSpin } from "@/components/ui/skeletons";
 import {
   dashboardPageHeaderCtaClassName,
   dashboardPageHeaderCtaSecondaryClassName,
@@ -19,7 +20,7 @@ import {
   CollabStatusDot,
   CollabSurface,
 } from "@/components/collaborations/collab-ui";
-import { FeatureUpgradeButton } from "@/components/billing/plan-upgrade-modal";
+import { PlanUpgradeHint } from "@/components/billing/plan-upgrade-hint";
 import { useToast } from "@/components/toast-provider";
 import { AuthFormInput } from "@/components/ui/form-input";
 import {
@@ -263,7 +264,7 @@ export default function CollaborationMembersPage({
                   )}
                 >
                   {inviting ? (
-                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                    <DashboardSpin size="small" />
                   ) : (
                     <UserPlus className="h-4 w-4" aria-hidden />
                   )}
@@ -271,13 +272,14 @@ export default function CollaborationMembersPage({
                 </button>
               </div>
               {maxSeats != null && seats.used >= maxSeats ? (
-                <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
-                  <span>Seat limit reached. Remove a member or upgrade.</span>
-                  <FeatureUpgradeButton
+                <div className="mt-3">
+                  <PlanUpgradeHint
+                    compact
                     feature="collaboration"
-                    label="Upgrade"
                     suggestedPlanId="premium"
-                    className="rounded-lg bg-brand px-3 py-1.5 text-xs font-semibold text-white"
+                    title="Seat limit reached"
+                    description="Remove a member, or upgrade Premium for more seats."
+                    label="Upgrade"
                   />
                 </div>
               ) : null}
@@ -343,7 +345,7 @@ export default function CollaborationMembersPage({
                           aria-label={`Remove ${member.email}`}
                         >
                           {removingId === member.id ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
+                            <DashboardSpin size="small" />
                           ) : (
                             <X className="h-4 w-4" />
                           )}

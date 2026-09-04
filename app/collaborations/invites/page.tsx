@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
-import { ArrowLeft, Check, Inbox, Loader2, X } from "lucide-react";
+import { ArrowLeft, Check, Inbox, X } from "lucide-react";
+import { DashboardSpin } from "@/components/ui/skeletons";
 import {
   dashboardPageHeaderCtaClassName,
   dashboardPageHeaderCtaSecondaryClassName,
@@ -164,7 +165,7 @@ export default function CollaborationInvitesInboxPage() {
                             )}
                           >
                             {busy ? (
-                              <Loader2 className="h-4 w-4 animate-spin" />
+                              <DashboardSpin size="small" />
                             ) : (
                               <Check className="h-4 w-4" />
                             )}

@@ -5,8 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { motion } from "framer-motion";
 import { CloseIcon, Logo, MenuIcon } from "./Icons";
-import { marketingSignInHref, marketingSignUpHref } from "@/lib/marketing/auth-links";
-import { usePhotographerSignedIn } from "@/lib/marketing/use-photographer-signed-in";
+import { useMarketingAuthCta } from "@/lib/marketing/use-photographer-signed-in";
 
 const navLinks = [
   { label: "Home", href: "/" },
@@ -25,9 +24,7 @@ export function Navbar() {
   const [open, setOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [mounted, setMounted] = useState(false);
-  const signedIn = usePhotographerSignedIn();
-  const signInHref = signedIn ? marketingSignInHref() : "/login";
-  const signUpHref = signedIn ? marketingSignUpHref() : "/login?screen=signup";
+  const { signedIn, signInHref, signUpHref, primaryCtaLabel } = useMarketingAuthCta();
 
   useEffect(() => {
     setMounted(true);
@@ -105,21 +102,24 @@ export function Navbar() {
             </nav>
 
             <div className="ml-auto flex items-center gap-2 lg:ml-0">
-              <Link
-                href={signInHref}
-                className="hidden rounded-full bg-surface px-4 py-2 text-sm text-foreground/80 transition hover:bg-foreground/8 sm:inline-flex"
-              >
-                Sign in
-              </Link>
+              {!signedIn ? (
+                <Link
+                  href={signInHref}
+                  className="hidden rounded-full bg-surface px-4 py-2 text-sm text-foreground/80 transition hover:bg-foreground/8 sm:inline-flex"
+                >
+                  Sign in
+                </Link>
+              ) : null}
               <Link
                 href={signUpHref}
                 className="btn-dark !px-4 !py-2.5 hidden text-sm sm:inline-flex"
               >
-                {signedIn ? "Open studio" : "Start free"}
+                {primaryCtaLabel}
               </Link>
               <button
                 type="button"
                 aria-label={open ? "Close menu" : "Open menu"}
+                aria-expanded={open}
                 className="inline-flex h-10 w-10 items-center justify-center rounded-full hover:bg-black/5 lg:hidden"
                 onClick={() => setOpen((v) => !v)}
               >
@@ -149,12 +149,21 @@ export function Navbar() {
                 </Link>
               );
             })}
+            {!signedIn ? (
+              <Link
+                href={signInHref}
+                className="border-b border-foreground/10 pb-4"
+                onClick={() => setOpen(false)}
+              >
+                Sign in
+              </Link>
+            ) : null}
             <Link
               href={signUpHref}
               className="btn-dark mt-2 w-fit"
               onClick={() => setOpen(false)}
             >
-              {signedIn ? "Open studio" : "Start free"}
+              {primaryCtaLabel}
             </Link>
           </nav>
         </div>

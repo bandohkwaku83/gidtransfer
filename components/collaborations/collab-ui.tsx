@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Loader2 } from "lucide-react";
+import { DashboardSpin } from "@/components/ui/skeletons";
 import { cn } from "@/lib/utils";
 
 export function collabInitials(nameOrEmail: string): string {
@@ -269,7 +269,7 @@ export function CollabSectionLabel({
 export function CollabLoadingState({ label }: { label: string }) {
   return (
     <div className="flex items-center justify-center gap-2 py-20 text-sm text-zinc-500 dark:text-zinc-400">
-      <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+      <DashboardSpin size="small" />
       {label}
     </div>
   );

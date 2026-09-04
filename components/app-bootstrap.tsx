@@ -9,6 +9,11 @@ import {
   userNeedsEmailVerification,
   verifyEmailPath,
 } from "@/lib/auth-api";
+import {
+  allowsUnverifiedAuthSession,
+  isPublicBootstrapPath,
+  pathRequiresEmailVerification,
+} from "@/lib/auth-public-paths";
 import { consumeAuthHandoffFromUrl, getAuth, getAuthToken } from "@/lib/auth-demo";
 import { isPlatformAdminPath } from "@/lib/studio-url";
 
@@ -33,45 +38,6 @@ const PRIORITY_ROUTES = [
   "/reset-password",
 ];
 
-const PUBLIC_GALLERY_RESERVED_SEGMENTS = new Set([
-  "dashboard",
-  "admin",
-  "login",
-  "verify-email",
-  "onboarding",
-  "reset-password",
-  "share",
-  "g",
-  "api",
-  "uploads",
-  "studio",
-  "client",
-]);
-
-function isPublicGallerySlugPath(pathname: string): boolean {
-  const m = pathname.match(/^\/([^/]+)\/([^/]+)$/);
-  if (!m?.[1] || !m[2]) return false;
-  return !PUBLIC_GALLERY_RESERVED_SEGMENTS.has(m[1].toLowerCase());
-}
-
-function isPublicBootstrapPath(pathname: string): boolean {
-  return (
-    pathname === "/" ||
-    pathname === "/pricing" ||
-    pathname === "/login" ||
-    isPlatformAdminPath(pathname) ||
-    pathname === "/verify-email" ||
-    pathname === "/onboarding" ||
-    pathname === "/reset-password" ||
-    pathname === "/billing/callback" ||
-    pathname === "/studio" ||
-    pathname.startsWith("/share/") ||
-    pathname.startsWith("/g/") ||
-    pathname.startsWith("/client/") ||
-    isPublicGallerySlugPath(pathname)
-  );
-}
-
 async function runClientBootstrap(): Promise<void> {
   consumeAuthHandoffFromUrl();
 
@@ -90,6 +56,17 @@ async function runClientBootstrap(): Promise<void> {
   // Billing callback owns session + returnTo; a bootstrap /me 401 must not
   // hard-navigate to bare /login and drop the Paystack resume path.
   if (path === "/billing/callback" || path.startsWith("/billing/callback/")) {
+    return;
+  }
+
+  // Incomplete signup token must not drive API refresh (or side effects) on
+  // marketing / client gallery pages — those surfaces stay public.
+  const pendingUser = getAuth()?.user;
+  if (
+    pendingUser &&
+    userNeedsEmailVerification(pendingUser) &&
+    allowsUnverifiedAuthSession(path)
+  ) {
     return;
   }
 
@@ -140,18 +117,23 @@ export function AppBootstrap({ children }: { children: ReactNode }) {
     const loggedIn = Boolean(getAuthToken());
     if (!loggedIn || !auth?.user) return;
 
+    // Pending signup OTP must not trap users on marketing/public pages.
+    // Only app routes (dashboard, onboarding, etc.) force verify.
     if (
       userNeedsEmailVerification(auth.user) &&
-      !pathname.startsWith("/login") &&
-      !isPlatformAdminPath(pathname)
+      pathRequiresEmailVerification(pathname)
     ) {
       router.replace(verifyEmailPath());
       return;
     }
+  }, [bootDone, pathname, router]);
+
+  useEffect(() => {
+    if (!bootDone) return;
+    if (!getAuthToken() || userNeedsEmailVerification(getAuth()?.user ?? {})) return;
 
     const prefetch = () => {
       for (const base of PRIORITY_ROUTES) {
-        if (pathname === base || pathname.startsWith(`${base}/`)) continue;
         router.prefetch(base);
       }
     };
@@ -164,7 +146,7 @@ export function AppBootstrap({ children }: { children: ReactNode }) {
     }
     const t = setTimeout(prefetch, 250);
     return () => clearTimeout(t);
-  }, [bootDone, pathname, router]);
+  }, [bootDone, router]);
 
   const showSplash = !bootDone && !publicPath;
 

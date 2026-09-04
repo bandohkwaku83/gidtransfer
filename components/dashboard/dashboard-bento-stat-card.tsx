@@ -3,6 +3,7 @@
 import Link from "next/link";
 import type { LucideIcon } from "lucide-react";
 import type { WeeklyBar } from "@/lib/dashboard-chart-data";
+import { DashboardStatValueSkeleton } from "@/components/ui/skeletons";
 import { cn } from "@/lib/utils";
 
 type DashboardBentoStatCardProps = {
@@ -83,7 +84,7 @@ export function DashboardBentoStatCard({
         <div className="min-w-0">
           <p className="text-xs font-medium text-zinc-500">{label}</p>
           {loading ? (
-            <span className="dashboard-stat-card-value-skeleton mt-2 block" aria-hidden />
+            <DashboardStatValueSkeleton className="mt-2 block" />
           ) : (
             <p className="mt-1 font-display text-[2rem] font-medium leading-none tabular-nums text-zinc-900 dark:text-zinc-50">
               {value}

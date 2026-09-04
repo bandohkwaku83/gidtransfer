@@ -3,12 +3,10 @@
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { ArrowRight } from "./Icons";
-import { marketingSignUpHref } from "@/lib/marketing/auth-links";
-import { usePhotographerSignedIn } from "@/lib/marketing/use-photographer-signed-in";
+import { useMarketingAuthCta } from "@/lib/marketing/use-photographer-signed-in";
 
 export function Ctas() {
-  const signedIn = usePhotographerSignedIn();
-  const signUpHref = signedIn ? marketingSignUpHref() : "/login?screen=signup";
+  const { signUpHref, primaryCtaLabel } = useMarketingAuthCta();
 
   return (
     <section id="cta" className="bg-cream py-20 md:py-28">
@@ -50,7 +48,7 @@ export function Ctas() {
                   href={signUpHref}
                   className="inline-flex items-center gap-2 whitespace-nowrap rounded-full bg-white px-5 py-3 text-sm font-medium text-[#231519] transition hover:bg-[#f3f3f3]"
                 >
-                  {signedIn ? "Open studio" : "Start free"}
+                  {primaryCtaLabel}
                   <ArrowRight className="h-4 w-4 text-brand" />
                 </Link>
                 <Link

@@ -181,6 +181,8 @@ export function preferFresherUserPlan(
 ): UserPlan | undefined {
   if (!incoming) return prior ?? undefined;
   if (!prior) return incoming;
+  // Expiry / grace flags from /me must win — do not keep a stale paid plan.
+  if (incoming.viewOnly || incoming.inGracePeriod) return incoming;
   const incomingRank = PLAN_RANK[incoming.planId] ?? 0;
   const priorRank = PLAN_RANK[prior.planId] ?? 0;
   if (incomingRank >= priorRank) return incoming;
@@ -283,7 +285,7 @@ export function safeAuthReturnPath(raw: string | null | undefined): string | nul
   if (value.includes("://")) return null;
   // Billing verify resume + normal app destinations only.
   if (
-    value.startsWith("/billing/callback") ||
+    value.startsWith("/billing") ||
     value.startsWith("/dashboard") ||
     value.startsWith("/collaborations") ||
     value.startsWith("/settings") ||
@@ -533,6 +535,25 @@ export async function registerWithEmail(
   );
 }
 
+/** Refresh persisted session from GET /api/auth/me. */
+export async function refreshMe(): Promise<AuthUser | null> {
+  try {
+    const { user } = await fetchAuthMe({ redirectOn401: false });
+    return refreshAuthSessionFromApi(user);
+  } catch {
+    return getAuth()?.user ?? null;
+  }
+}
+
+/** Persist login/register payload, then refetch /me so plan flags are current. */
+export async function persistAuthResponseAndRefreshMe(
+  res: AuthResponse,
+  options?: { emailJustVerified?: boolean },
+): Promise<AuthUser> {
+  persistAuthResponse(res, options);
+  return (await refreshMe()) ?? getAuth()!.user!;
+}
+
 /** GET /api/auth/me — refresh session user from the server. */
 export async function fetchAuthMe(
   options: { redirectOn401?: boolean } = {},
@@ -548,7 +569,7 @@ export async function fetchAuthMe(
 
 /** POST /api/auth/verify-email — completes signup after the user enters the emailed OTP. */
 export async function verifyEmail(code: string): Promise<AuthResponse> {
-  const digits = code.replace(/\D/g, "").slice(0, 6);
+  const digits = code.replace(/\D/g, "").slice(0, 4);
   return authedJson<AuthResponse>(
     "/api/auth/verify-email",
     {

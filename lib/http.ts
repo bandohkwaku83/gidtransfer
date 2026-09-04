@@ -1,6 +1,10 @@
 import { apiUrl } from "@/lib/api";
 import { recordApiMetric } from "@/lib/api-metrics";
+import { emitAppToast } from "@/lib/app-toast";
+import { pathRequiresEmailVerification } from "@/lib/auth-public-paths";
 import { clearAuth, getAuth, getAuthToken } from "@/lib/auth-demo";
+import { BILLING_HREF, isBillingPath } from "@/lib/plan";
+import { emitPlanApiError } from "@/lib/plan-api-errors";
 import {
   isPlatformAdminPath,
   photographerAuthUrl,
@@ -100,8 +104,7 @@ function throwIfEmailNotVerified(status: number, body: unknown): void {
   if (
     typeof window !== "undefined" &&
     !locallyVerified &&
-    !window.location.pathname.startsWith("/login") &&
-    !isPlatformAdminPath(window.location.pathname)
+    pathRequiresEmailVerification(window.location.pathname)
   ) {
     window.location.href = photographerAuthUrl("/login?screen=verify");
   }
@@ -110,6 +113,64 @@ function throwIfEmailNotVerified(status: number, body: unknown): void {
     403,
     body,
   );
+}
+
+function readErrorCode(body: unknown): string | null {
+  if (!body || typeof body !== "object") return null;
+  const code = (body as { code?: unknown }).code;
+  return typeof code === "string" ? code : null;
+}
+
+function navigateToBillingIfNeeded(): void {
+  if (typeof window === "undefined") return;
+  const path = window.location.pathname;
+  const search = window.location.search;
+  if (isBillingPath(path, search) || path.startsWith("/login")) return;
+  window.location.assign(BILLING_HREF);
+}
+
+function handlePlanForbidden(status: number, body: unknown): void {
+  if (status !== 403) return;
+  const code = readErrorCode(body);
+  if (!code) return;
+  const message = extractMessage(body, "This action is not available on your plan.");
+
+  if (code === "SUBSCRIPTION_VIEW_ONLY") {
+    emitAppToast(message, "error");
+    emitPlanApiError({ code, message });
+    navigateToBillingIfNeeded();
+    return;
+  }
+
+  if (code === "PLAN_FEATURE_REQUIRED") {
+    const o = body && typeof body === "object" ? (body as Record<string, unknown>) : {};
+    const requiredPlans = Array.isArray(o.requiredPlans)
+      ? o.requiredPlans.filter((id): id is string => typeof id === "string")
+      : [];
+    emitPlanApiError({
+      code,
+      message,
+      feature: typeof o.feature === "string" ? o.feature : "",
+      requiredPlans,
+      suggestedPlanId: typeof o.suggestedPlanId === "string" ? o.suggestedPlanId : null,
+      trialExpired: o.trialExpired === true,
+    });
+    return;
+  }
+
+  if (code === "GALLERY_LIMIT_REACHED") {
+    emitPlanApiError({ code, message });
+    return;
+  }
+
+  if (code === "VIDEO_LIMIT_REACHED") {
+    const o = body && typeof body === "object" ? (body as Record<string, unknown>) : {};
+    emitPlanApiError({
+      code,
+      message,
+      feature: typeof o.feature === "string" ? o.feature : "videoUploads",
+    });
+  }
 }
 
 function throwIfMenuForbidden(status: number, body: unknown): void {
@@ -327,6 +388,7 @@ export async function authedJson<T>(
       const errBody = body;
       throwIfEmailNotVerified(retry.status, errBody);
       throwIfMenuForbidden(retry.status, errBody);
+      handlePlanForbidden(retry.status, errBody);
       throw new ErrorCtor(
         extractMessage(errBody, `${fallbackError} (${retry.status})`),
         retry.status,
@@ -339,6 +401,7 @@ export async function authedJson<T>(
   if (!res.ok && res.status !== 304) {
     throwIfEmailNotVerified(res.status, body);
     throwIfMenuForbidden(res.status, body);
+    handlePlanForbidden(res.status, body);
     throw new ErrorCtor(
       extractMessage(body, `${fallbackError} (${res.status})`),
       res.status,
@@ -438,6 +501,7 @@ export async function authedFormUpload<T>(
       }
       try {
         throwIfEmailNotVerified(xhr.status, body);
+        handlePlanForbidden(xhr.status, body);
       } catch (e) {
         reject(e);
         return;

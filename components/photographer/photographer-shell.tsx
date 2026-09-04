@@ -14,7 +14,7 @@ import {
 } from "react";
 import { PlanQuotaMeters } from "@/components/billing/plan-storage-meter";
 import { readVideoUsage, rememberVideoUsage } from "@/lib/video-usage";
-import { TrialActiveBanner, TrialExpiredWall } from "@/components/billing/trial-gate";
+import { PlanStatusBanners } from "@/components/billing/trial-gate";
 import { getAuth, logout, type AuthUser } from "@/lib/auth-demo";
 import { APP_NAME, STUDIO_NAME, studioLogoSrc } from "@/lib/branding";
 import { fetchStorage, storageUsagePercent, type StorageSummary } from "@/lib/storage-api";
@@ -37,12 +37,14 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Search,
+  Map,
   Trash2,
   UserRound,
   Users,
   Wallet,
   X,
 } from "lucide-react";
+import { useDashboardTour } from "@/components/tour/dashboard-tour";
 import { SettingsSidebarNav } from "@/components/photographer/settings-sidebar-nav";
 import { SidebarCollapseContext } from "@/components/photographer/sidebar-collapse-context";
 import {
@@ -59,6 +61,8 @@ type ShellNavItem = {
   icon: LucideIcon;
   menuKey: StudioMenuKey | null;
   isActive: (pathname: string) => boolean;
+  /** Optional data-tour id for the dashboard walkthrough. */
+  tourId?: string;
 };
 
 const SIDEBAR_COLLAPSED_KEY = "gidostorage_sidebar_collapsed_v1";
@@ -142,6 +146,7 @@ const NAV_GALLERIES: ShellNavItem[] = [
     isActive: (p) =>
       (p.startsWith("/dashboard/galleries") && !p.startsWith("/dashboard/galleries/trash")) ||
       p.startsWith("/dashboard/folder"),
+    tourId: "sidebar-galleries",
   },
   {
     href: "/dashboard/galleries/trash",
@@ -211,12 +216,14 @@ function NavLink({
   icon,
   active,
   onNavigate,
+  tourId,
 }: {
   href: string;
   label: string;
   icon: ReactNode;
   active: boolean;
   onNavigate?: () => void;
+  tourId?: string;
 }) {
   const collapsed = useContext(SidebarCollapseContext);
   return (
@@ -226,6 +233,7 @@ function NavLink({
       title={collapsed ? label : undefined}
       aria-label={collapsed ? label : undefined}
       aria-current={active ? "page" : undefined}
+      data-tour={tourId}
       className={cn(
         "group relative flex items-center rounded-xl text-[13px] transition-colors duration-150",
         collapsed ? "h-10 w-10 justify-center" : "h-10 w-full gap-2.5 px-2.5",
@@ -313,9 +321,8 @@ export function PhotographerShell({ children }: { children: React.ReactNode }) {
   const menuKeysKey = (authUser?.membership?.menuKeys ?? []).join(",");
   const studio = authUser?.studio;
   const brandTitle = studio?.companyName?.trim() || STUDIO_NAME;
-  const { plan, trialExpired, trialActive, can } = usePlanEntitlements();
-  const allowThroughTrialWall =
-    pathname.startsWith("/dashboard/settings") || pathname.startsWith("/billing");
+  const { plan, can } = usePlanEntitlements();
+  const { restartTour } = useDashboardTour();
   const [storageSummary, setStorageSummary] = useState<StorageSummary | null>(null);
   const [menuDenied, setMenuDenied] = useState(false);
 
@@ -367,7 +374,7 @@ export function PhotographerShell({ children }: { children: React.ReactNode }) {
     };
   }, [canFetchStorage, plan?.planId]);
 
-  const email = getAuth()?.email ?? "doe@gmail.com";
+  const email = getAuth()?.email?.trim() || getAuth()?.user?.email?.trim() || "";
   const planName = plan?.planName ?? storageSummary?.planName;
   const storagePercent = storageSummary
     ? storageUsagePercent(storageSummary)
@@ -418,8 +425,16 @@ export function PhotographerShell({ children }: { children: React.ReactNode }) {
       if (e.target instanceof Node && !el.contains(e.target)) setProfileOpen(false);
     }
 
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setProfileOpen(false);
+    }
+
     document.addEventListener("mousedown", onDocMouseDown);
-    return () => document.removeEventListener("mousedown", onDocMouseDown);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDocMouseDown);
+      window.removeEventListener("keydown", onKey);
+    };
   }, [profileOpen]);
 
   useEffect(() => {
@@ -475,6 +490,7 @@ export function PhotographerShell({ children }: { children: React.ReactNode }) {
               icon={<item.icon aria-hidden="true" />}
               active={item.isActive(pathname)}
               onNavigate={onNavigate}
+              tourId={item.tourId}
             />
           ))}
         </NavSection>
@@ -494,6 +510,7 @@ export function PhotographerShell({ children }: { children: React.ReactNode }) {
               icon={<item.icon aria-hidden="true" />}
               active={item.isActive(pathname)}
               onNavigate={onNavigate}
+              tourId={item.tourId}
             />
           ))}
         </NavSection>
@@ -513,6 +530,7 @@ export function PhotographerShell({ children }: { children: React.ReactNode }) {
               icon={<item.icon aria-hidden="true" />}
               active={item.isActive(pathname)}
               onNavigate={onNavigate}
+              tourId={item.tourId}
             />
           ))}
         </NavSection>
@@ -532,6 +550,7 @@ export function PhotographerShell({ children }: { children: React.ReactNode }) {
               icon={<item.icon aria-hidden="true" />}
               active={item.isActive(pathname)}
               onNavigate={onNavigate}
+              tourId={item.tourId}
             />
           ))}
         </NavSection>
@@ -552,12 +571,12 @@ export function PhotographerShell({ children }: { children: React.ReactNode }) {
   return (
     <SearchContext.Provider value={searchValue}>
       <div className={cn("dashboard-theme", darkUi && "dark")}>
-        <div className="relative flex min-h-screen bg-[#f6f6f7] text-zinc-900 dark:bg-[#0a0a0a] dark:text-zinc-50">
+        <div className="relative flex h-dvh overflow-hidden bg-[#f6f6f7] text-zinc-900 dark:bg-[#0a0a0a] dark:text-zinc-50">
           <SidebarCollapseContext.Provider value={collapsed}>
-            <div className="hidden shrink-0 p-3 lg:sticky lg:top-0 lg:block lg:self-start lg:p-4">
+            <div className="hidden h-full shrink-0 p-3 lg:block lg:p-4">
               <aside
                 className={cn(
-                  "flex h-[calc(100dvh-2rem)] flex-col overflow-hidden rounded-2xl border border-zinc-200/90 bg-white text-zinc-900 transition-[width] duration-300 ease-out dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50",
+                  "flex h-full flex-col overflow-hidden rounded-2xl border border-zinc-200/90 bg-white text-zinc-900 transition-[width] duration-300 ease-out dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50",
                   collapsed ? "w-[72px]" : "w-[260px]",
                 )}
               >
@@ -629,7 +648,7 @@ export function PhotographerShell({ children }: { children: React.ReactNode }) {
             </div>
           </SidebarCollapseContext.Provider>
 
-        <div className="relative flex min-w-0 flex-1 flex-col">
+        <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           {mobileNavOpen ? (
             <div
               role="presentation"
@@ -673,7 +692,7 @@ export function PhotographerShell({ children }: { children: React.ReactNode }) {
             </nav>
           </aside>
 
-          <header className="sticky top-0 z-30 flex items-center gap-3 border-b border-zinc-200/50 bg-[#f6f6f7]/90 px-4 py-3 backdrop-blur-md lg:px-8 2xl:px-10 dark:border-zinc-800/60 dark:bg-[#0a0a0a]/90">
+          <header className="sticky top-0 z-30 flex shrink-0 items-center gap-3 border-b border-zinc-200/50 bg-[#f6f6f7]/90 px-4 py-3 backdrop-blur-md lg:px-8 2xl:px-10 dark:border-zinc-800/60 dark:bg-[#0a0a0a]/90">
             <button
               type="button"
               className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-zinc-200/90 bg-white text-zinc-700 transition hover:bg-zinc-50 lg:hidden dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
@@ -686,7 +705,7 @@ export function PhotographerShell({ children }: { children: React.ReactNode }) {
             </button>
             <div className="dashboard-search-shell flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
               <FormSearchInput
-                placeholder="Search clients, bookings, galleries, income, SMS…"
+                placeholder="Search galleries…"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 prefix={<Search className="h-4 w-4 text-zinc-400" aria-hidden />}
@@ -705,12 +724,18 @@ export function PhotographerShell({ children }: { children: React.ReactNode }) {
                     className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-zinc-200/90 bg-white text-zinc-700 transition hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
                     aria-label="Profile menu"
                     aria-expanded={profileOpen}
+                    aria-haspopup="menu"
+                    aria-controls="dashboard-profile-menu"
                   >
                     <UserRound className="h-4 w-4" aria-hidden="true" />
                   </button>
 
                   {profileOpen ? (
-                    <div className="absolute right-0 mt-2 w-64 overflow-hidden rounded-2xl border border-zinc-200/90 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-950">
+                    <div
+                      id="dashboard-profile-menu"
+                      role="menu"
+                      className="absolute right-0 mt-2 w-64 overflow-hidden rounded-2xl border border-zinc-200/90 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-950"
+                    >
                       <div className="border-b border-zinc-100 px-4 py-3 dark:border-zinc-800">
                         {planName ? (
                           <span className="inline-flex rounded-full bg-brand/10 px-2 py-0.5 text-[10px] font-semibold tracking-wide text-brand dark:bg-brand/20 dark:text-brand-on-dark">
@@ -720,7 +745,7 @@ export function PhotographerShell({ children }: { children: React.ReactNode }) {
                           <p className="text-[11px] font-medium text-zinc-500">Signed in</p>
                         )}
                         <p className="mt-1.5 truncate text-sm font-semibold text-zinc-900 dark:text-zinc-50">
-                          {email}
+                          {email || "Signed in"}
                         </p>
                       </div>
                       <div className="px-4 py-3">
@@ -741,13 +766,25 @@ export function PhotographerShell({ children }: { children: React.ReactNode }) {
                           compact
                         />
                         <Link
-                          href="/dashboard/settings?tab=billing"
+                          href="/billing"
                           onClick={() => setProfileOpen(false)}
                           className="mt-3 inline-flex text-xs font-semibold text-brand hover:underline dark:text-brand-on-dark"
                         >
                           Manage billing
                         </Link>
                       </div>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="flex w-full items-center gap-3 border-t border-zinc-100 px-4 py-3 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50 dark:border-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-900/60"
+                        onClick={() => {
+                          setProfileOpen(false);
+                          restartTour();
+                        }}
+                      >
+                        <Map className="h-4 w-4 text-zinc-500 dark:text-zinc-400" aria-hidden="true" />
+                        Take a tour
+                      </button>
                       <button
                         type="button"
                         className="flex w-full items-center gap-3 border-t border-zinc-100 px-4 py-3 text-sm font-semibold text-red-700 transition hover:bg-red-50 dark:border-zinc-800 dark:text-red-200 dark:hover:bg-red-950/40"
@@ -769,7 +806,7 @@ export function PhotographerShell({ children }: { children: React.ReactNode }) {
           </header>
 
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-            {trialActive ? <TrialActiveBanner /> : null}
+            <PlanStatusBanners />
             <main className="flex-1 overflow-auto bg-transparent p-4 lg:p-8 2xl:px-10 2xl:py-10">
               {menuDenied ? (
                 <div className="mx-auto max-w-md py-20 text-center">
@@ -780,8 +817,6 @@ export function PhotographerShell({ children }: { children: React.ReactNode }) {
                     You do not have permission to open this area of the studio.
                   </p>
                 </div>
-              ) : trialExpired && !allowThroughTrialWall ? (
-                <TrialExpiredWall />
               ) : (
                 children
               )}

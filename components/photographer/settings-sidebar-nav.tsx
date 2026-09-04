@@ -241,6 +241,7 @@ function SettingsSidebarNavInner({ onNavigate, inDrawer = false }: SettingsSideb
           title="Settings"
           aria-label="Settings"
           aria-expanded={flyoutOpen}
+          data-tour="sidebar-settings"
           className={cn(
             "group relative flex h-10 w-10 items-center justify-center rounded-xl text-[13px] transition-all duration-200",
             parentActive
@@ -269,6 +270,7 @@ function SettingsSidebarNavInner({ onNavigate, inDrawer = false }: SettingsSideb
         type="button"
         onClick={handleParentClick}
         aria-expanded={open}
+        data-tour="sidebar-settings"
         className={cn(
           "group relative flex h-10 w-full items-center gap-2.5 rounded-xl px-2.5 text-left text-[13px] transition-all duration-200",
           parentActive

@@ -11,6 +11,7 @@ import {
   type ReactNode,
 } from "react";
 import { AlertCircle, CheckCircle2, Info } from "lucide-react";
+import { subscribeAppToast } from "@/lib/app-toast";
 import { cn } from "@/lib/utils";
 
 type ToastKind = "success" | "error" | "info";
@@ -89,6 +90,8 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     },
     [removeToast],
   );
+
+  useEffect(() => subscribeAppToast((event) => showToast(event.message, event.kind)), [showToast]);
 
   const value = useMemo(() => ({ showToast }), [showToast]);
 

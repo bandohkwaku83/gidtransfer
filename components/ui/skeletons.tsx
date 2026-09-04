@@ -1,7 +1,52 @@
 "use client";
 
-import { Skeleton } from "antd";
+import { Skeleton, Spin } from "antd";
 import { cn } from "@/lib/utils";
+
+type DashboardSpinSize = "small" | "default" | "large";
+
+/** Ant Design spinner for dashboard actions and page loads. */
+export function DashboardSpin({
+  size = "default",
+  className,
+}: {
+  size?: DashboardSpinSize;
+  className?: string;
+}) {
+  return (
+    <span className={cn("inline-flex items-center justify-center", className)} aria-hidden>
+      <Spin size={size} />
+    </span>
+  );
+}
+
+/** Centered page/panel loader. */
+export function DashboardPageSpin({
+  label,
+  className,
+}: {
+  label?: string;
+  className?: string;
+}) {
+  return (
+    <div
+      className={cn("flex flex-col items-center justify-center gap-3 py-16 text-zinc-500 dark:text-zinc-400", className)}
+      role="status"
+    >
+      <Spin />
+      {label ? <span className="text-sm">{label}</span> : null}
+    </div>
+  );
+}
+
+/** Inline stat number placeholder (stat cards, KPI tiles). */
+export function DashboardStatValueSkeleton({ className }: { className?: string }) {
+  return (
+    <span className={cn("inline-block", darkSkeleton, className)} aria-hidden>
+      <Skeleton active title={{ width: 48, style: { height: 28, margin: 0 } }} paragraph={false} />
+    </span>
+  );
+}
 
 const darkSkeleton =
   "[&_.ant-skeleton-content_.ant-skeleton-title]:rounded-md [&_.ant-skeleton-content_.ant-skeleton-paragraph>li]:rounded-md dark:[&_.ant-skeleton-content_.ant-skeleton-title]:!bg-zinc-700 dark:[&_.ant-skeleton-content_.ant-skeleton-paragraph>li]:!bg-zinc-700";
@@ -149,11 +194,96 @@ export function UploadIndeterminateBarSkeleton() {
   );
 }
 
-/** Compact row for “list refreshing” hints (e.g. under a grid). */
+/** Compact spinner while a list/grid refreshes in place. */
 export function ListRefreshSkeleton() {
   return (
-    <div className={cn("mx-auto flex max-w-xs justify-center py-1", darkSkeleton)}>
-      <Skeleton active title={false} paragraph={{ rows: 1, width: "100%" }} />
+    <div className="flex justify-center py-2" role="status">
+      <Spin size="small" />
+    </div>
+  );
+}
+
+/** Clients table initial load. */
+export function ClientListSkeleton({ rows = 5 }: { rows?: number }) {
+  return (
+    <div className={cn("dashboard-panel !overflow-hidden !p-0", darkSkeleton)}>
+      <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
+        {Array.from({ length: rows }).map((_, i) => (
+          <div key={i} className="flex items-center gap-3 px-4 py-3">
+            <Skeleton.Avatar active size={32} />
+            <Skeleton active title={{ width: "32%" }} paragraph={{ rows: 1, width: "48%" }} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** Notifications page initial load. */
+export function NotificationsListSkeleton({ rows = 6 }: { rows?: number }) {
+  return (
+    <div className={cn("overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-950", darkSkeleton)}>
+      <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
+        {Array.from({ length: rows }).map((_, i) => (
+          <div key={i} className="px-5 py-4">
+            <Skeleton active title={{ width: "42%" }} paragraph={{ rows: 1, width: "72%" }} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** Trash page initial load. */
+export function TrashPageSkeleton() {
+  return (
+    <div className={cn("space-y-4", darkSkeleton)}>
+      <Skeleton active title={{ width: 120 }} paragraph={{ rows: 2, width: ["100%", "68%"] }} />
+      <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="border-b border-zinc-100 px-4 py-3 last:border-b-0 dark:border-zinc-800">
+            <Skeleton active avatar paragraph={{ rows: 1, width: "55%" }} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** Storage summary panel initial load. */
+export function StorageSummarySkeleton() {
+  return (
+    <div className={cn("dashboard-panel space-y-4", darkSkeleton)}>
+      <Skeleton active title={{ width: 96 }} paragraph={false} />
+      <div className="flex gap-6">
+        <div className="flex-1 space-y-3">
+          <Skeleton active title={{ width: 128, style: { height: 36 } }} paragraph={false} />
+          <Skeleton active title={{ width: "100%", style: { height: 12 } }} paragraph={false} />
+        </div>
+        <Skeleton.Avatar active size={112} shape="circle" />
+      </div>
+    </div>
+  );
+}
+
+/** Storage gallery breakdown table initial load. */
+export function StorageTableSkeleton({ rows = 5 }: { rows?: number }) {
+  return (
+    <div className={cn("space-y-2", darkSkeleton)}>
+      {Array.from({ length: rows }).map((_, i) => (
+        <Skeleton key={i} active title={{ width: "100%", style: { height: 56 } }} paragraph={false} />
+      ))}
+    </div>
+  );
+}
+
+/** Schedules calendar month initial load. */
+export function CalendarMonthSkeleton({ cells = 35 }: { cells?: number }) {
+  return (
+    <div className={cn("mt-4 grid grid-cols-7 gap-2", darkSkeleton)} aria-hidden>
+      {Array.from({ length: cells }).map((_, i) => (
+        <Skeleton key={i} active title={{ width: "100%", style: { height: 104, margin: 0 } }} paragraph={false} />
+      ))}
     </div>
   );
 }
@@ -176,21 +306,11 @@ export function InlineStatusSkeleton({ size = 16 }: { size?: number }) {
 export function ActivityFeedSkeleton({ rows = 5 }: { rows?: number }) {
   return (
     <div className={cn("mt-3 space-y-2", darkSkeleton)}>
-      <div className="flex items-center gap-2">
-        <TwShimmer className="h-3 w-12" />
-        <TwShimmer className="h-px flex-1" />
-      </div>
+      <Skeleton active title={{ width: 48, style: { height: 12, margin: 0 } }} paragraph={false} />
       <ul className="space-y-0">
         {Array.from({ length: rows }).map((_, i) => (
-          <li key={i} className="flex gap-2 rounded-lg p-1.5">
-            <TwShimmer className="h-8 w-8 shrink-0 rounded-lg" />
-            <div className="min-w-0 flex-1 space-y-1">
-              <div className="flex justify-between gap-2">
-                <TwShimmer className="h-3 w-[62%]" />
-                <TwShimmer className="h-3 w-8" />
-              </div>
-              <TwShimmer className="h-2.5 w-14 rounded" />
-            </div>
+          <li key={i} className="rounded-lg p-1.5">
+            <Skeleton active avatar paragraph={{ rows: 1, width: "62%" }} />
           </li>
         ))}
       </ul>
