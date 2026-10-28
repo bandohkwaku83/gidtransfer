@@ -58,9 +58,93 @@ function loadGoogleIdentityScript(): Promise<void> {
   return scriptPromise;
 }
 
+/** User closed the Google account chooser without picking an account. */
+export class GoogleSignInCancelledError extends Error {
+  constructor() {
+    super("Google sign-in was cancelled.");
+    this.name = "GoogleSignInCancelledError";
+  }
+}
+
+/**
+ * The Sign In With Google button does not report a closed popup. While the
+ * chooser is open the page loses focus; when it is dismissed, focus returns
+ * and no credential arrives. Wait briefly so a successful sign-in can deliver
+ * its token first.
+ */
+function watchGooglePopupDismissal(onDismiss: () => void): () => void {
+  let awaySince: number | null = null;
+  let cancelTimer: number | null = null;
+
+  const clearCancelTimer = () => {
+    if (cancelTimer === null) return;
+    window.clearTimeout(cancelTimer);
+    cancelTimer = null;
+  };
+
+  const scheduleDismiss = () => {
+    if (awaySince === null || cancelTimer !== null) return;
+    const awayFor = Date.now() - awaySince;
+    // Ignore the brief blur when focus enters the hidden Google button iframe.
+    if (awayFor < 100) {
+      awaySince = null;
+      return;
+    }
+    awaySince = null;
+    cancelTimer = window.setTimeout(() => {
+      cancelTimer = null;
+      if (!document.hasFocus() || document.visibilityState === "hidden") return;
+      onDismiss();
+    }, 800);
+  };
+
+  const noteAway = () => {
+    if (awaySince === null) awaySince = Date.now();
+    clearCancelTimer();
+  };
+
+  const onBlur = () => {
+    noteAway();
+  };
+
+  const onFocus = () => {
+    scheduleDismiss();
+  };
+
+  const onVisibility = () => {
+    if (document.visibilityState === "hidden") {
+      noteAway();
+      return;
+    }
+    if (document.hasFocus()) scheduleDismiss();
+  };
+
+  const poll = window.setInterval(() => {
+    const away = !document.hasFocus() || document.visibilityState === "hidden";
+    if (away) {
+      noteAway();
+      return;
+    }
+    scheduleDismiss();
+  }, 250);
+
+  window.addEventListener("blur", onBlur);
+  window.addEventListener("focus", onFocus);
+  document.addEventListener("visibilitychange", onVisibility);
+
+  return () => {
+    clearCancelTimer();
+    window.clearInterval(poll);
+    window.removeEventListener("blur", onBlur);
+    window.removeEventListener("focus", onFocus);
+    document.removeEventListener("visibilitychange", onVisibility);
+  };
+}
+
 /**
  * Opens Google sign-in and resolves with a Google ID token (JWT) for POST /api/auth/google.
  * Requires NEXT_PUBLIC_GOOGLE_CLIENT_ID to match GOOGLE_CLIENT_ID on the API.
+ * Rejects with GoogleSignInCancelledError when the account chooser is closed.
  */
 export async function requestGoogleIdToken(clientId: string): Promise<string> {
   const trimmed = clientId.trim();
@@ -78,20 +162,34 @@ export async function requestGoogleIdToken(clientId: string): Promise<string> {
 
   return new Promise<string>((resolve, reject) => {
     let settled = false;
-    const finish = (fn: () => void) => {
-      if (settled) return;
-      settled = true;
-      fn();
-    };
+    let stopWatching = () => {};
+    let hostTimer = 0;
+
+    const host = document.createElement("div");
+    host.style.position = "fixed";
+    host.style.left = "-9999px";
+    host.style.width = "1px";
+    host.style.height = "1px";
+    host.style.overflow = "hidden";
 
     const timeout = window.setTimeout(() => {
       finish(() => reject(new Error("Google sign-in timed out. Please try again.")));
     }, 120_000);
 
+    const finish = (fn: () => void) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeout);
+      window.clearTimeout(hostTimer);
+      stopWatching();
+      stopWatching = () => {};
+      if (host.parentNode) host.parentNode.removeChild(host);
+      fn();
+    };
+
     idApi.initialize({
       client_id: trimmed,
       callback: (response) => {
-        window.clearTimeout(timeout);
         if (!response?.credential) {
           finish(() => reject(new Error("Google did not return a sign-in token.")));
           return;
@@ -102,37 +200,31 @@ export async function requestGoogleIdToken(clientId: string): Promise<string> {
       cancel_on_tap_outside: true,
     });
 
-    const host = document.createElement("div");
-    host.style.position = "fixed";
-    host.style.left = "-9999px";
-    host.style.width = "1px";
-    host.style.height = "1px";
-    host.style.overflow = "hidden";
     document.body.appendChild(host);
 
     try {
       idApi.renderButton(host, { type: "standard", size: "large", width: 280 });
       const btn = host.querySelector<HTMLElement>('[role="button"], div[tabindex="0"]');
       if (!btn) {
-        document.body.removeChild(host);
-        window.clearTimeout(timeout);
         finish(() =>
           reject(new Error("Google sign-in button could not be created. Try again.")),
         );
         return;
       }
+      stopWatching = watchGooglePopupDismissal(() => {
+        finish(() => reject(new GoogleSignInCancelledError()));
+      });
       btn.click();
     } catch (err) {
-      document.body.removeChild(host);
-      window.clearTimeout(timeout);
       finish(() =>
         reject(
           err instanceof Error ? err : new Error("Could not start Google sign-in."),
         ),
       );
+      return;
     }
 
-    window.setTimeout(() => {
+    hostTimer = window.setTimeout(() => {
       if (host.parentNode) host.parentNode.removeChild(host);
     }, 5000);
   });

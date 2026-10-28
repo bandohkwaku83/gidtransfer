@@ -21,7 +21,11 @@ import {
   verifyEmail,
 } from "@/lib/auth-api";
 import { getAuth, getAuthToken, clearAuth, setAuthSession } from "@/lib/auth-demo";
-import { getGoogleClientId, requestGoogleIdToken } from "@/lib/google-identity";
+import {
+  getGoogleClientId,
+  GoogleSignInCancelledError,
+  requestGoogleIdToken,
+} from "@/lib/google-identity";
 import { SignupOtpInput } from "@/components/auth/signup-otp-input";
 import { AuthFormInput, AuthFormPasswordInput } from "@/components/ui/form-input";
 import { redirectToApexAuthIfNeeded } from "@/lib/studio-url";
@@ -481,7 +485,9 @@ function LoginPageForm() {
       const res = await loginWithGoogle(idToken);
       finishAuth(res);
     } catch (err) {
-      setError(authErrorMessage(err, "Couldn't continue with Google."));
+      if (!(err instanceof GoogleSignInCancelledError)) {
+        setError(authErrorMessage(err, "Couldn't continue with Google."));
+      }
     } finally {
       setGoogleLoading(false);
     }
